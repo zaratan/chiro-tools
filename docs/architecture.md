@@ -127,6 +127,8 @@ bun run test                       # vitest
 bun run test:watch                 # vitest watch
 ```
 
+**Versioning runtime** : `src/version.ts` importe `version` depuis `package.json`. Bun inline le JSON dans le bundle lors de `bun build --compile`, et le lit directement en mode `bun src/index.tsx`. Pas de `--define` à maintenir, single source of truth = `package.json`.
+
 ### Binaire de release (par cible)
 
 ```bash
@@ -218,7 +220,7 @@ echo "Assurez-vous que $(dirname "$DEST") est dans votre PATH."
 
 ## Logging
 
-- Fichier : `~/.chiro/last-run.log` (créer `~/.chiro/` au boot s'il n'existe pas).
+- Fichier : `~/.chiro/sessions.jsonl` (créer `~/.chiro/` au boot s'il n'existe pas).
 - Format : **JSONL** (un objet JSON par ligne, `\n` séparateur).
 - Mode : **append** (`fs.appendFile`). Jamais tronqué au MVP.
 - Schéma : cf. `spec.md` § "Logging local".

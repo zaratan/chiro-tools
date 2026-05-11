@@ -190,26 +190,34 @@ Exemple :
 
 - **Plan-time** : avant l'exécution, vérifier pour chaque rename prévu que le nom cible n'existe pas déjà sur disque. Si oui, marquer la collision et NE PAS l'inclure dans le batch d'exécution. Afficher la liste en jaune sur l'écran de Confirmation.
 - **Rename-time** : double sécurité. Si `fs.rename` échoue avec `EEXIST`, capturer et consigner. (Ne devrait jamais arriver après le plan, mais protection en cas de race condition.)
+- **Collision intra-plan** : si deux fichiers source produisent le même nom cible (cas APFS case-insensitive, ou collisions liées à la normalisation `.WAV → .wav`), le premier dans l'ordre alphabétique est conservé dans `operations`, les suivants vont dans `skippedCollision`.
 
 ## Logging local
 
-Chaque session écrit un événement JSONL en `append` dans `~/.chiro/last-run.log` (créer le dossier au boot s'il n'existe pas).
+Chaque session écrit un événement JSONL en `append` dans `~/.chiro/sessions.jsonl` (créer le dossier au boot s'il n'existe pas).
 
 Format d'un événement :
 
 ```json
 {
+  "schema_version": 1,
   "ts": "2026-05-11T21:30:45.123Z",
   "version": "0.1.0",
   "cwd": "/Users/.../Vigie-2026-A1",
   "action": "vigie-prefix",
-  "input": { "carre": "040962", "annee": 2026, "passage": 3, "point": "A1" },
+  "input": {
+    "squareCode": "040962",
+    "year": 2026,
+    "passNumber": 3,
+    "pointCode": "A1"
+  },
   "result": {
     "renamed": 7,
     "skipped_already_prefixed": 1,
     "skipped_collision": 0,
     "errored": [{ "file": "...", "reason": "EACCES" }],
-    "interrupted": false
+    "interrupted": false,
+    "duration_ms": 42
   }
 }
 ```

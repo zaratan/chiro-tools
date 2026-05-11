@@ -25,3 +25,31 @@ export type RenameOutcome = {
   interrupted: boolean;
   durationMs: number;
 };
+
+/**
+ * Aggregated counts and errors for a completed rename session.
+ * Field names use snake_case because they are serialized as JSON keys
+ * consumed by external tools (jq, etc.).
+ */
+export type SessionResult = {
+  renamed: number;
+  skipped_already_prefixed: number;
+  skipped_collision: number;
+  errored: { file: string; reason: string }[];
+  interrupted: boolean;
+  duration_ms: number;
+};
+
+/**
+ * A single JSONL entry written to `~/.chiro/sessions.jsonl` after each session.
+ * Field names use snake_case for JSON interchange compatibility.
+ */
+export type SessionEvent = {
+  schema_version: 1;
+  ts: string; // ISO 8601 timestamp
+  version: string;
+  cwd: string;
+  action: Action;
+  input: FormInput;
+  result: SessionResult;
+};
