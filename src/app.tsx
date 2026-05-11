@@ -1,9 +1,11 @@
 import { useApp, useInput } from "ink";
 import { useRef, useState } from "react";
 import { MenuScreen } from "./screens/MenuScreen.js";
+import { ConfirmScreen } from "./screens/vigie-chiro/ConfirmScreen.js";
 import { ConstatScreen } from "./screens/vigie-chiro/ConstatScreen.js";
 import { FormScreen } from "./screens/vigie-chiro/FormScreen.js";
-import type { ConstatCounts, FormInput } from "./types.js";
+import { ResultScreen } from "./screens/vigie-chiro/ResultScreen.js";
+import type { ConstatCounts, FormInput, RenameOutcome } from "./types.js";
 
 type Screen =
   | { kind: "menu" }
@@ -12,8 +14,17 @@ type Screen =
       kind: "vigie:form";
       constatCounts: ConstatCounts;
       wavFiles: string[];
+    }
+  | {
+      kind: "vigie:confirm";
+      input: FormInput;
+      wavFiles: string[];
+    }
+  | {
+      kind: "vigie:result";
+      input: FormInput;
+      outcome: RenameOutcome;
     };
-// In 2C, this union will gain "vigie:confirm" and "vigie:result" variants.
 
 export type AppProps = {
   cwd: string;
@@ -23,8 +34,8 @@ export const App = ({ cwd }: AppProps): React.JSX.Element => {
   const { exit } = useApp();
   const [screen, setScreen] = useState<Screen>({ kind: "menu" });
   // Ref consulted by the global Ctrl+C handler. When true, Ctrl+C is ignored
-  // at this level (ConfirmScreen will handle it locally during a running
-  // rename batch, added in 2C). When false, Ctrl+C exits the program.
+  // at this level (ConfirmScreen handles it locally during a running rename
+  // batch). When false, Ctrl+C exits the program cleanly.
   const runningRef = useRef<boolean>(false);
 
   useInput((input, key) => {
@@ -62,14 +73,48 @@ export const App = ({ cwd }: AppProps): React.JSX.Element => {
     );
   }
 
-  // screen.kind === "vigie:form"
+  if (screen.kind === "vigie:form") {
+    const { wavFiles } = screen;
+    return (
+      <FormScreen
+        onSubmit={(input: FormInput) => {
+          setScreen({ kind: "vigie:confirm", input, wavFiles });
+        }}
+        onBack={() => {
+          setScreen({ kind: "vigie:constat" });
+        }}
+      />
+    );
+  }
+
+  if (screen.kind === "vigie:confirm") {
+    return (
+      <ConfirmScreen
+        cwd={cwd}
+        input={screen.input}
+        wavFiles={screen.wavFiles}
+        runningRef={runningRef}
+        onComplete={(outcome) => {
+          setScreen({
+            kind: "vigie:result",
+            input: screen.input,
+            outcome,
+          });
+        }}
+        onBack={() => {
+          setScreen({ kind: "vigie:constat" });
+        }}
+      />
+    );
+  }
+
+  // screen.kind === "vigie:result"
   return (
-    <FormScreen
-      onSubmit={(_input: FormInput) => {
-        // Stub for 2C — will transition to vigie:confirm with input + wavFiles.
-      }}
-      onBack={() => {
-        setScreen({ kind: "vigie:constat" });
+    <ResultScreen
+      input={screen.input}
+      outcome={screen.outcome}
+      onBackToMenu={() => {
+        setScreen({ kind: "menu" });
       }}
     />
   );
