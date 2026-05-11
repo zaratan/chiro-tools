@@ -1,36 +1,75 @@
 import { useApp, useInput } from "ink";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { MenuScreen } from "./screens/MenuScreen.js";
+import { ConstatScreen } from "./screens/vigie-chiro/ConstatScreen.js";
+import { FormScreen } from "./screens/vigie-chiro/FormScreen.js";
+import type { ConstatCounts, FormInput } from "./types.js";
+
+type Screen =
+  | { kind: "menu" }
+  | { kind: "vigie:constat" }
+  | {
+      kind: "vigie:form";
+      constatCounts: ConstatCounts;
+      wavFiles: string[];
+    };
+// In 2C, this union will gain "vigie:confirm" and "vigie:result" variants.
 
 export type AppProps = {
   cwd: string;
 };
 
-export const App = ({ cwd: _cwd }: AppProps): React.JSX.Element => {
+export const App = ({ cwd }: AppProps): React.JSX.Element => {
   const { exit } = useApp();
-  // Consulted by the global Ctrl+C handler. When true, Ctrl+C is
-  // ignored at this level (ConfirmScreen handles it locally during a
-  // running rename batch). When false, Ctrl+C exits the program.
-  // runningRef will be passed down to ConfirmScreen in 2C.
-  // Prefixed with _ because it is intentionally unused in 2A (no ConfirmScreen yet).
-  // It will be passed to ConfirmScreen in 2C to coordinate Ctrl+C handling.
-  const _runningRef = useRef<boolean>(false);
+  const [screen, setScreen] = useState<Screen>({ kind: "menu" });
+  // Ref consulted by the global Ctrl+C handler. When true, Ctrl+C is ignored
+  // at this level (ConfirmScreen will handle it locally during a running
+  // rename batch, added in 2C). When false, Ctrl+C exits the program.
+  const runningRef = useRef<boolean>(false);
 
   useInput((input, key) => {
     if (key.ctrl && input === "c") {
-      if (_runningRef.current) return;
+      if (runningRef.current) return;
       exit();
       process.exit(130);
     }
   });
 
+  if (screen.kind === "menu") {
+    return (
+      <MenuScreen
+        onPickVigiePrefix={() => {
+          setScreen({ kind: "vigie:constat" });
+        }}
+        onQuit={() => {
+          exit();
+        }}
+      />
+    );
+  }
+
+  if (screen.kind === "vigie:constat") {
+    return (
+      <ConstatScreen
+        cwd={cwd}
+        onContinue={(constatCounts, wavFiles) => {
+          setScreen({ kind: "vigie:form", constatCounts, wavFiles });
+        }}
+        onBack={() => {
+          setScreen({ kind: "menu" });
+        }}
+      />
+    );
+  }
+
+  // screen.kind === "vigie:form"
   return (
-    <MenuScreen
-      onPickVigiePrefix={() => {
-        // Stub for 2B (transition to ConstatScreen)
+    <FormScreen
+      onSubmit={(_input: FormInput) => {
+        // Stub for 2C — will transition to vigie:confirm with input + wavFiles.
       }}
-      onQuit={() => {
-        exit();
+      onBack={() => {
+        setScreen({ kind: "vigie:constat" });
       }}
     />
   );
