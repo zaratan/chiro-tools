@@ -1,0 +1,63 @@
+{
+  "name": "chiro-tools",
+  "version": "0.1.0",
+  "description": "CLI interactive pour préparer des enregistrements .wav au format Vigie-Chiro",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun src/index.tsx",
+    "dev:watch": "bun --watch src/index.tsx",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "build:darwin-arm64": "bun build src/index.tsx --compile --target=bun-darwin-arm64 --outfile=dist/chiro-darwin-arm64",
+    "check": "pnpm lint && pnpm typecheck && pnpm format:check && pnpm test",
+    "prepare": "husky"
+  },
+  "keywords": [
+    "vigie-chiro",
+    "chiroptera",
+    "cli",
+    "ink",
+    "bat-acoustics"
+  ],
+  "license": "MIT",
+  "engines": {
+    "bun": ">=1.3"
+  },
+  "packageManager": "pnpm@11.0.9",
+  "dependencies": {
+    "ink": "^6.6.0",
+    "ink-text-input": "^6.0.0",
+    "react": "^19.2.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@types/node": "^25.0.7",
+    "@types/react": "^19.2.8",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "globals": "^17.0.0",
+    "husky": "^9.1.7",
+    "ink-testing-library": "^4.0.0",
+    "lint-staged": "^16.2.7",
+    "prettier": "^3.7.4",
+    "react-devtools-core": "^7.0.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.53.0",
+    "vitest": "^4.0.17"
+  },
+  "lint-staged": {
+    "src/**/*.{ts,tsx}": [
+      "eslint --fix"
+    ],
+    "*.{json,md}": [
+      "prettier --write"
+    ]
+  }
+}
