@@ -262,8 +262,7 @@ export const ConstatScreen = ({
           {counts.otherIgnored.toString()} autre
           {counts.otherIgnored > 1 ? "s" : ""} fichier
           {counts.otherIgnored > 1 ? "s seront ignorés" : " sera ignoré"} (pas
-          de
-          {counts.otherIgnored > 1 ? "s" : ""} .wav)
+          des .wav)
         </Text>
       ) : null}
       <Box marginTop={1}>

@@ -1,7 +1,7 @@
-import { Box, Text, useApp, useInput } from "ink";
+import { Box, Text, useInput } from "ink";
 import { useEffect, useRef, useState } from "react";
 import { Footer } from "../../components/Footer.js";
-import { applyRenames } from "../../lib/fs/applyRenames.js";
+import type { ApplyOptions } from "../../lib/fs/applyRenames.js";
 import { planRenames } from "../../lib/fs/planRenames.js";
 import { logSession } from "../../lib/logging/log.js";
 import { buildPrefix } from "../../lib/vigie-chiro/prefix.js";
@@ -11,6 +11,16 @@ import type {
   RenamePlan,
   SessionEvent,
 } from "../../types.js";
+
+/**
+ * Signature of the rename executor — extracted here so App can import it
+ * without creating a circular dependency.
+ */
+export type ApplyRenamesFn = (
+  plan: RenamePlan,
+  dir: string,
+  options?: ApplyOptions,
+) => Promise<RenameOutcome>;
 import { CHIRO_VERSION } from "../../version.js";
 
 type ConfirmState =
@@ -71,6 +81,8 @@ export type ConfirmScreenProps = {
    * the global Ctrl+C handler in App reads `.current` synchronously.
    */
   runningRef: React.RefObject<boolean>;
+  /** Injected rename implementation — allows mocking in tests. */
+  applyRenames: ApplyRenamesFn;
   onComplete: (outcome: RenameOutcome) => void;
   onBack: () => void;
 };
@@ -80,13 +92,13 @@ export const ConfirmScreen = ({
   input,
   wavFiles,
   runningRef,
+  applyRenames,
   onComplete,
   onBack,
 }: ConfirmScreenProps): React.JSX.Element => {
   const prefix = buildPrefix(input);
   const [state, setState] = useState<ConfirmState>({ kind: "loading" });
   const controllerRef = useRef<AbortController | null>(null);
-  const { exit: _exit } = useApp();
 
   useEffect(() => {
     let cancelled = false;

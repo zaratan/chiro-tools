@@ -128,7 +128,7 @@ export const ResultScreen = ({
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
         <Text color="cyan">ℹ Renommage arrêté à votre demande</Text>
-        <Box marginTop={1}>
+        <Box flexDirection="column" marginTop={1}>
           <Text>
             {`  ${outcome.renamed.length.toString()} fichier${outcome.renamed.length > 1 ? "s déjà renommés (conservés en sécurité)" : " déjà renommé (conservé en sécurité)"}`}
           </Text>

@@ -1,7 +1,11 @@
 import { useApp, useInput } from "ink";
 import { useRef, useState } from "react";
+import { applyRenames as defaultApplyRenames } from "./lib/fs/applyRenames.js";
 import { MenuScreen } from "./screens/MenuScreen.js";
-import { ConfirmScreen } from "./screens/vigie-chiro/ConfirmScreen.js";
+import {
+  ConfirmScreen,
+  type ApplyRenamesFn,
+} from "./screens/vigie-chiro/ConfirmScreen.js";
 import { ConstatScreen } from "./screens/vigie-chiro/ConstatScreen.js";
 import { FormScreen } from "./screens/vigie-chiro/FormScreen.js";
 import { ResultScreen } from "./screens/vigie-chiro/ResultScreen.js";
@@ -28,9 +32,14 @@ type Screen =
 
 export type AppProps = {
   cwd: string;
+  /** Override for tests. Defaults to the real implementation. */
+  applyRenames?: ApplyRenamesFn;
 };
 
-export const App = ({ cwd }: AppProps): React.JSX.Element => {
+export const App = ({
+  cwd,
+  applyRenames = defaultApplyRenames,
+}: AppProps): React.JSX.Element => {
   const { exit } = useApp();
   const [screen, setScreen] = useState<Screen>({ kind: "menu" });
   // Ref consulted by the global Ctrl+C handler. When true, Ctrl+C is ignored
@@ -94,6 +103,7 @@ export const App = ({ cwd }: AppProps): React.JSX.Element => {
         input={screen.input}
         wavFiles={screen.wavFiles}
         runningRef={runningRef}
+        applyRenames={applyRenames}
         onComplete={(outcome) => {
           setScreen({
             kind: "vigie:result",
