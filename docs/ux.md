@@ -6,14 +6,14 @@ Ce document est la source de vérité pour **tous les libellés affichés** et l
 
 ### Couleurs (toutes via les props `color` / `backgroundColor` d'Ink)
 
-| Usage | Couleur Ink | Pourquoi |
-|---|---|---|
-| Succès, validation | `green` | Standard |
-| Avertissement non-bloquant, skip, collision | `yellow` | Standard |
-| Erreur, validation invalide | `red` | Standard |
-| Valeur saisie par l'utilisatrice (mise en avant) | `cyan` | Non-anxiogène |
-| Aide contextuelle, raccourcis footer | `dimColor` (prop booléenne) | Discret, **jamais `gray`** (invisible sur Solarized) |
-| Chemins de fichiers, valeurs exemples | `cyan` ou texte brut | Lisible |
+| Usage                                            | Couleur Ink                 | Pourquoi                                             |
+| ------------------------------------------------ | --------------------------- | ---------------------------------------------------- |
+| Succès, validation                               | `green`                     | Standard                                             |
+| Avertissement non-bloquant, skip, collision      | `yellow`                    | Standard                                             |
+| Erreur, validation invalide                      | `red`                       | Standard                                             |
+| Valeur saisie par l'utilisatrice (mise en avant) | `cyan`                      | Non-anxiogène                                        |
+| Aide contextuelle, raccourcis footer             | `dimColor` (prop booléenne) | Discret, **jamais `gray`** (invisible sur Solarized) |
+| Chemins de fichiers, valeurs exemples            | `cyan` ou texte brut        | Lisible                                              |
 
 ### Caractères Unicode (utilisés en début de ligne pour scanabilité)
 
@@ -46,13 +46,13 @@ Couleur : `dimColor`. Séparateur : 3 espaces (pas de pipe `|`).
 
 ## Navigation clavier — référence
 
-| Touche | Action | Affichée en footer ? |
-|---|---|---|
-| `Tab` / `Maj+Tab` | Champ suivant / précédent (FormScreen) | Oui sur FormScreen |
-| `Entrée` | Valider l'écran courant | Toujours |
-| `Échap` | Revenir à l'écran précédent (ou quitter depuis Menu) | Toujours sauf Résultat |
-| `↑` / `↓` | Naviguer dans le menu | MenuScreen |
-| `Ctrl+C` | Quitter immédiatement (ou stopper le batch en cours) | Implicite — jamais affiché |
+| Touche            | Action                                               | Affichée en footer ?       |
+| ----------------- | ---------------------------------------------------- | -------------------------- |
+| `Tab` / `Maj+Tab` | Champ suivant / précédent (FormScreen)               | Oui sur FormScreen         |
+| `Entrée`          | Valider l'écran courant                              | Toujours                   |
+| `Échap`           | Revenir à l'écran précédent (ou quitter depuis Menu) | Toujours sauf Résultat     |
+| `↑` / `↓`         | Naviguer dans le menu                                | MenuScreen                 |
+| `Ctrl+C`          | Quitter immédiatement (ou stopper le batch en cours) | Implicite — jamais affiché |
 
 ## Wordings par écran — prêts à coller
 
@@ -140,6 +140,7 @@ Cela peut arriver si :
 Formulaire vertical. Pour chaque champ : label en haut, input en dessous, aide en `dimColor` indentée de 2 espaces sous l'input, erreur (si présente) en `red` à la place de l'aide.
 
 **Champ Carré**
+
 ```
 Code du carré
   ┌──────────────┐
@@ -155,6 +156,7 @@ Code du carré
   - `Le code ne doit contenir que des chiffres.`
 
 **Champ Année** (pré-rempli)
+
 ```
 Année de la session
   ┌──────┐
@@ -168,6 +170,7 @@ Année de la session
   - `L'année doit être comprise entre 1900 et 2100.`
 
 **Champ Passage** (pré-rempli)
+
 ```
 Numéro de passage
   ┌───┐
@@ -181,6 +184,7 @@ Numéro de passage
   - `Le passage doit être un nombre entier supérieur ou égal à 1.`
 
 **Champ Code du point**
+
 ```
 Code du point d'écoute
   ┌────┐
@@ -194,6 +198,7 @@ Code du point d'écoute
   - `Format attendu : une lettre puis un chiffre (ex : A1).`
 
 **Footer** :
+
 ```
   Tab champ suivant   Entrée valider   Échap retour
 ```
@@ -281,12 +286,12 @@ Les autres fichiers ont bien été renommés.
 
 Codes d'erreur → libellés :
 
-| Code | Libellé |
-|---|---|
-| `EEXIST` | `un fichier portant le nom cible existe déjà — non remplacé` |
-| `EACCES` / `EPERM` | `permission refusée par le système` |
-| `ENOENT` | `le fichier a disparu pendant l'opération` |
-| autre | `erreur inattendue (code: XXX)` |
+| Code               | Libellé                                                      |
+| ------------------ | ------------------------------------------------------------ |
+| `EEXIST`           | `un fichier portant le nom cible existe déjà — non remplacé` |
+| `EACCES` / `EPERM` | `permission refusée par le système`                          |
+| `ENOENT`           | `le fichier a disparu pendant l'opération`                   |
+| autre              | `erreur inattendue (code: XXX)`                              |
 
 ### Écran 4 — Résultat (variante D : interruption Ctrl+C)
 

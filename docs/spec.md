@@ -69,12 +69,12 @@ Voir [`ux.md`](./ux.md) pour les wordings exacts.
 
 Formulaire à **4 champs** dans cet ordre :
 
-| # | Champ | Validation | Pré-rempli ? |
-|---|---|---|---|
-| 1 | Code du carré | `/^\d{6}$/` | Non |
-| 2 | Année | `/^\d{4}$/` ET 1900 ≤ valeur ≤ 2100 | Oui — `new Date().getFullYear()` |
-| 3 | Numéro de passage | entier ≥ 1 | Oui — `1` |
-| 4 | Code du point | `/^[A-Za-z]\d$/` — normalisé en majuscule à la sortie | Non |
+| #   | Champ             | Validation                                            | Pré-rempli ?                     |
+| --- | ----------------- | ----------------------------------------------------- | -------------------------------- |
+| 1   | Code du carré     | `/^\d{6}$/`                                           | Non                              |
+| 2   | Année             | `/^\d{4}$/` ET 1900 ≤ valeur ≤ 2100                   | Oui — `new Date().getFullYear()` |
+| 3   | Numéro de passage | entier ≥ 1                                            | Oui — `1`                        |
+| 4   | Code du point     | `/^[A-Za-z]\d$/` — normalisé en majuscule à la sortie | Non                              |
 
 Comportement :
 
@@ -112,6 +112,7 @@ Contenu :
 Affiché après exécution. Trois variantes possibles selon l'issue :
 
 **Variante A — Tout s'est bien passé**
+
 - `✓ Terminé !`
 - `N fichiers renommés`
 - `M fichier(s) laissé(s) tel(s) quel(s) (déjà au bon format)` (si M > 0)
@@ -119,17 +120,20 @@ Affiché après exécution. Trois variantes possibles selon l'issue :
 - Footer : `Entrée retour au menu`
 
 **Variante B — Rien à faire (tout déjà préfixé)**
+
 - `✓ Rien à faire — tout est déjà au bon format.`
 - `N fichiers déjà nommés correctement.`
 - Pas d'erreur, ton positif.
 
 **Variante C — Renommage avec erreurs partielles**
+
 - `⚠ Renommage terminé avec X souci(s)`
 - `K fichiers renommés ✓`
 - Liste des fichiers en échec avec **la raison** (collision sur disque, EACCES, ENOENT, autre I/O).
 - Phrase rassurante : `Les autres fichiers ont bien été renommés.`
 
 **Variante D — Ctrl+C en plein renommage**
+
 - `⚠ Renommage interrompu`
 - `K fichiers déjà renommés ✓ (conservés)`
 - `Reste R fichiers non traités.`
@@ -163,11 +167,13 @@ Si oui → le fichier est skippé (pas renommé), compté séparément, mentionn
 ```
 
 Où :
+
 - `{préfixe}` = `CarXXXXXX-AAAA-PassN-YY-` (cf. Saisie)
 - `{nom-original-sans-extension}` = nom du fichier original débarrassé de son extension
 - L'extension finale est **toujours `.wav` minuscule**, même si l'original était `.WAV` (normalisation).
 
 Exemple :
+
 - Avant : `20260511_213045.WAV`
 - Après : `Car040962-2026-Pass3-A1-20260511_213045.wav`
 
@@ -218,23 +224,23 @@ Le log est **append-only** (jamais tronqué). À surveiller dans le futur : rota
 
 ## Cas dégradés — checklist exhaustive
 
-| Cas | Comportement attendu | Écran |
-|---|---|---|
-| Pas de TTY | Message stderr + quit code 1 | Avant Ink |
-| `--version` | Affiche version + quit code 0 | Avant Ink |
-| `--help` | Affiche help + quit code 0 | Avant Ink |
-| Dossier vide | "Aucun fichier .wav trouvé" + chemin affiché | Constat |
-| Aucun `.wav` (mais d'autres fichiers) | Idem | Constat |
-| Tous les `.wav` déjà préfixés | Constat passe normalement → Saisie → Confirmation affiche 0 renommage prévu → l'utilisatrice peut quand même valider → Résultat variante B | Tous les écrans |
-| Dossier non lisible (`R_OK` KO) | Message + quit | Constat |
-| Dossier non writable (`W_OK` KO) | Message + bouton retour | Constat |
-| `.WAV` majuscule | Normalisé en `.wav` dans le nom cible | Renommage |
-| Collision avec fichier existant | Affichage Confirmation + skip Renommage | Confirmation + Résultat |
-| `EXDEV` cross-device | Fallback `copyFile + unlink` transparent | Renommage |
-| `EACCES` / `EPERM` sur un fichier | Consigner, continuer | Renommage |
-| `ENOENT` (fichier supprimé entre scan et rename) | Consigner, continuer | Renommage |
-| Caractères exotiques (accents, espaces, emojis) dans noms | Aucun traitement spécial, Node gère | Toujours |
-| Symlinks dans le dossier | Ignorés au scan | Constat |
-| Ctrl+C pendant la saisie | Quit immédiat code 130 | Toutes |
-| Ctrl+C pendant le renommage | Stop propre, Résultat variante D | Renommage → Résultat |
-| Terminal redimensionné en cours | Ink gère ; aucun traitement spécial requis | Toutes |
+| Cas                                                       | Comportement attendu                                                                                                                       | Écran                   |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- |
+| Pas de TTY                                                | Message stderr + quit code 1                                                                                                               | Avant Ink               |
+| `--version`                                               | Affiche version + quit code 0                                                                                                              | Avant Ink               |
+| `--help`                                                  | Affiche help + quit code 0                                                                                                                 | Avant Ink               |
+| Dossier vide                                              | "Aucun fichier .wav trouvé" + chemin affiché                                                                                               | Constat                 |
+| Aucun `.wav` (mais d'autres fichiers)                     | Idem                                                                                                                                       | Constat                 |
+| Tous les `.wav` déjà préfixés                             | Constat passe normalement → Saisie → Confirmation affiche 0 renommage prévu → l'utilisatrice peut quand même valider → Résultat variante B | Tous les écrans         |
+| Dossier non lisible (`R_OK` KO)                           | Message + quit                                                                                                                             | Constat                 |
+| Dossier non writable (`W_OK` KO)                          | Message + bouton retour                                                                                                                    | Constat                 |
+| `.WAV` majuscule                                          | Normalisé en `.wav` dans le nom cible                                                                                                      | Renommage               |
+| Collision avec fichier existant                           | Affichage Confirmation + skip Renommage                                                                                                    | Confirmation + Résultat |
+| `EXDEV` cross-device                                      | Fallback `copyFile + unlink` transparent                                                                                                   | Renommage               |
+| `EACCES` / `EPERM` sur un fichier                         | Consigner, continuer                                                                                                                       | Renommage               |
+| `ENOENT` (fichier supprimé entre scan et rename)          | Consigner, continuer                                                                                                                       | Renommage               |
+| Caractères exotiques (accents, espaces, emojis) dans noms | Aucun traitement spécial, Node gère                                                                                                        | Toujours                |
+| Symlinks dans le dossier                                  | Ignorés au scan                                                                                                                            | Constat                 |
+| Ctrl+C pendant la saisie                                  | Quit immédiat code 130                                                                                                                     | Toutes                  |
+| Ctrl+C pendant le renommage                               | Stop propre, Résultat variante D                                                                                                           | Renommage → Résultat    |
+| Terminal redimensionné en cours                           | Ink gère ; aucun traitement spécial requis                                                                                                 | Toutes                  |

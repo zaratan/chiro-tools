@@ -20,15 +20,15 @@ Cette doc est destinée à servir de **source de vérité unique** pour les sess
 
 ## Glossaire
 
-| Terme | Définition |
-|---|---|
+| Terme           | Définition                                                                                                                                                                                                                                                 |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Vigie-Chiro** | Programme français de sciences participatives, coordonné par le Muséum National d'Histoire Naturelle, pour le suivi des chiroptères (chauves-souris) par enregistrements ultrasonores. Voir [vigiechiro.herokuapp.com](https://vigiechiro.herokuapp.com/). |
-| **Carré** | Maillage géographique de 2×2 km où l'utilisatrice pose ses enregistreurs. Code à 6 chiffres (dept sur 2 chiffres + 4 chiffres). |
-| **Point** | Position d'écoute précise au sein du carré. Code = 1 lettre + 1 chiffre (`A1`, `C2`…). |
-| **Passage** | Numéro d'ordre de la session d'enregistrement sur le carré dans l'année (1 = 1ʳᵉ session, 2 = 2ᵉ, etc.). |
-| **`.wav`** | Format brut des enregistrements ultrasonores que l'utilisatrice récupère depuis ses enregistreurs (souvent sur carte SD). |
-| **Préfixe** | Chaîne ajoutée en début de chaque nom de fichier au format `CarXXXXXX-AAAA-PassN-YY-`. |
-| **TUI** | Text User Interface — interface dans le terminal. Ici fournie par [Ink](https://github.com/vadimdemedes/ink) (React pour terminal). |
+| **Carré**       | Maillage géographique de 2×2 km où l'utilisatrice pose ses enregistreurs. Code à 6 chiffres (dept sur 2 chiffres + 4 chiffres).                                                                                                                            |
+| **Point**       | Position d'écoute précise au sein du carré. Code = 1 lettre + 1 chiffre (`A1`, `C2`…).                                                                                                                                                                     |
+| **Passage**     | Numéro d'ordre de la session d'enregistrement sur le carré dans l'année (1 = 1ʳᵉ session, 2 = 2ᵉ, etc.).                                                                                                                                                   |
+| **`.wav`**      | Format brut des enregistrements ultrasonores que l'utilisatrice récupère depuis ses enregistreurs (souvent sur carte SD).                                                                                                                                  |
+| **Préfixe**     | Chaîne ajoutée en début de chaque nom de fichier au format `CarXXXXXX-AAAA-PassN-YY-`.                                                                                                                                                                     |
+| **TUI**         | Text User Interface — interface dans le terminal. Ici fournie par [Ink](https://github.com/vadimdemedes/ink) (React pour terminal).                                                                                                                        |
 
 ## Convention de versionnage de cette doc
 

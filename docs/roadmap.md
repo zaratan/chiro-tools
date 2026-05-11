@@ -2,36 +2,35 @@
 
 Le MVP est découpé en **5 phases** (0 à 4) + V2. Chaque phase a un **critère de sortie** clair. On ne démarre pas la phase suivante tant que la précédente n'est pas validée manuellement par l'utilisateur.
 
-## Phase 0 — Outillage et validation de la chaîne de release
+## Phase 0 — Outillage et validation de la stack ✓
 
 **Objectif** : s'assurer que la stack tient avant d'investir sur le code métier. Cette phase est délibérément en premier (pas en dernier) : si `bun --compile` ne marche pas avec Ink 6 + React 19, on doit le savoir avant d'écrire 1000 lignes de code.
 
+**Cible Phase 0 : macOS arm64 NON signé uniquement.** Linux x64 + signature/notarisation Apple sont reportés en Phase 4 (intégrés à la pipeline GitHub Actions).
+
 ### Tâches
 
-1. `pnpm init`, `package.json` aligné sur les conventions arkham-proba (mono-package).
-2. Installer Bun (si pas déjà).
-3. `tsconfig.json` strict, `vitest.config.ts`, `eslint.config.js`, `.prettierrc`, `.prettierignore`, `.gitignore`.
-4. Husky + lint-staged.
-5. Dépendances : `ink`, `react`, `ink-text-input`. DevDeps : `@types/react`, `@types/node`, `typescript`, `vitest`, `ink-testing-library`, `eslint`, `prettier`, etc.
-6. `src/index.tsx` minimal : `<Text>Hello Vigie-Chiro</Text>` rendu par Ink, plus le shebang `#!/usr/bin/env bun`.
-7. Vérifier `bun src/index.tsx` → affiche le Hello.
-8. **Build binaire macOS arm64** : `bun build --compile --target=bun-darwin-arm64 --outfile=dist/chiro-darwin-arm64`.
-9. **Signer** le binaire avec Developer ID + notariser via `notarytool`.
-10. Tester `./dist/chiro-darwin-arm64` sur la machine de l'utilisateur → doit afficher Hello sans warning Gatekeeper, sans `clic droit → Ouvrir`.
-11. **Build binaire Linux x64** : `bun build --compile --target=bun-linux-x64 --outfile=dist/chiro-linux-x64`.
-12. Tester ce binaire dans un container Docker Linux (ou VM) → doit afficher Hello.
-13. **README.md racine** minimal : 1 paragraphe d'intro + lien vers `docs/`.
+1. `pnpm init`, `package.json` aligné sur les conventions arkham-proba (mono-package, sans `bin`, `engines.bun`).
+2. `tsconfig.json` strict (avec `noUncheckedIndexedAccess`), `vitest.config.ts`, `eslint.config.js`, `.prettierrc`, `.prettierignore`, `.gitignore` (incl. `*.tsbuildinfo`).
+3. Husky + lint-staged (pre-commit = `lint-staged && typecheck`).
+4. Dépendances : `ink`, `ink-text-input`, `react`, `react-devtools-core` (devDep — nécessaire pour `bun --compile` car Ink l'importe statiquement). DevDeps tooling : `typescript`, `vitest`, `ink-testing-library`, `eslint`, `prettier`, etc.
+5. Arborescence `src/lib/`, `src/screens/`, `src/components/` avec `.gitkeep`.
+6. `src/index.tsx` Hello Ink **vraiment représentatif** : `useState`, `useInput`, `readdirSync(".")` — pour tester yoga-wasm-web et Bun SEA, pas un Hello statique.
+7. `src/smoke.test.ts` trivial pour valider vitest.
+8. Valider la chaîne dev : `pnpm dev`, `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm format:check`.
+9. Mode dev hot-reload : `pnpm dev:watch` (`bun --watch`).
+10. **Build binaire macOS arm64** : `pnpm build:darwin-arm64` → `dist/chiro-darwin-arm64` (~62 MB).
+11. Tester `./dist/chiro-darwin-arm64` localement (post `xattr -d com.apple.quarantine` si Gatekeeper bloque) → TUI s'affiche, espace incrémente, q/Échap quitte, `readdirSync` reflète le cwd.
+12. **README.md racine** minimal + mise à jour `docs/roadmap.md`.
 
 ### Critère de sortie
 
-- [ ] `bun src/index.tsx` affiche `Hello Vigie-Chiro` localement.
-- [ ] `dist/chiro-darwin-arm64` (signé+notarisé) lancé sur la machine de l'auteur ouvre sans warning et affiche le Hello.
-- [ ] `dist/chiro-linux-x64` lancé dans Docker Linux affiche le Hello.
-- [ ] `bun run test` lance vitest sur 1 test trivial (ex: `expect(1+1).toBe(2)`) et passe.
-- [ ] `bun run lint` et `bun run format:check` passent.
-- [ ] Pre-commit husky bloque un commit avec une faute de lint.
+- [x] `pnpm dev` affiche la TUI Ink interactive avec compteur.
+- [x] `dist/chiro-darwin-arm64` NON signé lancé localement affiche la TUI, incrémente, quitte, et lit le cwd.
+- [x] `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm format:check` passent tous.
+- [x] Pre-commit husky bloque un commit avec une erreur lint ou tsc.
 
-**Si bloquant** : décider du plan B (Node + tsup + pkg, ou Node + distribution npm) AVANT d'attaquer la Phase 1.
+**Si bloquant** : plan B documenté = Node + tsup + `@yao-pkg/pkg` ; ou abandon `bun --compile` au profit de `pnpm i -g` côté distribution.
 
 ## Phase 1 — Logique métier pure (TDD)
 
@@ -102,28 +101,35 @@ Le MVP est découpé en **5 phases** (0 à 4) + V2. Chaque phase a un **critère
 
 ## Phase 4 — Distribution
 
-**Objectif** : automatiser le build des binaires signés + Linux et publier en GitHub Releases. Fournir un `install.sh` opérationnel.
+**Objectif** : automatiser entièrement le build des binaires macOS arm64 et Linux x64 via GitHub Actions, publier en GitHub Releases, fournir un `install.sh` opérationnel. **Linux x64 est traité ici** (différé depuis Phase 0).
+
+### Hypothèse : signature Apple non nécessaire au MVP
+
+Un binaire CLI distribué via `curl ... | sh` n'est pas marqué quarantine (pas de navigateur dans la chaîne) ; Gatekeeper ne prompt pas. **On démarre Phase 4 sans signature** et on l'active uniquement si un test sur machine vierge la révèle nécessaire. Les secrets Apple ne sont configurés qu'en cas de besoin.
 
 ### Tâches
 
 1. Créer le repo GitHub `<owner>/chiro-tools` (s'il n'existe pas) et pousser.
-2. Configurer les GitHub Secrets pour la signature macOS :
-   - `APPLE_ID`
-   - `APPLE_TEAM_ID`
-   - `APPLE_APP_SPECIFIC_PASSWORD`
-   - `APPLE_DEVELOPER_ID_CERT` (le `.p12` en base64)
-   - `APPLE_DEVELOPER_ID_CERT_PASSWORD`
-3. Écrire `.github/workflows/release.yml` : déclenché sur tag `v*.*.*`, build les 2 binaires, signe+notarise le macOS, crée la GH Release avec les 2 assets.
-4. Écrire `scripts/install.sh` (cf. `architecture.md` § Distribution).
-5. Documenter dans le `README.md` racine : `curl -fL https://raw.githubusercontent.com/<owner>/chiro-tools/main/scripts/install.sh | bash`.
-6. **Tag `v0.1.0`** et vérifier la release de bout en bout.
-7. Tester l'installation sur une machine vierge (VM ou collègue) avec la commande curl.
+2. Ajouter le script `build:linux-x64` au `package.json` : `bun build src/index.tsx --compile --target=bun-linux-x64 --outfile=dist/chiro-linux-x64`.
+3. Tester localement le binaire Linux dans `docker run --rm -it -v "$PWD/dist:/app" debian:12-slim /app/chiro-linux-x64` (image `debian:12-slim` car Bun = glibc, pas alpine).
+4. Écrire `.github/workflows/release.yml` : déclenché sur tag `v*.*.*`, jobs macOS et linux qui build leurs binaires, création GitHub Release avec les 2 assets.
+5. Écrire `scripts/install.sh` (cf. `architecture.md` § Distribution) : détecte l'OS via `uname`, télécharge le bon binaire.
+6. Documenter dans le `README.md` racine : `curl -fL https://raw.githubusercontent.com/<owner>/chiro-tools/main/scripts/install.sh | bash`.
+7. **Tag `v0.1.0`** et vérifier la release de bout en bout.
+8. Tester l'installation sur une machine vierge (VM ou collègue) avec la commande curl. **Si Gatekeeper rouspète** → activer la signature (cf. § ci-dessous).
+
+### Étape conditionnelle : signature Developer ID
+
+Activer **uniquement si** le test étape 8 ci-dessus révèle un blocage Gatekeeper. L'utilisateur a un Apple Developer ID actif.
+
+- Configurer les GitHub Secrets : `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_DEVELOPER_ID_CERT` (`.p12` en base64), `APPLE_DEVELOPER_ID_CERT_PASSWORD`.
+- Étendre `release.yml` avec une étape `codesign --sign "Developer ID Application: …" --options runtime --timestamp` puis `xcrun notarytool submit --wait`.
+- Re-tag et re-tester.
 
 ### Critère de sortie
 
 - [ ] Un tag `v0.1.0` produit automatiquement les 2 binaires en GH Release.
-- [ ] Le binaire macOS est notarisé (vérification : `spctl -a -vvv -t install ./chiro`).
-- [ ] Une machine macOS arm64 vierge installe via curl one-liner et lance `chiro` sans warning.
+- [ ] Une machine macOS arm64 vierge installe via curl one-liner et lance `chiro`. (Avec ou sans signature selon nécessité observée.)
 - [ ] Une machine Linux x64 vierge installe via le même curl one-liner et lance `chiro`.
 
 ## V2 (post-MVP, hors scope)

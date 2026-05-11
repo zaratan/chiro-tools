@@ -2,21 +2,21 @@
 
 ## Stack
 
-| Domaine | Choix | Notes |
-|---|---|---|
-| Package manager | **pnpm** (≥ 10) | Aligné sur les autres projets de l'auteur (cf. `~/Projects/arkham-proba`). |
-| Runtime dev + exec | **Bun** (dernière stable) | Bun lance le TS directement, sert de bundler/compileur pour le binaire. |
-| Langage | **TypeScript strict** | `target: ES2022`, `module: NodeNext`, `moduleResolution: NodeNext`, `strict: true`, `skipLibCheck: true`. |
-| UI CLI | **Ink 6** + **React 19** | TUI déclarative. |
-| Champs de saisie | **`ink-text-input`** | Wrappé dans un FormScreen maison (pas de composant `<Form>` générique). |
-| Validation | **Fonctions pures TS + regex** (pas de zod) | 4 validators, 1 par champ. |
-| Tests | **vitest** + **`ink-testing-library`** | vitest pour `src/lib/`, ink-testing-library en best-effort sur le parcours nominal. |
-| Build dev | **Bun** (`bun src/index.tsx`) | Pas de tsx, pas de tsup au MVP — Bun couvre tout. |
-| Build → binaire | **`bun build --compile`** | Targets `bun-darwin-arm64` ET `bun-linux-x64`. |
-| Lint | **eslint** (config copiée de `~/Projects/arkham-proba`) | Adaptée mono-package. |
-| Formatage | **prettier** | Idem. |
-| Hooks git | **husky** + **lint-staged** | Idem. |
-| Versioning | **SemVer** dans `package.json` | Lu par `chiro --version` (compilé dans le binaire). |
+| Domaine            | Choix                                                   | Notes                                                                                                     |
+| ------------------ | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Package manager    | **pnpm** (≥ 10)                                         | Aligné sur les autres projets de l'auteur (cf. `~/Projects/arkham-proba`).                                |
+| Runtime dev + exec | **Bun** (dernière stable)                               | Bun lance le TS directement, sert de bundler/compileur pour le binaire.                                   |
+| Langage            | **TypeScript strict**                                   | `target: ES2022`, `module: NodeNext`, `moduleResolution: NodeNext`, `strict: true`, `skipLibCheck: true`. |
+| UI CLI             | **Ink 6** + **React 19**                                | TUI déclarative.                                                                                          |
+| Champs de saisie   | **`ink-text-input`**                                    | Wrappé dans un FormScreen maison (pas de composant `<Form>` générique).                                   |
+| Validation         | **Fonctions pures TS + regex** (pas de zod)             | 4 validators, 1 par champ.                                                                                |
+| Tests              | **vitest** + **`ink-testing-library`**                  | vitest pour `src/lib/`, ink-testing-library en best-effort sur le parcours nominal.                       |
+| Build dev          | **Bun** (`bun src/index.tsx`)                           | Pas de tsx, pas de tsup au MVP — Bun couvre tout.                                                         |
+| Build → binaire    | **`bun build --compile`**                               | Targets `bun-darwin-arm64` ET `bun-linux-x64`.                                                            |
+| Lint               | **eslint** (config copiée de `~/Projects/arkham-proba`) | Adaptée mono-package.                                                                                     |
+| Formatage          | **prettier**                                            | Idem.                                                                                                     |
+| Hooks git          | **husky** + **lint-staged**                             | Idem.                                                                                                     |
+| Versioning         | **SemVer** dans `package.json`                          | Lu par `chiro --version` (compilé dans le binaire).                                                       |
 
 ### Hors stack — choix conscients
 
@@ -90,11 +90,11 @@ chiro-tools/
 
 ```ts
 type Screen =
-  | { kind: 'menu' }
-  | { kind: 'vigie:constat' }
-  | { kind: 'vigie:form' }
-  | { kind: 'vigie:confirm'; input: FormInput; plan: RenamePlan }
-  | { kind: 'vigie:result'; outcome: RenameOutcome };
+  | { kind: "menu" }
+  | { kind: "vigie:constat" }
+  | { kind: "vigie:form" }
+  | { kind: "vigie:confirm"; input: FormInput; plan: RenamePlan }
+  | { kind: "vigie:result"; outcome: RenameOutcome };
 ```
 
 Transitions :
