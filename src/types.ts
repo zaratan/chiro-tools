@@ -1,3 +1,10 @@
+export type ConstatCounts = {
+  totalWav: number;
+  alreadyPrefixed: number;
+  upperCaseWav: number;
+  otherIgnored: number;
+};
+
 export type FormInput = {
   squareCode: string;
   year: number;

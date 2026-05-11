@@ -27,11 +27,13 @@ Le dossier ciblé est **toujours `process.cwd()`** (le dossier dans lequel l'uti
 2. Vérifier que le binaire ne tourne pas avec `--version` ou `--help` (cf. ci-dessus).
 3. Démarrer le rendu Ink avec le **Menu** comme écran initial.
 
-## Wizard "Préfixer pour Vigie-Chiro" — 4 écrans
+## Wizard "Préfixer pour Vigie-Chiro" — 5 écrans
 
 ```
 [Menu] → [Constat] → [Saisie] → [Confirmation] → [Résultat] → (retour Menu)
 ```
+
+La state machine comporte **5 écrans** (pas de `RunningScreen` séparé). ConfirmScreen héberge l'exécution `applyRenames` via un sous-effet interne (transition silencieuse vers Result). L'opération est sub-100 ms en pratique ; un écran flash séparé serait pire que rien.
 
 ### Écran 0 — Menu principal
 
@@ -78,11 +80,14 @@ Formulaire à **4 champs** dans cet ordre :
 
 Comportement :
 
-- **Navigation** : `Tab` / `Maj+Tab` entre champs ; `Entrée` = valider le formulaire entier (si tous valides) ou passer au champ suivant (équivalent Tab) ; `Échap` = retour au Constat.
+- **Navigation** : `Tab` / `Maj+Tab` uniquement pour naviguer entre champs (jamais pour soumettre). `Échap` = retour au Constat.
+- **Soumission** : `Entrée` tente TOUJOURS la soumission, quel que soit le champ focused. Si invalide, validation déclenchée sur tous les champs simultanément, focus sur le 1er champ invalide.
+- **Focus initial au montage** : sur le champ Carré (1er champ vide ; Année et Passage sont préremplis avec des valeurs valides).
 - **Validation hybride** :
-  - **Pendant la frappe** : pas d'erreur rouge. Affiche en `dimColor` un indicateur de complétion : `3/6 chiffres` pour le carré, etc. (pas obligatoire sur tous les champs, choisir au cas par cas).
-  - **À la sortie du champ** (Tab ou tentative de submit) : si invalide, afficher l'erreur en rouge sous le champ. Si l'utilisatrice retourne dans le champ et modifie, l'erreur reste affichée mais redevient verte/disparaît si la valeur devient valide.
-- **Soumission** : le formulaire ne peut être soumis que si les 4 champs sont valides. Si l'utilisatrice tape Entrée sur un formulaire incomplet, on focus le 1er champ invalide et on affiche son erreur.
+  - **Pendant la frappe** : silence total. Aucun rouge, aucun compteur de progression.
+  - **À la sortie du champ** (Tab/Shift+Tab) ou à la **soumission** (Entrée) : la validation se déclenche. Si invalide, message en rouge à la place de l'aide.
+  - **Quand le champ devient valide** : `✓` discret en `dimColor` à droite du champ.
+  - **Code point lowercase** (ex `a1`) : au blur, afficher en `dimColor` `sera enregistré en A1`.
 - **Footer** : `Tab champ suivant   Entrée valider   Échap retour`
 
 **Génération du préfixe** (uniquement après validation complète) :
@@ -242,6 +247,7 @@ Le log est **append-only** (jamais tronqué). À surveiller dans le futur : rota
 | Tous les `.wav` déjà préfixés                             | Constat passe normalement → Saisie → Confirmation affiche 0 renommage prévu → l'utilisatrice peut quand même valider → Résultat variante B | Tous les écrans         |
 | Dossier non lisible (`R_OK` KO)                           | Message + quit                                                                                                                             | Constat                 |
 | Dossier non writable (`W_OK` KO)                          | Message + bouton retour                                                                                                                    | Constat                 |
+| Erreur inattendue au scan FS                              | Écran Constat affiche le code brut + invite à fermer apps concurrentes                                                                     | Constat                 |
 | `.WAV` majuscule                                          | Normalisé en `.wav` dans le nom cible                                                                                                      | Renommage               |
 | Collision avec fichier existant                           | Affichage Confirmation + skip Renommage                                                                                                    | Confirmation + Résultat |
 | `EXDEV` cross-device                                      | Fallback `copyFile + unlink` transparent                                                                                                   | Renommage               |

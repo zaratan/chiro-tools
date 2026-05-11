@@ -1,26 +1,42 @@
 #!/usr/bin/env bun
-import { Box, render, Text, useApp, useInput } from "ink";
-import { readdirSync } from "node:fs";
-import { useState } from "react";
+import { render } from "ink";
+import { App } from "./app.js";
+import { CHIRO_VERSION } from "./version.js";
 
-function App() {
-  const { exit } = useApp();
-  const [tick, setTick] = useState(0);
-  const entries = readdirSync(".");
+const args = process.argv.slice(2);
 
-  useInput((input, key) => {
-    if (input === "q" || key.escape) exit();
-    if (input === " ") setTick((t) => t + 1);
-  });
+const HELP_TEXT = `chiro — outils Vigie-Chiro
 
-  return (
-    <Box flexDirection="column" padding={1}>
-      <Text color="cyan">chiro — Hello Vigie-Chiro</Text>
-      <Text dimColor>{entries.length} entrée(s) dans le dossier courant</Text>
-      <Text>Compteur (espace pour incrémenter) : {tick}</Text>
-      <Text dimColor>q ou Échap pour quitter</Text>
-    </Box>
-  );
+  Lancez \`chiro\` sans argument dans un dossier contenant vos
+  enregistrements .wav. Une interface interactive vous guide.
+
+  Options :
+    --version, -v   Affiche la version
+    --help, -h      Affiche cette aide
+`;
+
+if (args.includes("--version") || args.includes("-v")) {
+  process.stdout.write(`chiro ${CHIRO_VERSION}\n`);
+  process.exit(0);
 }
 
-render(<App />);
+if (args.includes("--help") || args.includes("-h")) {
+  process.stdout.write(HELP_TEXT);
+  process.exit(0);
+}
+
+if (args.length > 0) {
+  process.stderr.write(
+    "chiro ne prend pas encore d'argument. Lancez simplement `chiro` dans un dossier d'enregistrements .wav.\n",
+  );
+  process.exit(0);
+}
+
+if (!process.stdout.isTTY) {
+  process.stderr.write(
+    "chiro doit être lancé dans un terminal interactif.\n(Pas de TTY détecté — la sortie a probablement été redirigée.)\n",
+  );
+  process.exit(1);
+}
+
+render(<App cwd={process.cwd()} />, { exitOnCtrlC: false });

@@ -44,6 +44,11 @@ Chaque écran a son footer adapté. Format type :
 
 Couleur : `dimColor`. Séparateur : 3 espaces (pas de pipe `|`).
 
+**Cas particuliers** :
+
+- **Sur les écrans dégradés (constat KO)**, le footer n'affiche que `Échap retour au menu`.
+- **Sur l'écran de Confirmation pendant l'exécution du renommage**, le footer est vide (Ctrl+C reste fonctionnel mais on ne l'affiche pas pour éviter les abandons accidentels).
+
 ## Navigation clavier — référence
 
 | Touche            | Action                                               | Affichée en footer ?       |
@@ -135,6 +140,24 @@ Cela peut arriver si :
   Échap retour au menu
 ```
 
+### Écran 1 — Constat (dégradé : erreur inattendue au scan)
+
+```
+📁 /Users/.../Dossier-en-cours
+
+⚠ Une erreur inattendue est survenue en lisant ce dossier.
+
+Détail technique : {CODE_BRUT}
+(à transmettre si vous demandez de l'aide)
+
+Essayez de fermer les autres applications qui pourraient
+utiliser ce dossier, puis relancez chiro.
+
+  Échap retour au menu
+```
+
+`{CODE_BRUT}` = le `code` du throw `fs` (ex `EBUSY`, `EIO`, `EMFILE`…).
+
 ### Écran 2 — Saisie
 
 Formulaire vertical. Pour chaque champ : label en haut, input en dessous, aide en `dimColor` indentée de 2 espaces sous l'input, erreur (si présente) en `red` à la place de l'aide.
@@ -197,6 +220,19 @@ Code du point d'écoute
 - Erreur :
   - `Format attendu : une lettre puis un chiffre (ex : A1).`
 
+**Validation hybride** :
+
+- **Pendant la frappe** : silence total. Aucun rouge, aucun compteur de progression.
+- **À la sortie du champ** (Tab/Shift+Tab) ou à la **soumission** (Entrée) : la validation se déclenche. Si invalide, message en rouge à la place de l'aide.
+- **Quand le champ devient valide** : afficher un `✓` discret en `dimColor` à droite du champ. Pas de compteur.
+- **Sur le code du point d'écoute saisi en lowercase** (ex `a1`) : au blur, afficher en `dimColor` `sera enregistré en A1` à la place de l'aide.
+
+**Soumission** :
+
+**Entrée = toujours tenter la soumission**. Tab/Shift+Tab uniquement pour naviguer entre champs. Si la soumission échoue (champs invalides), la validation se déclenche sur **tous** les champs (affichant toutes les erreurs en même temps) et le focus va sur le 1er champ invalide.
+
+**Focus initial** : Au montage du formulaire, le focus est sur le champ Carré (1er champ vide ; Année et Passage sont préremplis avec des valeurs valides).
+
 **Footer** :
 
 ```
@@ -206,13 +242,15 @@ Code du point d'écoute
 ### Écran 3 — Confirmation (nominal)
 
 ```
+📁 /Users/.../Vigie-2026-pointA1
+
 On va renommer 7 fichiers comme ceci :
 
   20260511_213045.wav  →  Car040962-2026-Pass3-A1-20260511_213045.wav
   20260511_220011.wav  →  Car040962-2026-Pass3-A1-20260511_220011.wav
   20260512_023322.wav  →  Car040962-2026-Pass3-A1-20260512_023322.wav
 
-  ... et 4 autres fichiers du même genre
+  Les 4 autres suivent le même format (seul l'horodatage change).
 
 ℹ 1 fichier sera laissé tel quel (déjà au bon format) :
     Car040962-2026-Pass3-A1-old.wav
@@ -225,7 +263,7 @@ vous pouvez retrouver chaque fichier à partir de sa fin.
 
 **Variantes** :
 
-- Si N ≤ 3 : afficher les N exemples, supprimer la ligne `... et X autres`.
+- Si N ≤ 3 : afficher les N exemples, supprimer la ligne `Les X autres suivent le même format`.
 - Si aucun fichier déjà préfixé : supprimer le bloc `ℹ ... laissé tel quel`.
 - Si collisions détectées :
   ```
@@ -251,7 +289,8 @@ Rien à renommer. Vous pouvez retourner au menu.
 ```
 ✓ Terminé !
 
-  7 fichiers renommés
+  7 fichiers renommés avec le préfixe
+      Car040962-2026-Pass3-A1-
   1 fichier laissé tel quel (déjà au bon format)
 
 Vous pouvez maintenant les téléverser sur Vigie-Chiro.
@@ -272,37 +311,47 @@ Vous pouvez maintenant les téléverser sur Vigie-Chiro.
 ### Écran 4 — Résultat (variante C : erreurs partielles)
 
 ```
-⚠ Renommage terminé avec 1 souci
+⚠ Renommage terminé avec X souci(s)
 
-  6 fichiers renommés ✓
-  1 fichier n'a pas pu être renommé :
-    └ 20260511_213122.wav
-      (un fichier portant le nom cible existe déjà — non remplacé)
+  N fichiers renommés ✓
+
+  X fichiers n'ont pas pu être renommés :
+
+    • permission refusée par le système (3 fichiers)
+        foo.wav
+        bar.wav
+        baz.wav
+
+    • le fichier a disparu pendant l'opération (1 fichier)
+        qux.wav
 
 Les autres fichiers ont bien été renommés.
 
   Entrée retour au menu
 ```
 
+Si > 5 fichiers du même code d'erreur, tronquer à 5 + `... et X autres`.
+
 Codes d'erreur → libellés :
 
-| Code               | Libellé                                                      |
-| ------------------ | ------------------------------------------------------------ |
-| `EEXIST`           | `un fichier portant le nom cible existe déjà — non remplacé` |
-| `EACCES` / `EPERM` | `permission refusée par le système`                          |
-| `ENOENT`           | `le fichier a disparu pendant l'opération`                   |
-| autre              | `erreur inattendue (code: XXX)`                              |
+| Code               | Libellé                                                                                                           |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `EEXIST`           | `un fichier portant le nom cible existe déjà — non remplacé`                                                      |
+| `EACCES` / `EPERM` | `permission refusée par le système`                                                                               |
+| `ENOENT`           | `le fichier a disparu pendant l'opération`                                                                        |
+| `DUPLICATED*`      | `le fichier a été copié mais l'original n'a pas pu être supprimé — vérifiez manuellement et supprimez le doublon` |
+| autre              | `erreur inattendue (code: XXX)`                                                                                   |
 
 ### Écran 4 — Résultat (variante D : interruption Ctrl+C)
 
 ```
-⚠ Renommage interrompu
+ℹ Renommage arrêté à votre demande
 
-  3 fichiers déjà renommés ✓ (conservés)
-  Reste 5 fichiers non traités.
+  3 fichiers déjà renommés (conservés en sécurité)
+  Il restait 5 fichiers à traiter.
 
-Vous pouvez relancer chiro — les fichiers déjà renommés seront
-automatiquement reconnus et non re-renommés.
+Vous pouvez relancer chiro à tout moment — les fichiers déjà
+renommés seront reconnus et ne seront pas touchés deux fois.
 
   Entrée retour au menu
 ```
