@@ -15,8 +15,12 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       # version is read from the `packageManager` field of package.json
-      # (pnpm@11.0.9). Don't pin here to avoid "Multiple versions" errors.
+      # (pnpm@11.0.9 requires Node ≥ 22.13). Don't pin here to avoid
+      # "Multiple versions" errors.
       - uses: pnpm/action-setup@v4
       - uses: oven-sh/setup-bun@v2
         with:
@@ -34,8 +38,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       # version is read from the `packageManager` field of package.json
-      # (pnpm@11.0.9). Don't pin here to avoid "Multiple versions" errors.
+      # (pnpm@11.0.9 requires Node ≥ 22.13). Don't pin here to avoid
+      # "Multiple versions" errors.
       - uses: pnpm/action-setup@v4
       - uses: oven-sh/setup-bun@v2
         with:
