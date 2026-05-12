@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+# Default least-privilege: read-only. The `release` job opts up to write.
+permissions:
+  contents: read
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: pnpm install --frozen-lockfile
+      # Catch import-cycle / type breakage before producing a binary.
+      - run: pnpm typecheck
+      - run: pnpm build:darwin-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chiro-darwin-arm64
+          path: dist/chiro-darwin-arm64
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm build:linux-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chiro-linux-x64
+          path: dist/chiro-linux-x64
+
+  release:
+    needs: [build-macos, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: chiro-darwin-arm64
+          path: dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: chiro-linux-x64
+          path: dist/
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            dist/chiro-darwin-arm64 \
+            dist/chiro-linux-x64

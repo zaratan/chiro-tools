@@ -101,36 +101,36 @@ Le MVP est découpé en **5 phases** (0 à 4) + V2. Chaque phase a un **critère
 
 ## Phase 4 — Distribution
 
-**Objectif** : automatiser entièrement le build des binaires macOS arm64 et Linux x64 via GitHub Actions, publier en GitHub Releases, fournir un `install.sh` opérationnel. **Linux x64 est traité ici** (différé depuis Phase 0).
+**Objectif** : automatiser entièrement le build des binaires macOS arm64 et Linux x64 via GitHub Actions, publier en GitHub Releases, fournir un `install.sh` opérationnel. Linux x64 et signature sont traités ici (différés depuis Phase 0).
 
-### Hypothèse : signature Apple non nécessaire au MVP
+### Hypothèse signature Apple
 
-Un binaire CLI distribué via `curl ... | sh` n'est pas marqué quarantine (pas de navigateur dans la chaîne) ; Gatekeeper ne prompt pas. **On démarre Phase 4 sans signature** et on l'active uniquement si un test sur machine vierge la révèle nécessaire. Les secrets Apple ne sont configurés qu'en cas de besoin.
+Un binaire CLI distribué via `curl ... | bash` ne reçoit pas l'attribut `com.apple.quarantine` (pas de navigateur dans la chaîne). **On démarre sans signature.** Si un test sur machine vierge révèle un blocage Gatekeeper, la Phase 4.5 active la signature Developer ID + notarisation.
 
-### Tâches
+### Tâches (réalisées en 4A/4B/4C/4D)
 
-1. Créer le repo GitHub `<owner>/chiro-tools` (s'il n'existe pas) et pousser.
-2. Ajouter le script `build:linux-x64` au `package.json` : `bun build src/index.tsx --compile --target=bun-linux-x64 --outfile=dist/chiro-linux-x64`.
-3. Tester localement le binaire Linux dans `docker run --rm -it -v "$PWD/dist:/app" debian:12-slim /app/chiro-linux-x64` (image `debian:12-slim` car Bun = glibc, pas alpine).
-4. Écrire `.github/workflows/release.yml` : déclenché sur tag `v*.*.*`, jobs macOS et linux qui build leurs binaires, création GitHub Release avec les 2 assets.
-5. Écrire `scripts/install.sh` (cf. `architecture.md` § Distribution) : détecte l'OS via `uname`, télécharge le bon binaire.
-6. Documenter dans le `README.md` racine : `curl -fL https://raw.githubusercontent.com/<owner>/chiro-tools/main/scripts/install.sh | bash`.
-7. **Tag `v0.1.0`** et vérifier la release de bout en bout.
-8. Tester l'installation sur une machine vierge (VM ou collègue) avec la commande curl. **Si Gatekeeper rouspète** → activer la signature (cf. § ci-dessous).
+- [x] `package.json` : scripts `build:linux-x64` + `build` (les 2 cibles en un coup) — **4A**
+- [x] Build local du binaire Linux x64 (cross-compile depuis macOS via Bun) — **4A** (99 MB, ELF x86-64)
+- [x] `scripts/install.sh` : détection OS/arch via `uname`, download atomique, warning PATH — **4B**
+- [x] `.github/workflows/release.yml` : déclenché sur tag `v[0-9]+.[0-9]+.[0-9]+` (et `-suffix`), 3 jobs `build-macos` + `build-linux` + `release`, `typecheck` avant build, permissions least-privilege — **4C**
+- [x] `.github/dependabot.yml` : updates mensuelles des actions GitHub — **4C**
+- [x] `README.md` racine : section Installation avec one-liner curl + alternative auditable + variante `CHIRO_VERSION=...` — **4D**
 
-### Étape conditionnelle : signature Developer ID
+### Étape conditionnelle Phase 4.5 — Signature Developer ID
 
-Activer **uniquement si** le test étape 8 ci-dessus révèle un blocage Gatekeeper. L'utilisateur a un Apple Developer ID actif.
+Activer **uniquement si** un test sur machine vierge révèle un blocage Gatekeeper. L'utilisateur a un Apple Developer ID actif.
 
 - Configurer les GitHub Secrets : `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_DEVELOPER_ID_CERT` (`.p12` en base64), `APPLE_DEVELOPER_ID_CERT_PASSWORD`.
-- Étendre `release.yml` avec une étape `codesign --sign "Developer ID Application: …" --options runtime --timestamp` puis `xcrun notarytool submit --wait`.
-- Re-tag et re-tester.
+- Étendre `release.yml` (job `build-macos`) avec une étape `codesign --sign "Developer ID Application: …" --options runtime --timestamp` puis `xcrun notarytool submit --wait`.
+- Re-tag (`v0.1.1`) et re-tester.
 
 ### Critère de sortie
 
-- [ ] Un tag `v0.1.0` produit automatiquement les 2 binaires en GH Release.
-- [ ] Une machine macOS arm64 vierge installe via curl one-liner et lance `chiro`. (Avec ou sans signature selon nécessité observée.)
+- [ ] Un tag `v0.1.0` (ou `v0.1.0-rc.1`) produit automatiquement les 2 binaires en GH Release.
+- [ ] Une machine macOS arm64 vierge installe via curl one-liner et lance `chiro` (avec ou sans signature selon nécessité observée).
 - [ ] Une machine Linux x64 vierge installe via le même curl one-liner et lance `chiro`.
+
+**Action utilisateur restante** : pousser `git tag v0.1.0 && git push origin v0.1.0`, vérifier que les 3 jobs CI passent verts, puis tester l'install one-liner sur une machine vierge.
 
 ## V2 (post-MVP, hors scope)
 

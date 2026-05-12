@@ -4,6 +4,34 @@ CLI interactive pour préparer des enregistrements `.wav` au format **Vigie-Chir
 
 L'outil ouvre une interface dans le terminal et guide l'utilisatrice à travers les étapes pour préfixer ses fichiers selon le format attendu par Vigie-Chiro, sans rien casser.
 
+## Installation
+
+```bash
+curl -fL https://raw.githubusercontent.com/zaratan/chiro-tools/main/scripts/install.sh | bash
+```
+
+Cette commande télécharge le binaire adapté à votre système (macOS Apple Silicon ou Linux x86_64) et l'installe dans `~/.local/bin/chiro`. Si ce dossier n'est pas déjà dans votre `PATH`, le script affiche la ligne à ajouter dans `~/.zshrc` ou `~/.bashrc`.
+
+Lancez ensuite `chiro` dans n'importe quel dossier contenant des enregistrements `.wav`.
+
+**Plateformes supportées** : macOS arm64 (Apple Silicon), Linux x64.
+
+### Alternative (lire le script avant exécution)
+
+Si vous préférez auditer le script avant de l'exécuter :
+
+```bash
+curl -fL https://raw.githubusercontent.com/zaratan/chiro-tools/main/scripts/install.sh -o install.sh
+less install.sh
+bash install.sh
+```
+
+### Pinner une version
+
+```bash
+CHIRO_VERSION=v0.1.0 bash <(curl -fL https://raw.githubusercontent.com/zaratan/chiro-tools/main/scripts/install.sh)
+```
+
 ## Documentation
 
 La spec complète du projet est dans [`docs/`](./docs/) :
@@ -15,18 +43,6 @@ La spec complète du projet est dans [`docs/`](./docs/) :
 - [`docs/architecture.md`](./docs/architecture.md) — stack et build
 - [`docs/roadmap.md`](./docs/roadmap.md) — phases d'implémentation
 
-## État d'avancement
-
-**Phase 0 (outillage) — ✓ validée.** Le projet a sa stack opérationnelle :
-
-- Runtime : **Bun** (dev + build)
-- TUI : **Ink 6** + **React 19**
-- Tests : **vitest**
-- Lint/format : **eslint** + **prettier**
-- Hooks git : **husky** + **lint-staged**
-
-La chaîne `bun build --compile` produit un binaire macOS arm64 fonctionnel (~62 MB, autonome).
-
 ## Développement
 
 ```bash
@@ -36,6 +52,17 @@ pnpm dev:watch        # lancer la TUI avec hot-reload (relance auto à chaque sa
 pnpm test             # lancer les tests vitest
 pnpm check            # lint + typecheck + format:check + test (à passer avant chaque commit)
 pnpm build:darwin-arm64   # produire le binaire macOS arm64
+pnpm build:linux-x64      # produire le binaire Linux x64 (cross-compile depuis macOS)
+pnpm build                # produit les 2 binaires
 ```
 
-L'installation et la distribution publique (signature, GitHub Releases, install.sh) sont prévues en Phase 4 — voir [`docs/roadmap.md`](./docs/roadmap.md).
+### Release
+
+Pousser un tag matchant `vX.Y.Z` ou `vX.Y.Z-suffix` déclenche le workflow GitHub Actions (`.github/workflows/release.yml`) qui builde les 2 binaires sur runners natifs (`macos-latest` + `ubuntu-latest`) et publie une GitHub Release avec les assets.
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+L'utilisatrice cible ne touche jamais aux tags — elle utilise simplement la commande `curl ... | bash` ci-dessus.
