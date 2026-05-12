@@ -25,7 +25,7 @@ jobs:
       # Catch import-cycle / type breakage before producing a binary.
       - run: pnpm typecheck
       - run: pnpm build:darwin-arm64
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: chiro-darwin-arm64
           path: dist/chiro-darwin-arm64
@@ -43,7 +43,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm build:linux-x64
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: chiro-linux-x64
           path: dist/chiro-linux-x64
