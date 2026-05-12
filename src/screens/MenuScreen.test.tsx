@@ -12,6 +12,7 @@ describe("MenuScreen", () => {
     const { lastFrame } = render(
       <MenuScreen
         onPickVigiePrefix={noop}
+        onPickVigieProcess={noop}
         onPickUpdate={noop}
         onQuit={noop}
         availableVersion={null}
@@ -31,6 +32,7 @@ describe("MenuScreen", () => {
     const { lastFrame } = render(
       <MenuScreen
         onPickVigiePrefix={noop}
+        onPickVigieProcess={noop}
         onPickUpdate={noop}
         onQuit={noop}
         availableVersion={null}
@@ -48,6 +50,7 @@ describe("MenuScreen", () => {
     const { stdin } = render(
       <MenuScreen
         onPickVigiePrefix={onPick}
+        onPickVigieProcess={noop}
         onPickUpdate={noop}
         onQuit={noop}
         availableVersion={null}
@@ -58,17 +61,38 @@ describe("MenuScreen", () => {
     expect(onPick).toHaveBeenCalledOnce();
   });
 
-  it("triggers onPickUpdate when Enter is pressed on the second item", async () => {
+  it("triggers onPickVigieProcess when Enter is pressed on the second item", async () => {
+    const onPickVigieProcess = vi.fn();
+    const { stdin } = render(
+      <MenuScreen
+        onPickVigiePrefix={noop}
+        onPickVigieProcess={onPickVigieProcess}
+        onPickUpdate={noop}
+        onQuit={noop}
+        availableVersion={null}
+      />,
+    );
+    stdin.write("\x1b[B"); // Down arrow → focus "vigie-process"
+    await settle();
+    stdin.write("\r");
+    await settle();
+    expect(onPickVigieProcess).toHaveBeenCalledOnce();
+  });
+
+  it("triggers onPickUpdate when Enter is pressed on the third item", async () => {
     const onPickUpdate = vi.fn();
     const { stdin } = render(
       <MenuScreen
         onPickVigiePrefix={noop}
+        onPickVigieProcess={noop}
         onPickUpdate={onPickUpdate}
         onQuit={noop}
         availableVersion={null}
       />,
     );
-    stdin.write("\x1b[B"); // Down arrow → focus "update"
+    stdin.write("\x1b[B"); // → vigie-process
+    await settle();
+    stdin.write("\x1b[B"); // → update
     await settle();
     stdin.write("\r");
     await settle();
@@ -80,6 +104,7 @@ describe("MenuScreen", () => {
     const { stdin } = render(
       <MenuScreen
         onPickVigiePrefix={noop}
+        onPickVigieProcess={noop}
         onPickUpdate={noop}
         onQuit={onQuit}
         availableVersion={null}
@@ -90,19 +115,22 @@ describe("MenuScreen", () => {
     expect(onQuit).toHaveBeenCalledOnce();
   });
 
-  it("moves focus down twice and selects Quitter with Enter", async () => {
+  it("moves focus down three times and selects Quitter with Enter", async () => {
     const onQuit = vi.fn();
     const { stdin } = render(
       <MenuScreen
         onPickVigiePrefix={noop}
+        onPickVigieProcess={noop}
         onPickUpdate={noop}
         onQuit={onQuit}
         availableVersion={null}
       />,
     );
-    stdin.write("\x1b[B"); // Down arrow → focus "update"
+    stdin.write("\x1b[B"); // → vigie-process
     await settle();
-    stdin.write("\x1b[B"); // Down arrow → focus "quit"
+    stdin.write("\x1b[B"); // → update
+    await settle();
+    stdin.write("\x1b[B"); // → quit
     await settle();
     stdin.write("\r");
     await settle();
@@ -113,6 +141,7 @@ describe("MenuScreen", () => {
     const { lastFrame } = render(
       <MenuScreen
         onPickVigiePrefix={noop}
+        onPickVigieProcess={noop}
         onPickUpdate={noop}
         onQuit={noop}
         availableVersion="v0.2.0"
@@ -127,6 +156,7 @@ describe("MenuScreen", () => {
     const { lastFrame } = render(
       <MenuScreen
         onPickVigiePrefix={noop}
+        onPickVigieProcess={noop}
         onPickUpdate={noop}
         onQuit={noop}
         availableVersion={null}

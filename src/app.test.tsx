@@ -249,7 +249,9 @@ describe("App — end-to-end", () => {
       />,
     );
 
-    // Navigate Menu: down arrow once to select "Vérifier les mises à jour"
+    // Navigate Menu: down arrow twice to skip vigie-process and select "Vérifier les mises à jour"
+    stdin.write("\x1B[B");
+    await settle();
     stdin.write("\x1B[B");
     await settle();
 

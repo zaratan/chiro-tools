@@ -2,12 +2,16 @@ import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import { Footer } from "../components/Footer.js";
 
-type MenuItem = "vigie-prefix" | "update" | "quit";
+type MenuItem = "vigie-prefix" | "vigie-process" | "update" | "quit";
 
 const ITEMS: { id: MenuItem; label: string }[] = [
   {
     id: "vigie-prefix",
     label: "Préfixer des enregistrements pour Vigie-Chiro",
+  },
+  {
+    id: "vigie-process",
+    label: "Découper les enregistrements (pour Tadarida)",
   },
   { id: "update", label: "Vérifier les mises à jour" },
   { id: "quit", label: "Quitter" },
@@ -15,6 +19,7 @@ const ITEMS: { id: MenuItem; label: string }[] = [
 
 export type MenuScreenProps = {
   onPickVigiePrefix: () => void;
+  onPickVigieProcess: () => void;
   onPickUpdate: () => void;
   onQuit: () => void;
   availableVersion: string | null;
@@ -22,6 +27,7 @@ export type MenuScreenProps = {
 
 export const MenuScreen = ({
   onPickVigiePrefix,
+  onPickVigieProcess,
   onPickUpdate,
   onQuit,
   availableVersion,
@@ -46,6 +52,7 @@ export const MenuScreen = ({
       if (!item) return;
       if (item.id === "update") onPickUpdate();
       else if (item.id === "vigie-prefix") onPickVigiePrefix();
+      else if (item.id === "vigie-process") onPickVigieProcess();
       else onQuit();
     }
   });

@@ -1,5 +1,6 @@
 import { useApp, useInput } from "ink";
 import { useEffect, useRef, useState } from "react";
+import { processWavFiles as defaultProcessWavFiles } from "./lib/audio/processWavFiles.js";
 import { applyRenames as defaultApplyRenames } from "./lib/fs/applyRenames.js";
 import { checkForUpdate } from "./lib/update/checkForUpdate.js";
 import type { UpdateChecker } from "./screens/UpdateScreen.js";
@@ -12,7 +13,20 @@ import {
 import { ConstatScreen } from "./screens/vigie-chiro/ConstatScreen.js";
 import { FormScreen } from "./screens/vigie-chiro/FormScreen.js";
 import { ResultScreen } from "./screens/vigie-chiro/ResultScreen.js";
-import type { ConstatCounts, FormInput, RenameOutcome } from "./types.js";
+import {
+  ConfirmScreen as ProcessConfirmScreen,
+  type ProcessWavFilesFn,
+} from "./screens/vigie-process/ConfirmScreen.js";
+import { ConstatScreen as ProcessConstatScreen } from "./screens/vigie-process/ConstatScreen.js";
+import { FormScreen as ProcessFormScreen } from "./screens/vigie-process/FormScreen.js";
+import { ResultScreen as ProcessResultScreen } from "./screens/vigie-process/ResultScreen.js";
+import type {
+  ConstatCounts,
+  FormInput,
+  ProcessInput,
+  ProcessOutcome,
+  RenameOutcome,
+} from "./types.js";
 import { CHIRO_VERSION } from "./version.js";
 
 type Screen =
@@ -33,6 +47,18 @@ type Screen =
       kind: "vigie:result";
       input: FormInput;
       outcome: RenameOutcome;
+    }
+  | { kind: "process:constat" }
+  | { kind: "process:form"; wavFiles: string[] }
+  | {
+      kind: "process:confirm";
+      input: ProcessInput;
+      wavFiles: string[];
+    }
+  | {
+      kind: "process:result";
+      input: ProcessInput;
+      outcome: ProcessOutcome;
     };
 
 type BootChecker = (opts: {
@@ -44,6 +70,8 @@ export type AppProps = {
   cwd: string;
   /** Override for tests. Defaults to the real implementation. */
   applyRenames?: ApplyRenamesFn;
+  /** Override for tests. Defaults to the real implementation. */
+  processWavFiles?: ProcessWavFilesFn;
   /** Called when the user confirms an update install; must be synchronous. */
   onRequestUpdate: () => void;
   /** Test seam for the boot auto-check. Defaults to real checkForUpdate. */
@@ -55,6 +83,7 @@ export type AppProps = {
 export const App = ({
   cwd,
   applyRenames = defaultApplyRenames,
+  processWavFiles = defaultProcessWavFiles,
   onRequestUpdate,
   bootChecker,
   updateChecker,
@@ -112,6 +141,9 @@ export const App = ({
         availableVersion={availableVersion}
         onPickVigiePrefix={() => {
           setScreen({ kind: "vigie:constat" });
+        }}
+        onPickVigieProcess={() => {
+          setScreen({ kind: "process:constat" });
         }}
         onPickUpdate={() => {
           setScreen({ kind: "update" });
@@ -190,10 +222,71 @@ export const App = ({
     );
   }
 
-  // screen.kind === "vigie:result"
+  if (screen.kind === "vigie:result") {
+    return (
+      <ResultScreen
+        input={screen.input}
+        outcome={screen.outcome}
+        onBackToMenu={() => {
+          setScreen({ kind: "menu" });
+        }}
+      />
+    );
+  }
+
+  if (screen.kind === "process:constat") {
+    return (
+      <ProcessConstatScreen
+        cwd={cwd}
+        onContinue={(wavFiles) => {
+          setScreen({ kind: "process:form", wavFiles });
+        }}
+        onBack={() => {
+          setScreen({ kind: "menu" });
+        }}
+      />
+    );
+  }
+
+  if (screen.kind === "process:form") {
+    const { wavFiles } = screen;
+    return (
+      <ProcessFormScreen
+        onSubmit={(input) => {
+          setScreen({ kind: "process:confirm", input, wavFiles });
+        }}
+        onBack={() => {
+          setScreen({ kind: "process:constat" });
+        }}
+      />
+    );
+  }
+
+  if (screen.kind === "process:confirm") {
+    return (
+      <ProcessConfirmScreen
+        cwd={cwd}
+        input={screen.input}
+        wavFiles={screen.wavFiles}
+        runningRef={runningRef}
+        processWavFiles={processWavFiles}
+        onComplete={(outcome) => {
+          setScreen({
+            kind: "process:result",
+            input: screen.input,
+            outcome,
+          });
+        }}
+        onBack={() => {
+          setScreen({ kind: "process:constat" });
+        }}
+      />
+    );
+  }
+
+  // screen.kind === "process:result"
   return (
-    <ResultScreen
-      input={screen.input}
+    <ProcessResultScreen
       outcome={screen.outcome}
       onBackToMenu={() => {
         setScreen({ kind: "menu" });
