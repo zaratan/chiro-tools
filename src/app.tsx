@@ -1,7 +1,10 @@
 import { useApp, useInput } from "ink";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { applyRenames as defaultApplyRenames } from "./lib/fs/applyRenames.js";
+import { checkForUpdate } from "./lib/update/checkForUpdate.js";
+import type { UpdateChecker } from "./screens/UpdateScreen.js";
 import { MenuScreen } from "./screens/MenuScreen.js";
+import { UpdateScreen } from "./screens/UpdateScreen.js";
 import {
   ConfirmScreen,
   type ApplyRenamesFn,
@@ -10,9 +13,11 @@ import { ConstatScreen } from "./screens/vigie-chiro/ConstatScreen.js";
 import { FormScreen } from "./screens/vigie-chiro/FormScreen.js";
 import { ResultScreen } from "./screens/vigie-chiro/ResultScreen.js";
 import type { ConstatCounts, FormInput, RenameOutcome } from "./types.js";
+import { CHIRO_VERSION } from "./version.js";
 
 type Screen =
   | { kind: "menu" }
+  | { kind: "update" }
   | { kind: "vigie:constat" }
   | {
       kind: "vigie:form";
@@ -30,22 +35,68 @@ type Screen =
       outcome: RenameOutcome;
     };
 
+type BootChecker = (opts: {
+  currentVersion: string;
+  signal?: AbortSignal;
+}) => Promise<{ availableVersion: string | null }>;
+
 export type AppProps = {
   cwd: string;
   /** Override for tests. Defaults to the real implementation. */
   applyRenames?: ApplyRenamesFn;
+  /** Called when the user confirms an update install; must be synchronous. */
+  onRequestUpdate: () => void;
+  /** Test seam for the boot auto-check. Defaults to real checkForUpdate. */
+  bootChecker?: BootChecker;
+  /** Test seam forwarded to UpdateScreen. Defaults to real fetchLatestVersion. */
+  updateChecker?: UpdateChecker;
 };
 
 export const App = ({
   cwd,
   applyRenames = defaultApplyRenames,
+  onRequestUpdate,
+  bootChecker,
+  updateChecker,
 }: AppProps): React.JSX.Element => {
   const { exit } = useApp();
   const [screen, setScreen] = useState<Screen>({ kind: "menu" });
+  const [availableVersion, setAvailableVersion] = useState<string | null>(null);
   // Ref consulted by the global Ctrl+C handler. When true, Ctrl+C is ignored
   // at this level (ConfirmScreen handles it locally during a running rename
   // batch). When false, Ctrl+C exits the program cleanly.
   const runningRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
+
+    const runCheck = bootChecker
+      ? bootChecker({
+          currentVersion: CHIRO_VERSION,
+          signal: controller.signal,
+        })
+      : checkForUpdate({
+          currentVersion: CHIRO_VERSION,
+          signal: controller.signal,
+        });
+
+    void runCheck
+      .then((result) => {
+        if (cancelled) return;
+        if (result.availableVersion !== null) {
+          setAvailableVersion(result.availableVersion);
+        }
+      })
+      .catch(() => {
+        // Silent fail — boot check must never surface errors
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [bootChecker]);
 
   useInput((input, key) => {
     if (key.ctrl && input === "c") {
@@ -58,12 +109,33 @@ export const App = ({
   if (screen.kind === "menu") {
     return (
       <MenuScreen
+        availableVersion={availableVersion}
         onPickVigiePrefix={() => {
           setScreen({ kind: "vigie:constat" });
+        }}
+        onPickUpdate={() => {
+          setScreen({ kind: "update" });
         }}
         onQuit={() => {
           exit();
         }}
+      />
+    );
+  }
+
+  if (screen.kind === "update") {
+    return (
+      <UpdateScreen
+        currentVersion={CHIRO_VERSION}
+        onBack={() => {
+          setScreen({ kind: "menu" });
+        }}
+        onRequestInstall={() => {
+          onRequestUpdate();
+          exit();
+        }}
+        runningRef={runningRef}
+        checker={updateChecker}
       />
     );
   }

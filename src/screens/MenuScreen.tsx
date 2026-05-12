@@ -2,24 +2,29 @@ import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import { Footer } from "../components/Footer.js";
 
-type MenuItem = "vigie-prefix" | "quit";
+type MenuItem = "vigie-prefix" | "update" | "quit";
 
 const ITEMS: { id: MenuItem; label: string }[] = [
   {
     id: "vigie-prefix",
     label: "Préfixer des enregistrements pour Vigie-Chiro",
   },
+  { id: "update", label: "Vérifier les mises à jour" },
   { id: "quit", label: "Quitter" },
 ];
 
 export type MenuScreenProps = {
   onPickVigiePrefix: () => void;
+  onPickUpdate: () => void;
   onQuit: () => void;
+  availableVersion: string | null;
 };
 
 export const MenuScreen = ({
   onPickVigiePrefix,
+  onPickUpdate,
   onQuit,
+  availableVersion,
 }: MenuScreenProps): React.JSX.Element => {
   const [focused, setFocused] = useState(0);
 
@@ -39,7 +44,8 @@ export const MenuScreen = ({
     if (key.return) {
       const item = ITEMS[focused];
       if (!item) return;
-      if (item.id === "vigie-prefix") onPickVigiePrefix();
+      if (item.id === "update") onPickUpdate();
+      else if (item.id === "vigie-prefix") onPickVigiePrefix();
       else onQuit();
     }
   });
@@ -65,6 +71,16 @@ export const MenuScreen = ({
           );
         })}
       </Box>
+      {availableVersion !== null && (
+        <Box marginTop={1} flexDirection="column">
+          <Text color="yellow">
+            {`⚠ Une mise à jour est disponible (${availableVersion}).`}
+          </Text>
+          <Text dimColor>
+            {"  Choisissez « Vérifier les mises à jour » pour l'installer."}
+          </Text>
+        </Box>
+      )}
       <Footer
         hints={[
           { key: "↑↓", label: "choisir" },

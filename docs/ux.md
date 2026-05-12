@@ -51,14 +51,14 @@ Couleur : `dimColor`. Séparateur : 3 espaces (pas de pipe `|`).
 
 ## Navigation clavier — référence
 
-| Touche            | Action                                                        | Affichée en footer ?       |
-| ----------------- | ------------------------------------------------------------- | -------------------------- |
-| `Tab` / `Maj+Tab` | Champ suivant / précédent (FormScreen) — alias de `↓` / `↑`   | Non (redondant avec `↑↓`)  |
-| `↑` / `↓`         | Naviguer dans le menu, ou entre les champs du formulaire      | MenuScreen, FormScreen     |
-| `←` / `→`         | Décrémenter / incrémenter un champ numérique (Année, Passage) | Oui sur FormScreen         |
-| `Entrée`          | Valider l'écran courant                                       | Toujours                   |
-| `Échap`           | Revenir à l'écran précédent (ou quitter depuis Menu)          | Toujours sauf Résultat     |
-| `Ctrl+C`          | Quitter immédiatement (ou stopper le batch en cours)          | Implicite — jamais affiché |
+| Touche            | Action                                                                              | Affichée en footer ?       |
+| ----------------- | ----------------------------------------------------------------------------------- | -------------------------- |
+| `Tab` / `Maj+Tab` | Champ suivant / précédent (FormScreen) — alias de `↓` / `↑`                         | Non (redondant avec `↑↓`)  |
+| `↑` / `↓`         | Naviguer dans le menu, ou entre les champs du formulaire                            | MenuScreen, FormScreen     |
+| `←` / `→`         | Décrémenter / incrémenter un champ numérique (Année, Passage)                       | Oui sur FormScreen         |
+| `Entrée`          | Valider l'écran courant (sur UpdateScreen : uniquement quand une version est dispo) | Toujours                   |
+| `Échap`           | Revenir à l'écran précédent (ou quitter depuis Menu)                                | Toujours sauf Résultat     |
+| `Ctrl+C`          | Quitter immédiatement (sauf pendant un renommage en cours ou un check update)       | Implicite — jamais affiché |
 
 ## Wordings par écran — prêts à coller
 
@@ -70,12 +70,32 @@ chiro — outils Vigie-Chiro
 Que voulez-vous faire ?
 
   ▸ Préfixer des enregistrements pour Vigie-Chiro
+    Vérifier les mises à jour
     Quitter
 
   ↑↓ choisir   Entrée valider   Échap quitter
 ```
 
 Item sélectionné préfixé par `▸ ` (avec un espace). Items non sélectionnés alignés sur la même colonne (`  ` deux espaces).
+
+**Variante — auto-check au boot a trouvé une nouvelle version** : entre la liste d'items et le footer, afficher en `color="yellow"` :
+
+```
+chiro — outils Vigie-Chiro
+
+Que voulez-vous faire ?
+
+  ▸ Préfixer des enregistrements pour Vigie-Chiro
+    Vérifier les mises à jour
+    Quitter
+
+  ⚠ Une mise à jour est disponible (v0.2.0).
+    Choisissez « Vérifier les mises à jour » pour l'installer.
+
+  ↑↓ choisir   Entrée valider   Échap quitter
+```
+
+L'auto-check est silencieux : si le réseau échoue ou que la version locale est à jour, le hint n'apparaît jamais. La seconde ligne en `dimColor` indique l'action à faire. Cache disque de 6 h sur `~/.chiro/update-check.json` pour ménager le rate-limit GitHub.
 
 ### Écran 1 — Constat (nominal)
 
@@ -362,6 +382,91 @@ renommés seront reconnus et ne seront pas touchés deux fois.
 
   Entrée retour au menu
 ```
+
+### Écran 5 — Mise à jour (vérification en cours)
+
+```
+chiro v0.1.0 — mise à jour
+
+Vérification de la dernière version…
+
+  Échap retour au menu
+```
+
+Header en `bold cyan` comme l'écran Menu. Pendant cet état, le Ctrl+C global est désactivé (via `runningRef`) pour ne pas tuer le fetch en plein milieu — l'utilisatrice peut toujours sortir avec Échap.
+
+### Écran 5 — Mise à jour (nouvelle version disponible)
+
+```
+chiro v0.1.0 — mise à jour
+
+✓ Une nouvelle version est disponible : v0.2.0
+
+Sur Entrée, chiro lance l'installation puis se ferme.
+Relancez chiro ensuite pour utiliser la nouvelle version.
+
+  Entrée installer   Échap retour au menu
+```
+
+- `✓` en `color="green"`, `v0.2.0` en `color="cyan"`.
+- Avertissement explicite **avant** Entrée — principe "lire ce qui va se passer avant que ça se passe".
+- Sur Entrée : `onRequestInstall()` qui pose un drapeau au boot (cf. `architecture.md`), puis `useApp().exit()`. Après que Ink ait unmount, `install.sh` est exécuté via `node:child_process` `spawnSync` avec stdio hérités — l'utilisatrice voit ensuite directement `Téléchargement de chiro…` du script.
+
+### Écran 5 — Mise à jour (déjà à jour)
+
+```
+chiro v0.1.0 — mise à jour
+
+✓ Vous êtes à jour.
+
+  Échap retour au menu
+```
+
+### Écran 5 — Mise à jour (erreur — message générique)
+
+```
+chiro v0.1.0 — mise à jour
+
+⚠ Impossible de vérifier la dernière version.
+
+Vérifiez votre connexion internet, puis réessayez.
+Détail technique : délai dépassé (timeout)
+  (à transmettre si vous demandez de l'aide)
+
+  Échap retour au menu
+```
+
+- Codes concernés : `network`, `timeout`, `http-404`, `parse`, `parse-local`.
+- `⚠` en `color="yellow"`.
+- Le détail technique est affiché en clair (avec `dimColor` sur la ligne "à transmettre") — c'est précieux quand l'utilisatrice contacte le support.
+
+### Écran 5 — Mise à jour (erreur — rate-limit GitHub)
+
+```
+chiro v0.1.0 — mise à jour
+
+⚠ GitHub bloque temporairement les vérifications.
+
+C'est normal si vous lancez chiro très souvent.
+Réessayez dans une heure.
+Détail technique : quota GitHub atteint (http-403)
+  (à transmettre si vous demandez de l'aide)
+
+  Échap retour au menu
+```
+
+Message dédié pour `http-403` — la connexion fonctionne, c'est GitHub qui rate-limite (60 req/h non-authentifié).
+
+### Codes d'erreur Update → libellés FR
+
+| Code          | Titre principal                                 | Astuce contextuelle                                                       | Détail technique         |
+| ------------- | ----------------------------------------------- | ------------------------------------------------------------------------- | ------------------------ |
+| `network`     | Impossible de vérifier la dernière version.     | Vérifiez votre connexion internet, puis réessayez.                        | pas de connexion         |
+| `timeout`     | Impossible de vérifier la dernière version.     | Vérifiez votre connexion internet, puis réessayez.                        | délai dépassé            |
+| `http-403`    | GitHub bloque temporairement les vérifications. | C'est normal si vous lancez chiro très souvent. Réessayez dans une heure. | quota GitHub atteint     |
+| `http-404`    | Impossible de vérifier la dernière version.     | Aucune version publiée. Contactez le développeur.                         | aucune version publiée   |
+| `parse`       | Impossible de vérifier la dernière version.     | Réessayez ; si le problème persiste, contactez le développeur.            | réponse inattendue       |
+| `parse-local` | Impossible de comparer les versions.            | Réinstallez chiro depuis le site.                                         | version locale illisible |
 
 ## Boot — messages hors-Ink (stderr / stdout)
 

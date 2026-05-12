@@ -38,10 +38,13 @@ chiro-tools/
 ├── scripts/
 │   └── install.sh               # Téléchargement du bon binaire depuis GH Releases
 ├── src/
-│   ├── index.tsx                # entry point — boot (TTY check, --version/--help) puis render <App />
-│   ├── app.tsx                  # routeur d'écrans (state machine)
+│   ├── index.tsx                # entry point — boot (TTY check, --version/--help) puis render <App />, post-Ink spawn install.sh si drapeau update
+│   ├── app.tsx                  # routeur d'écrans (state machine) + auto-check boot via checkForUpdate
+│   ├── version.ts               # CHIRO_VERSION lu depuis package.json (Bun inline à la compile)
 │   ├── screens/
 │   │   ├── MenuScreen.tsx
+│   │   ├── UpdateScreen.tsx       # 4 états : checking / available / up-to-date / error
+│   │   ├── updateErrorMessages.ts # mapping FR pour les 6 codes d'erreur Update
 │   │   └── vigie-chiro/
 │   │       ├── ConstatScreen.tsx
 │   │       ├── FormScreen.tsx     # focusedIndex + 4 <TextField> (numeric en mode managed)
@@ -64,8 +67,15 @@ chiro-tools/
 │   │   │   ├── planRenames.test.ts
 │   │   │   ├── applyRenames.ts    # séquentiel, fallback EXDEV, gestion SIGINT
 │   │   │   └── applyRenames.test.ts
+│   │   ├── update/
+│   │   │   ├── constants.ts       # GITHUB_REPO, RELEASES_API_URL, INSTALL_SCRIPT_URL, TTL, cache path
+│   │   │   ├── parseVersion.ts    # semver-light parser
+│   │   │   ├── compareVersions.ts # semver §11 precedence
+│   │   │   ├── fetchLatestVersion.ts # GitHub Releases API, Result tagué, AbortSignal
+│   │   │   ├── cache.ts           # ~/.chiro/update-check.json : read/write atomique + isCacheFresh
+│   │   │   └── checkForUpdate.ts  # orchestrateur cache → fetch → compare, silent fail
 │   │   ├── logging/
-│   │   │   ├── log.ts             # append JSONL dans ~/.chiro/last-run.log
+│   │   │   ├── log.ts             # append JSONL dans ~/.chiro/sessions.jsonl
 │   │   │   └── log.test.ts
 │   │   └── e2e.test.ts            # round-trip complet sur dossier mkdtemp
 │   └── types.ts                   # types partagés (FormInput, RenamePlan, …)
@@ -91,6 +101,7 @@ chiro-tools/
 ```ts
 type Screen =
   | { kind: "menu" }
+  | { kind: "update" }
   | { kind: "vigie:constat" }
   | { kind: "vigie:form" }
   | { kind: "vigie:confirm"; input: FormInput; plan: RenamePlan }
@@ -101,6 +112,9 @@ Transitions :
 
 ```
 menu --select "Préfixer"--> vigie:constat
+menu --select "Mettre à jour"--> update
+update --Échap--> menu
+update --confirm install--> onRequestUpdate() + exit() → post-Ink spawn install.sh
 vigie:constat --Entrée--> vigie:form  (si .wav trouvés et writable)
 vigie:constat --Échap--> menu
 vigie:form --submit--> vigie:confirm (calcule le plan)
@@ -110,7 +124,29 @@ vigie:confirm --Échap--> vigie:form
 vigie:result --Entrée--> menu
 ```
 
-L'`App` tient le state via `useState<Screen>` et passe des callbacks aux écrans. Pas de Redux, pas de Context, pas de routeur. Une state machine de 80 lignes max.
+L'`App` tient le state via `useState<Screen>` et passe des callbacks aux écrans. Pas de Redux, pas de Context, pas de routeur.
+
+**Auto-check au boot** : un `useEffect` au mount d'`App` lance `checkForUpdate({ currentVersion: CHIRO_VERSION })` (test seam : `bootChecker?` injectable). Le résultat est stocké dans `availableVersion: string | null` et passé à `MenuScreen` qui affiche le hint jaune si non-null. Cleanup avec `AbortController` + flag `cancelled` au démontage.
+
+**Pattern drapeau post-Ink** : pour lancer `install.sh` proprement, on ne spawn pas pendant que Ink dessine (stdout serait contesté). À la place :
+
+1. `App` reçoit une prop `onRequestUpdate: () => void` depuis `index.tsx`.
+2. Sur confirmation d'install dans `UpdateScreen`, App appelle `onRequestUpdate()` puis `useApp().exit()` synchronement.
+3. Dans `index.tsx`, le callback pose un drapeau interne ; après `await render(...).waitUntilExit()`, si le drapeau est posé, on lance `spawnSync("bash", ["-c", "curl -fL ${INSTALL_SCRIPT_URL} | bash"], { stdio: "inherit" })` puis `process.exit(proc.status ?? 0)`.
+4. Ink est unmount avant le spawn, donc stdout/stderr sont libres pour `install.sh`.
+
+### Contrat `install.sh`
+
+`UpdateScreen` invoque `install.sh` depuis `main` via `INSTALL_SCRIPT_URL`. Tant que ce contrat tient, l'update fonctionne :
+
+- **URL stable** : `https://raw.githubusercontent.com/zaratan/chiro-tools/main/scripts/install.sh` ne doit jamais bouger.
+- **Pas d'interactivité** : le script ne lit jamais stdin (pas de `read -p`, pas de prompt sudo).
+- **Cible fixe** : place le binaire dans `~/.local/bin/chiro` (ou respecte `$CHIRO_INSTALL_DIR` si fourni).
+- **Idempotent** : ré-exécuter le script doit produire le même état final.
+- **Exit code 0 = succès, autre = échec** : `chiro` propage ce code via `process.exit(proc.status ?? 0)`.
+- **Pas de quarantine attribute** : assumé OK car `curl | bash` ne pose pas l'attribut com.apple.quarantine.
+
+Toute PR touchant `install.sh` doit re-cocher ce contrat manuellement.
 
 ## Build
 

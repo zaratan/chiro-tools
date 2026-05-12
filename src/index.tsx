@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 import { render } from "ink";
+import { spawnSync } from "node:child_process";
 import { App } from "./app.js";
+import { INSTALL_SCRIPT_URL } from "./lib/update/constants.js";
 import { CHIRO_VERSION } from "./version.js";
 
 const args = process.argv.slice(2);
@@ -39,4 +41,32 @@ if (!process.stdout.isTTY) {
   process.exit(1);
 }
 
-render(<App cwd={process.cwd()} />, { exitOnCtrlC: false });
+// Using an object so that TypeScript flow analysis does not narrow the flag
+// to `false` permanently (a plain `let boolean` would be flagged as
+// always-falsy by @typescript-eslint/no-unnecessary-condition).
+const state = { installAfterExit: false };
+
+const instance = render(
+  <App
+    cwd={process.cwd()}
+    onRequestUpdate={() => {
+      state.installAfterExit = true;
+    }}
+  />,
+  { exitOnCtrlC: false },
+);
+
+await instance.waitUntilExit();
+
+if (state.installAfterExit) {
+  // Run install.sh post-Ink so stdout is not contested.
+  // stdio inherited so the user sees curl progress and install.sh feedback directly.
+  const proc = spawnSync(
+    "bash",
+    ["-c", `curl -fL ${INSTALL_SCRIPT_URL} | bash`],
+    { stdio: "inherit" },
+  );
+  // Propagate a meaningful exit code: real status if present, 130 on signal
+  // (Ctrl+C convention), 1 otherwise so a silent crash is not reported as success.
+  process.exit(proc.status ?? (proc.signal !== null ? 130 : 1));
+}

@@ -2,7 +2,7 @@ import { render } from "ink-testing-library";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./app.js";
 import type { ApplyRenamesFn } from "./screens/vigie-chiro/ConfirmScreen.js";
 import type { RenamePlan, RenameOutcome } from "./types.js";
@@ -42,7 +42,9 @@ describe("App — end-to-end", () => {
   });
 
   it("completes the nominal flow: Menu → Constat → Form → Confirm → Result A", async () => {
-    const { stdin, lastFrame } = render(<App cwd={tmpDir} />);
+    const { stdin, lastFrame } = render(
+      <App cwd={tmpDir} onRequestUpdate={vi.fn()} />,
+    );
 
     // --- Menu ---
     expect(lastFrame() ?? "").toContain("chiro — outils Vigie-Chiro");
@@ -154,7 +156,11 @@ describe("App — end-to-end", () => {
     await mkdir(logDir, { recursive: true });
 
     const { stdin, lastFrame } = render(
-      <App cwd={tmpDir} applyRenames={slowApplyRenames} />,
+      <App
+        cwd={tmpDir}
+        applyRenames={slowApplyRenames}
+        onRequestUpdate={vi.fn()}
+      />,
     );
 
     // Navigate Menu → Constat → Form → Confirm
@@ -194,5 +200,76 @@ describe("App — end-to-end", () => {
 
     // Result variante D
     expect(lastFrame() ?? "").toContain("Renommage arrêté à votre demande");
+  });
+
+  it("displays the update hint in the menu when bootChecker finds an update", async () => {
+    const bootChecker = vi
+      .fn()
+      .mockResolvedValue({ availableVersion: "v0.9.9" });
+    const { lastFrame, unmount } = render(
+      <App cwd={tmpDir} onRequestUpdate={vi.fn()} bootChecker={bootChecker} />,
+    );
+
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+
+    expect(lastFrame()).toContain("⚠ Une mise à jour est disponible (v0.9.9).");
+    expect(bootChecker).toHaveBeenCalledOnce();
+
+    unmount();
+  });
+
+  it("does not display the update hint when bootChecker returns no update", async () => {
+    const bootChecker = vi.fn().mockResolvedValue({ availableVersion: null });
+    const { lastFrame, unmount } = render(
+      <App cwd={tmpDir} onRequestUpdate={vi.fn()} bootChecker={bootChecker} />,
+    );
+
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+
+    expect(lastFrame() ?? "").not.toContain("Une mise à jour est disponible");
+
+    unmount();
+  });
+
+  it("calls onRequestUpdate when user picks update and confirms install", async () => {
+    const onRequestUpdate = vi.fn();
+    const bootChecker = vi.fn().mockResolvedValue({ availableVersion: null });
+    const updateChecker = vi
+      .fn()
+      .mockResolvedValue({ kind: "ok", tagName: "v9.9.9" });
+
+    const { stdin, lastFrame, unmount } = render(
+      <App
+        cwd={tmpDir}
+        onRequestUpdate={onRequestUpdate}
+        bootChecker={bootChecker}
+        updateChecker={updateChecker}
+      />,
+    );
+
+    // Navigate Menu: down arrow once to select "Vérifier les mises à jour"
+    stdin.write("\x1B[B");
+    await settle();
+
+    // Press Enter to go to UpdateScreen
+    stdin.write("\r");
+    await settle();
+    // Wait for the async checker to resolve
+    await new Promise((r) => setTimeout(r, 200));
+
+    // UpdateScreen mounted, checker resolved with "available"
+    expect(lastFrame()).toContain(
+      "Une nouvelle version est disponible : v9.9.9",
+    );
+
+    // Press Enter to confirm install
+    stdin.write("\r");
+    await settle();
+
+    expect(onRequestUpdate).toHaveBeenCalledOnce();
+
+    unmount();
   });
 });

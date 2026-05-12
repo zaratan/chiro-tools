@@ -132,6 +132,23 @@ Activer **uniquement si** un test sur machine vierge révèle un blocage Gatekee
 
 **Action utilisateur restante** : pousser `git tag v0.1.0 && git push origin v0.1.0`, vérifier que les 3 jobs CI passent verts, puis tester l'install one-liner sur une machine vierge.
 
+## Phase 4.6 — Self-update intégré ✓
+
+**Objectif** : permettre à l'utilisatrice de mettre à jour chiro sans toucher au terminal. Item de menu **"Vérifier les mises à jour"** + auto-check silencieux au boot avec hint jaune si une version est dispo.
+
+### Tâches (réalisées en 4.6 A/B/C/D)
+
+- [x] `src/lib/update/` — logique pure : parseVersion, compareVersions, fetchLatestVersion (GitHub Releases API), cache disque 6 h, orchestrateur checkForUpdate. 100% coverage. — **4.6A**
+- [x] `src/screens/UpdateScreen.tsx` + `updateErrorMessages.ts` — 4 états (checking / available / up-to-date / error), mapping FR pour 6 codes d'erreur. — **4.6B**
+- [x] Intégration App + Menu + index — item de menu, hint jaune au boot, drapeau post-Ink, `spawnSync` d'`install.sh` avec stdio hérités. — **4.6C**
+- [x] Documentation — `ux.md` (Écran 5 + mapping codes), `spec.md` (Écran 5 + flux post-Ink), `architecture.md` (arbo `lib/update/`, pattern drapeau post-Ink, contrat install.sh). — **4.6D**
+
+### Critère de sortie
+
+- [x] `pnpm check` vert, 227+ tests
+- [ ] Test manuel : nouvelle version dispo sur GitHub → hint jaune apparaît au boot après ~1-2s
+- [ ] Test manuel : Menu → "Vérifier les mises à jour" → Entrée → install se lance en sortie de Ink, ré-install bien le binaire
+
 ## V2 (post-MVP, hors scope)
 
 Idées priorisées par valeur utilisateur :
@@ -142,8 +159,7 @@ Idées priorisées par valeur utilisateur :
 4. **Mode batch CLI** pour utilisateurs avancés : `chiro vigie --carre 040962 --pass 3 --point A1`. Estimation : 0.5 j.
 5. **Brew tap perso** (`homebrew-chiro`) — formula pointant sur les GH Releases existantes. Estimation : 1 h.
 6. **Linux arm64**, **macOS Intel x64**. Estimation : 1 h (juste 2 targets de build à ajouter).
-7. **Auto-update** : notification "version X.Y disponible" au boot (check version GitHub). Estimation : 2 h.
-8. **Internationalisation** (EN) si l'usage déborde le réseau Vigie-Chiro français.
+7. **Internationalisation** (EN) si l'usage déborde le réseau Vigie-Chiro français.
 
 ## Définition de "Terminé"
 

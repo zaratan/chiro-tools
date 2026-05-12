@@ -31,17 +31,20 @@ Le dossier ciblé est **toujours `process.cwd()`** (le dossier dans lequel l'uti
 
 ```
 [Menu] → [Constat] → [Saisie] → [Confirmation] → [Résultat] → (retour Menu)
+   └─→  [Update]  → (retour Menu OU exec install.sh + exit)
 ```
 
-La state machine comporte **5 écrans** (pas de `RunningScreen` séparé). ConfirmScreen héberge l'exécution `applyRenames` via un sous-effet interne (transition silencieuse vers Result). L'opération est sub-100 ms en pratique ; un écran flash séparé serait pire que rien.
+La state machine comporte **5 écrans wizard** (Menu/Constat/Saisie/Confirmation/Résultat) plus **1 écran transverse** (Update, accessible depuis le Menu). ConfirmScreen héberge l'exécution `applyRenames` via un sous-effet interne (transition silencieuse vers Result). L'opération est sub-100 ms en pratique ; un écran flash séparé serait pire que rien.
 
 ### Écran 0 — Menu principal
 
 - Titre : `chiro — outils Vigie-Chiro`
 - Sous-titre : `Que voulez-vous faire ?`
-- Items (un seul au MVP, mais structure extensible) :
+- Items :
   - `Préfixer des enregistrements pour Vigie-Chiro` (item sélectionné par défaut)
+  - `Vérifier les mises à jour`
   - `Quitter`
+- **Auto-check au boot** : un `useEffect` lance `checkForUpdate` au mount (cache disque 6 h, silent fail). Si une version > `CHIRO_VERSION` est dispo, un hint jaune `⚠ Une mise à jour est disponible (vX.Y.Z).` apparaît entre la liste d'items et le footer. Sinon (à jour, erreur réseau, etc.), aucun hint.
 - Navigation : `↑ ↓` pour bouger la sélection, `Entrée` pour valider, `Échap` ou `Ctrl+C` pour quitter.
 - Footer : `↑↓ choisir   Entrée valider   Échap quitter`
 
@@ -146,6 +149,36 @@ Affiché après exécution. Trois variantes possibles selon l'issue :
 - `Vous pouvez relancer chiro, les fichiers déjà renommés seront automatiquement reconnus.` (rappel idempotence)
 
 Voir [`ux.md`](./ux.md) pour les wordings exacts.
+
+### Écran 5 — Mise à jour (transverse)
+
+Accessible depuis l'item de menu **"Vérifier les mises à jour"**. Indépendant du wizard de préfixage.
+
+**Flux** :
+
+1. Au mount, l'écran lance `fetchLatestVersion` (cache pas relu — l'utilisatrice attend une vérif fraîche puisqu'elle a cliqué explicitement). Pendant le fetch, l'écran affiche `Vérification de la dernière version…` et **désactive Ctrl+C global** via `runningRef` pour ne pas tuer le fetch en cours (l'utilisatrice peut toujours sortir avec Échap).
+2. Selon le résultat :
+   - **Version distante > `CHIRO_VERSION`** : affiche `✓ Une nouvelle version est disponible : vX.Y.Z` + avertissement explicite que chiro va se fermer + footer `Entrée installer   Échap retour au menu`.
+   - **Versions égales ou locale > distante** : affiche `✓ Vous êtes à jour.` + footer `Échap retour au menu`.
+   - **Erreur réseau / parse / rate-limit** : affiche un message d'erreur lisible avec mapping FR (cf. table ci-dessous).
+3. Sur **Entrée** en état "available" : pose un drapeau via `onRequestInstall()` (qui remonte jusqu'à `index.tsx`), puis `useApp().exit()`. Pas d'écran intermédiaire — `install.sh` produit son propre feedback "Téléchargement…" en sortie de Ink.
+
+**Exécution post-Ink** : après `render().waitUntilExit()`, si le drapeau est posé, `index.tsx` lance `spawnSync("bash", ["-c", "curl -fL .../install.sh | bash"], { stdio: "inherit" })` puis `process.exit(proc.status ?? 0)`. Stdout/stderr/stdin sont hérités — l'utilisatrice voit la progression curl + le `chiro installé dans ~/.local/bin/chiro` final.
+
+**Codes d'erreur Update** :
+
+| Code          | Cause                                                |
+| ------------- | ---------------------------------------------------- |
+| `network`     | DNS échec / connection refused                       |
+| `timeout`     | `AbortSignal.timeout(15_000)` déclenché              |
+| `http-403`    | Rate-limit GitHub (60 req/h non-authentifié)         |
+| `http-404`    | Repo sans release publiée                            |
+| `parse`       | Body non-JSON, `tag_name` absent / non-string / vide |
+| `parse-local` | `CHIRO_VERSION` ne matche pas le parser semver       |
+
+Tous les codes mappent en messages français lisibles (cf. `ux.md` → "Codes d'erreur Update → libellés FR").
+
+**Limite connue** : en cas d'échec d'`install.sh` (réseau coupé en plein download), l'utilisatrice voit le `stderr` de curl, pas un message chiro-friendly. Acceptable pour le MVP.
 
 ## Règles métier
 
