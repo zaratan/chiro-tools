@@ -1,21 +1,13 @@
-import {
-  access,
-  copyFile as defaultCopyFile,
-  rename as defaultRename,
-  unlink as defaultUnlink,
-} from "node:fs/promises";
+import { access } from "node:fs/promises";
 import path from "node:path";
 import type { RenameError, RenameOutcome, RenamePlan } from "../../types.js";
+import { renameWithFallback, type RenameFsLike } from "./safeFsOps.js";
 
 /**
  * Minimal filesystem surface needed to execute a rename plan.
  * Exposed so tests can inject mocks for hard-to-reproduce conditions (e.g. EXDEV).
  */
-export type FsLike = {
-  rename: (from: string, to: string) => Promise<void>;
-  copyFile: (from: string, to: string) => Promise<void>;
-  unlink: (file: string) => Promise<void>;
-};
+export type FsLike = RenameFsLike;
 
 export type ApplyOptions = {
   /**
@@ -28,23 +20,6 @@ export type ApplyOptions = {
    * Filesystem implementation override. Defaults to `node:fs/promises`.
    */
   fs?: FsLike;
-};
-
-const defaultFs: FsLike = {
-  rename: defaultRename,
-  copyFile: defaultCopyFile,
-  unlink: defaultUnlink,
-};
-
-const extractErrorCode = (err: unknown): string => {
-  if (
-    err instanceof Error &&
-    "code" in err &&
-    typeof (err as { code: unknown }).code === "string"
-  ) {
-    return (err as { code: string }).code;
-  }
-  return "UNKNOWN";
 };
 
 /**
@@ -84,7 +59,6 @@ export const applyRenames = async (
   dir: string,
   options?: ApplyOptions,
 ): Promise<RenameOutcome> => {
-  const fs = options?.fs ?? defaultFs;
   const signal = options?.signal;
   const start = performance.now();
 
@@ -106,34 +80,14 @@ export const applyRenames = async (
       continue;
     }
 
-    try {
-      await fs.rename(absFrom, absTo);
-      renamed.push(op.from);
-      continue;
-    } catch (err) {
-      const code = extractErrorCode(err);
-      if (code !== "EXDEV") {
-        errored.push({ file: op.from, reason: code });
-        continue;
-      }
-      // fall through to cross-device fallback
-    }
+    const result = await renameWithFallback(absFrom, absTo, {
+      fs: options?.fs,
+    });
 
-    try {
-      await fs.copyFile(absFrom, absTo);
-    } catch (copyErr) {
-      errored.push({ file: op.from, reason: extractErrorCode(copyErr) });
-      continue;
-    }
-
-    try {
-      await fs.unlink(absFrom);
+    if (result.kind === "ok") {
       renamed.push(op.from);
-    } catch (unlinkErr) {
-      errored.push({
-        file: op.from,
-        reason: `DUPLICATED (${extractErrorCode(unlinkErr)})`,
-      });
+    } else {
+      errored.push({ file: op.from, reason: result.code });
     }
   }
 

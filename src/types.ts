@@ -12,7 +12,31 @@ export type FormInput = {
   pointCode: string;
 };
 
-export type Action = "vigie-prefix";
+export type Action = "vigie-prefix" | "vigie-process";
+
+export type TimeExpansionMode = "preserve" | "expand-10x";
+
+export type ProcessInput = {
+  mode: TimeExpansionMode;
+};
+
+export type ProcessedFile = {
+  sourceFile: string;
+  chunkCount: number;
+  outputSampleRate: number;
+  channels: number;
+};
+
+export type ProcessError = { file: string; reason: string };
+
+export type ProcessOutcome = {
+  processed: ProcessedFile[];
+  errored: ProcessError[];
+  skippedTooLarge: string[];
+  skippedAlreadyChunked: string[];
+  interrupted: boolean;
+  durationMs: number;
+};
 
 export type RenameOperation = { from: string; to: string };
 
