@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./app.js";
+import { makeRampWav } from "./lib/audio/__tests__/fixtures.js";
 import type { ApplyRenamesFn } from "./screens/vigie-chiro/ConfirmScreen.js";
 import type { RenamePlan, RenameOutcome } from "./types.js";
 
@@ -231,6 +232,106 @@ describe("App — end-to-end", () => {
     expect(lastFrame() ?? "").not.toContain("Une mise à jour est disponible");
 
     unmount();
+  });
+
+  it("completes the process flow: Menu → process:constat → form → confirm → result", async () => {
+    // Replace the empty .wav files with valid synthetic WAVs so the
+    // processing flow has something to chunk.
+    for (const name of TEENSY_FILES) {
+      const buf = makeRampWav({
+        sampleRate: 38400,
+        bitDepth: "16",
+        durationSeconds: 1,
+      });
+      await writeFile(path.join(tmpDir, name), buf);
+    }
+
+    const { stdin, lastFrame } = render(
+      <App cwd={tmpDir} onRequestUpdate={vi.fn()} />,
+    );
+
+    // --- Menu --- pick "Découper les enregistrements"
+    stdin.write("\x1B[B"); // down → vigie-process
+    await settle();
+    stdin.write("\r");
+    await settle();
+    await new Promise((r) => setTimeout(r, 200));
+
+    // --- Constat ---
+    expect(lastFrame() ?? "").toContain(tmpDir);
+    expect(lastFrame() ?? "").toContain("prêt");
+
+    // Continue → Form
+    stdin.write("\r");
+    await settle();
+
+    // --- Form --- pick "Boîtier PaRec" (default, focused)
+    expect(lastFrame() ?? "").toContain(
+      "Quel type d'enregistreur a produit ces fichiers ?",
+    );
+    stdin.write("\r");
+    await settle();
+    await new Promise((r) => setTimeout(r, 200));
+
+    // --- Confirm ---
+    expect(lastFrame() ?? "").toContain("On va découper");
+    expect(lastFrame() ?? "").toContain(
+      "Vos fichiers d'origine ne seront pas modifiés.",
+    );
+
+    // Launch process
+    stdin.write("\r");
+    await new Promise((r) => setTimeout(r, 500));
+
+    // --- Result ---
+    expect(lastFrame() ?? "").toContain("Terminé");
+    expect(lastFrame() ?? "").toContain("morceau");
+    expect(lastFrame() ?? "").toContain(
+      "Vos fichiers d'origine sont intacts dans ce dossier.",
+    );
+
+    // Source files untouched, chunks written to processed/
+    const entries = (await readdir(tmpDir)).sort();
+    const sourceWavs = entries.filter(
+      (e) => e.endsWith(".wav") && !e.startsWith("Car"),
+    );
+    expect(sourceWavs.length).toBe(TEENSY_FILES.length);
+
+    const processedEntries = await readdir(path.join(tmpDir, "processed"));
+    expect(processedEntries.length).toBeGreaterThan(0);
+    expect(processedEntries.every((e) => e.endsWith(".wav"))).toBe(true);
+  });
+
+  it("blocks the process flow when processed/ already contains files", async () => {
+    // Write valid source WAVs and a leftover processed/ from a prior run.
+    for (const name of TEENSY_FILES) {
+      const buf = makeRampWav({
+        sampleRate: 38400,
+        bitDepth: "16",
+        durationSeconds: 1,
+      });
+      await writeFile(path.join(tmpDir, name), buf);
+    }
+    await mkdir(path.join(tmpDir, "processed"), { recursive: true });
+    await writeFile(
+      path.join(tmpDir, "processed", "leftover.wav"),
+      makeRampWav({ durationSeconds: 1 }),
+    );
+
+    const { stdin, lastFrame } = render(
+      <App cwd={tmpDir} onRequestUpdate={vi.fn()} />,
+    );
+
+    stdin.write("\x1B[B"); // down → vigie-process
+    await settle();
+    stdin.write("\r");
+    await settle();
+    await new Promise((r) => setTimeout(r, 200));
+
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Un dossier « processed » existe déjà ici.");
+    // Yellow warning, not red — non-destructive contract
+    expect(frame).toContain("renommer l'ancien dossier");
   });
 
   it("calls onRequestUpdate when user picks update and confirms install", async () => {

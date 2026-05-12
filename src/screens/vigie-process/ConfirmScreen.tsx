@@ -7,9 +7,41 @@ import type {
   ProcessOptions,
   processWavFiles as ProcessWavFilesType,
 } from "../../lib/audio/processWavFiles.js";
-import type { ProcessInput, ProcessOutcome } from "../../types.js";
+import { logSession } from "../../lib/logging/log.js";
+import type {
+  ProcessInput,
+  ProcessOutcome,
+  SessionEvent,
+} from "../../types.js";
+import { CHIRO_VERSION } from "../../version.js";
 
 export type ProcessWavFilesFn = typeof ProcessWavFilesType;
+
+const buildSessionEvent = (
+  input: ProcessInput,
+  outcome: ProcessOutcome,
+  cwd: string,
+): SessionEvent => ({
+  schema_version: 2,
+  ts: new Date().toISOString(),
+  version: CHIRO_VERSION,
+  cwd,
+  action: "vigie-process",
+  input: { mode: input.mode },
+  result: {
+    processed: outcome.processed.map((p) => ({
+      source_file: p.sourceFile,
+      chunk_count: p.chunkCount,
+      output_sample_rate: p.outputSampleRate,
+      channels: p.channels,
+    })),
+    errored: outcome.errored,
+    skipped_too_large: outcome.skippedTooLarge,
+    skipped_already_chunked: outcome.skippedAlreadyChunked,
+    interrupted: outcome.interrupted,
+    duration_ms: outcome.durationMs,
+  },
+});
 
 const TEENSY_RATE = 38400;
 const AUDIOMOTH_OUTPUT_RATE = 25000;
@@ -133,6 +165,12 @@ export const ConfirmScreen = ({
 
     const options: ProcessOptions = { signal: controller.signal };
     const outcome = await processWavFiles(wavFiles, cwd, input, options);
+
+    try {
+      await logSession(buildSessionEvent(input, outcome, cwd));
+    } catch {
+      // Local log is best-effort — never block the UI on a write failure.
+    }
 
     runningRef.current = false;
     controllerRef.current = null;

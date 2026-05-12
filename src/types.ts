@@ -72,15 +72,59 @@ export type SessionResult = {
 };
 
 /**
- * A single JSONL entry written to `~/.chiro/sessions.jsonl` after each session.
- * Field names use snake_case for JSON interchange compatibility.
+ * Aggregated counts and errors for a completed process (split + TE) session.
+ * Field names use snake_case for the same JSON-interchange reason as
+ * `SessionResult`.
  */
-export type SessionEvent = {
-  schema_version: 1;
-  ts: string; // ISO 8601 timestamp
-  version: string;
-  cwd: string;
-  action: Action;
-  input: FormInput;
-  result: SessionResult;
+export type ProcessResultSerialized = {
+  processed: {
+    source_file: string;
+    chunk_count: number;
+    output_sample_rate: number;
+    channels: number;
+  }[];
+  errored: { file: string; reason: string }[];
+  skipped_too_large: string[];
+  skipped_already_chunked: string[];
+  interrupted: boolean;
+  duration_ms: number;
 };
+
+/**
+ * Serialized form of `ProcessInput` for JSONL logging. Same shape as
+ * `ProcessInput` but kept distinct so any future field additions to the
+ * runtime type don't silently change the wire format.
+ */
+export type ProcessInputSerialized = {
+  mode: TimeExpansionMode;
+};
+
+/**
+ * A single JSONL entry written to `~/.chiro/sessions.jsonl` after each session.
+ *
+ * Discriminated on `schema_version` so older readers (which only know
+ * schema 1) can ignore v2+ entries safely. The `action` field is also
+ * available as a secondary discriminant.
+ *
+ * v1 — `vigie-prefix` rename sessions. Wire format must remain byte-stable.
+ * v2 — `vigie-process` split-and-expand sessions. New in this release.
+ */
+export type SessionEvent =
+  | {
+      schema_version: 1;
+      ts: string; // ISO 8601 timestamp
+      version: string;
+      cwd: string;
+      action: "vigie-prefix";
+      input: FormInput;
+      result: SessionResult;
+    }
+  | {
+      schema_version: 2;
+      ts: string;
+      version: string;
+      cwd: string;
+      action: "vigie-process";
+      input: ProcessInputSerialized;
+      result: ProcessResultSerialized;
+    };
