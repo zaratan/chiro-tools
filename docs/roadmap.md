@@ -159,6 +159,7 @@ Activer **uniquement si** un test sur machine vierge révèle un blocage Gatekee
 - [x] **5.B** Screens `vigie-process/` : Constat (perms + `processed/` existant en jaune + `statfs` espace disque), Form (sélecteur Teensy/Autre inline), Confirm (preview durée + rappel non-destructif), Result (4 variantes : success / interrupted / all-failed / partial avec groupage erreurs).
 - [x] **5.C** Logging : `SessionEvent` discriminé sur `schema_version` (v1 = vigie-prefix byte-stable, v2 = vigie-process). Snapshot test assert l'immuabilité de la sérialisation v1. E2E test du flow process complet.
 - [x] **5.D** Docs sync + workflow CI `ci.yml` (lint + typecheck + test + smoke build) en plus de `release.yml`.
+- [x] **5.E** Progression intra-batch du flow Découper : `ProgressEvent` (file-start/chunk-written/file-done), `etaTracker` byte-weighted (`src/lib/audio/etaTracker.ts`), hook `useProgressState` colocalisé (`src/screens/vigie-process/useProgressState.ts`) avec throttle 100 ms + `finalizeRender()` synchrone, composant `RunningView` (chemin + fichier courant + barre 40 chars `█░` + ligne stats + adaptive masking < 5 fichiers + réassurance non-destructive en `dimColor`).
 
 ### Critère de sortie
 
@@ -168,6 +169,7 @@ Activer **uniquement si** un test sur machine vierge révèle un blocage Gatekee
 - [ ] Test manuel : dossier AudioMoth → mode `expand-10x` → chunks à 25 000 Hz, durée 5 s expansée.
 - [ ] Test manuel : `processed/` existant → warning jaune ⚠ avec « renommer l'ancien dossier ».
 - [ ] Test manuel : Ctrl+C pendant un gros fichier → aucun `.tmp` orphelin, `interrupted: true` loggé.
+- [ ] Test manuel : batch nominal de 100 AudioMoth → ETA `Calcul du temps restant…` au 1ᵉʳ fichier, ETA convergé ±10 % dès le 2ᵉ, barre fluide visible toutes les ~10 s, barre à 100 % avant le ResultScreen.
 
 ### Hard guardrails de scope (à ne JAMAIS franchir)
 

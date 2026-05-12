@@ -188,6 +188,39 @@ Footer : `Entrée découper   Échap modifier la saisie`.
 
 L'estimation de durée est **best-effort** basée sur la taille du fichier (16-bit PCM mono assumed). Pour stéréo on overestimate ×2 — acceptable pour un preview qui sert juste à donner un ordre de grandeur.
 
+### Contrat `onProgress` — progression intra-batch
+
+Le flow Découper peut traiter une centaine de fichiers (~25 min de run nominal sur 100 AudioMoth). Pour rassurer l'utilisatrice non-tech qui ne peut pas distinguer un freeze d'une progression normale, `processWavFiles` accepte un callback `onProgress?: (event: ProgressEvent) => void`.
+
+Le type `ProgressEvent` (dans `src/types.ts`) est une union discriminée sur `kind` :
+
+| `kind`          | Quand                                             | Données utiles                                         |
+| --------------- | ------------------------------------------------- | ------------------------------------------------------ |
+| `file-start`    | Après `stat`, avant `readFile`                    | `fileIndex`, `fileName`, `fileSizeBytes`, `totalFiles` |
+| `chunk-written` | Après chaque `writeFileAtomic` réussi             | `fileIndex`, `chunkIndex`                              |
+| `file-done`     | Après sortie nominale de la boucle `splitWavFile` | `fileIndex`, `chunkCount`, `fileSizeBytes`             |
+
+**Aucun event** n'est émis pour les `skippedTooLarge`, `skippedAlreadyChunked`, `stat`-errors, `readFile`-errors, `splitWavFile` errors, ni en cas d'abort. Ces signaux restent observables sur le `ProcessOutcome` final. La surface étroite est volontaire — on l'élargira quand un consommateur en aura besoin.
+
+Le callback est **synchrone** (le lib n'`await` pas). Toute exception levée est interceptée :
+
+- En mode dev (`process.env.CHIRO_DEV === "1"`), la stack est loggée via `console.error`.
+- Sinon, silencieux — un bug UI ne doit jamais crasher le batch d'un user non-tech.
+
+### Calcul de l'ETA (byte-weighted)
+
+L'ETA est calculé par `src/lib/audio/etaTracker.ts` selon la formule :
+
+```
+remainingMs = elapsedMs × (bytesRemaining / bytesDone)
+```
+
+avec `bytesDone` incrémenté à chaque `file-done` (du nombre de bytes du fichier qui vient de se terminer). Tant que `bytesDone === 0` (pas encore un fichier complet), `estimateRemainingMs` retourne `null` et l'UI affiche `Calcul du temps restant…`.
+
+**Pourquoi byte-weighted plutôt que par-compte-de-fichiers** : les batches Vigie-Chiro sont hétérogènes (un AudioMoth full ≈ 143 MB / 60 s vs un Teensy ≈ 4 MB / 50 s). Pondérer par octets stabilise l'estimation : un batch mixte 2 AudioMoth + 5 Teensy ne voit pas son ETA exploser à cause des 2 fichiers de 143 MB.
+
+**Adaptive masking** : pour `filesTotal < 5`, l'UI masque la portion ETA de la ligne stats (la barre reste). L'estimation à 1-4 fichiers est trop coarse pour être informative et son affichage parasite plus qu'il n'aide.
+
 ### Écran P-Résultat
 
 Quatre variantes, mêmes principes UX que le rename :

@@ -2,7 +2,8 @@ import { existsSync } from "node:fs";
 import { copyFile, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ProgressEvent } from "../../../types.js";
 import { processWavFiles } from "../processWavFiles.js";
 import { readSamplesPerChannel } from "./fixtures.js";
 
@@ -164,6 +165,34 @@ describe.skipIf(!testDataAvailable)(
         offset += chunkSamples.length;
       }
       expect(offset).toBeGreaterThan(0);
+    }, 30_000);
+
+    it("emits chunksWritten matching outcome.processed[0].chunkCount on real Teensy", async () => {
+      await copyFile(
+        path.join(TEENSY_DIR, TEENSY_FILE),
+        path.join(workDir, TEENSY_FILE),
+      );
+
+      let chunkWrittenCount = 0;
+      const onProgress = vi.fn((e: ProgressEvent) => {
+        if (e.kind === "chunk-written") chunkWrittenCount += 1;
+      });
+
+      const outcome = await processWavFiles(
+        [TEENSY_FILE],
+        workDir,
+        {
+          mode: "preserve",
+        },
+        { onProgress },
+      );
+
+      expect(outcome.errored).toEqual([]);
+      expect(outcome.processed.length).toBe(1);
+      const proc = outcome.processed[0];
+      if (!proc) throw new Error("no processed entry");
+
+      expect(chunkWrittenCount).toBe(proc.chunkCount);
     }, 30_000);
 
     it("aborts cleanly mid-AudioMoth and leaves no orphan .tmp", async () => {

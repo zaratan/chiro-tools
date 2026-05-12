@@ -383,6 +383,43 @@ Tout autre format (float, A-law, µ-law, ADPCM) retourne `{ kind: "error", code:
 3. **`bitDepth`** est une **string** (`"16"`, `"24"`, `"32"`, `"32f"`, `"64"`) — pas un number. Le constructeur `fromScratch` attend cette string.
 4. **Chunks `LIST` / `INFO` / `ICMT` (metadata AudioMoth)** : présents sur l'input, **non préservés** par `fromScratch` au re-encode. Comportement aligné avec Kaleidoscope. À documenter si un consommateur aval s'en plaint.
 
+### ETA tracker (byte-weighted)
+
+`src/lib/audio/etaTracker.ts` expose un petit utilitaire pur (zero import Ink/React) qui suit la progression d'un batch en termes d'octets traités plutôt qu'en compte de fichiers. Approche choisie après lead-eng review : robuste à l'hétérogénéité des batches Vigie-Chiro (mix AudioMoth 143 MB + Teensy 4 MB).
+
+API :
+
+- `createETATracker(bytesTotal, nowMs?)` — instancie un tracker avec le volume total connu d'avance (via les `stats.size` cumulés calculés dans `estimateChunkCount` côté UI).
+- `markFileDone(tracker, fileSizeBytes)` — appelé à chaque `file-done`.
+- `estimateRemainingMs(tracker, nowMs?)` — `null` tant que `bytesDone === 0`, sinon `elapsedMs × (bytesRemaining / bytesDone)`.
+- `elapsedMs(tracker, nowMs?)` — temps écoulé depuis création (monotone via `performance.now()`).
+
+`nowMs?` injectable pour faciliter les tests avec une fake clock.
+
+### Pattern `useProgressState` (hook UI)
+
+`src/screens/vigie-process/useProgressState.ts` colocalise la complexité throttle/ETA hors de `ConfirmScreen`. Le hook expose :
+
+```
+{
+  state: ProgressState,         // snapshot rendu (rate-limited)
+  onProgress: (event) => void,  // passé en option à processWavFiles
+  finalizeRender: () => void,   // appelé SYNCHRONEMENT avant onComplete()
+}
+```
+
+Internement :
+
+- `progressRef` (mutable, hors cycle React) accumule chaque event.
+- `setState` est appelé **systématiquement** sur `file-start` et `file-done` (changement de fichier ou de progression coarse), et **rate-limited** sur `chunk-written` (~10 Hz, 100 ms entre frames).
+- `finalizeRender()` flush un dernier `setState` synchrone avec `chunksWritten = totalChunksEstimate` — force la barre à 100 % juste avant l'unmount. Ne JAMAIS l'appeler depuis un cleanup `useEffect` (setState post-unmount = bug React).
+
+`onProgress` et `finalizeRender` sont stables (`useCallback([])`), donc safe à passer dans les options de `processWavFiles` sans re-render.
+
+### Drift watch — `ConfirmScreen.tsx`
+
+Le screen accumule maintenant : preview + run + progression + ETA + abort + log + state machine. Une prochaine modification non-triviale (ex : ajout d'une option de configuration, d'un step de validation supplémentaire) doit déclencher l'extraction d'un hook `useVigieProcessRun()` qui owne le controller d'abort, le `runningRef`, le `logSession`, et l'estimation. À la même occasion, migrer `estimateChunkCount` (logique audio domain actuellement inlinée dans le screen) vers `src/lib/audio/` — la layer rule de CLAUDE.md voudrait qu'elle y vive déjà, mais l'extraction est différée tant qu'elle a un seul consommateur. `ConfirmScreen` ne ferait alors plus que le rendu. Aujourd'hui le screen reste tolérable mais à la limite haute du raisonnable pour un screen unique.
+
 ## Configuration (V2)
 
 Pas de configuration utilisateur au MVP. En V2, `~/.config/chiro/last-session.json` stockera les derniers carré et code point pour pré-remplissage. À ne PAS implémenter au MVP.

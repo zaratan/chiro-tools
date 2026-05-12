@@ -14,6 +14,7 @@ import type {
   SessionEvent,
 } from "../../types.js";
 import { CHIRO_VERSION } from "../../version.js";
+import { RunningView, type RunningViewHandles } from "./RunningView.js";
 
 export type ProcessWavFilesFn = typeof ProcessWavFilesType;
 
@@ -51,20 +52,27 @@ const modeLabel = (mode: ProcessInput["mode"]): string =>
     ? "Boîtier PaRec (Teensy)"
     : "Autre détecteur (ralentissement 10×)";
 
+type ChunkEstimate = {
+  totalChunks: number;
+  totalDurationSec: number;
+  totalBytes: number;
+};
+
 const estimateChunkCount = async (
   wavFiles: string[],
   cwd: string,
   mode: ProcessInput["mode"],
-): Promise<{ totalChunks: number; totalDurationSec: number }> => {
+): Promise<ChunkEstimate> => {
   // Best-effort estimation based on file size. We assume 16-bit PCM
   // (the format used by Teensy/AudioMoth/SM* in Vigie-Chiro). Files with
   // headers and other framing add a few hundred bytes — negligible at
   // the granularity used in the UI.
   let totalSamples = 0;
-  let outputRate = 0;
+  let totalBytes = 0;
   for (const name of wavFiles) {
     try {
       const stats = await stat(path.join(cwd, name));
+      totalBytes += stats.size;
       // Each sample is 2 bytes (16-bit) per channel. We assume mono — the
       // protocol's primary target. If files happen to be stereo we'll
       // overestimate chunks by 2×, which is OK for an approximate preview.
@@ -80,11 +88,11 @@ const estimateChunkCount = async (
   //   The total *sample count* in the file is independent of the rate
   //   change (TE is just a header rewrite), so chunks of 5 s @ output
   //   rate of 25 000 Hz means 125 000 samples per chunk.
-  outputRate = mode === "preserve" ? TEENSY_RATE : AUDIOMOTH_OUTPUT_RATE;
+  const outputRate = mode === "preserve" ? TEENSY_RATE : AUDIOMOTH_OUTPUT_RATE;
   const samplesPerChunk = outputRate * 5;
   const totalChunks = Math.ceil(totalSamples / samplesPerChunk);
   const totalDurationSec = totalSamples / outputRate;
-  return { totalChunks, totalDurationSec };
+  return { totalChunks, totalDurationSec, totalBytes };
 };
 
 const formatDuration = (seconds: number): string => {
@@ -103,10 +111,12 @@ type ConfirmState =
       kind: "preview";
       totalChunks: number;
       totalDurationSec: number;
+      totalBytes: number;
     }
   | {
       kind: "running";
-      filesTotal: number;
+      totalChunks: number;
+      totalBytes: number;
     };
 
 export type ProcessConfirmScreenProps = {
@@ -133,6 +143,9 @@ export const ConfirmScreen = ({
   const [state, setState] = useState<ConfirmState>({ kind: "loading" });
   const controllerRef = useRef<AbortController | null>(null);
 
+  // Stable ref to RunningView handles — set once via onMount callback.
+  const runningHandlesRef = useRef<RunningViewHandles | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     void estimateChunkCount(wavFiles, cwd, input.mode).then((estimate) => {
@@ -141,6 +154,7 @@ export const ConfirmScreen = ({
         kind: "preview",
         totalChunks: estimate.totalChunks,
         totalDurationSec: estimate.totalDurationSec,
+        totalBytes: estimate.totalBytes,
       });
     });
     return () => {
@@ -161,10 +175,21 @@ export const ConfirmScreen = ({
     const controller = new AbortController();
     controllerRef.current = controller;
     runningRef.current = true;
-    setState({ kind: "running", filesTotal: wavFiles.length });
 
-    const options: ProcessOptions = { signal: controller.signal };
+    if (state.kind !== "preview") return;
+    const { totalChunks, totalBytes } = state;
+    setState({ kind: "running", totalChunks, totalBytes });
+
+    const options: ProcessOptions = {
+      signal: controller.signal,
+      onProgress: (event) => {
+        runningHandlesRef.current?.onProgress(event);
+      },
+    };
     const outcome = await processWavFiles(wavFiles, cwd, input, options);
+
+    // Synchronous finalize — forces bar to 100 % before unmount.
+    runningHandlesRef.current?.finalizeRender();
 
     try {
       await logSession(buildSessionEvent(input, outcome, cwd));
@@ -207,18 +232,15 @@ export const ConfirmScreen = ({
 
   if (state.kind === "running") {
     return (
-      <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text dimColor>
-          Découpage en cours… ({state.filesTotal.toString()} fichier
-          {state.filesTotal > 1 ? "s" : ""})
-        </Text>
-        <Box marginTop={1}>
-          <Text dimColor>
-            Cela peut prendre quelques minutes pour les gros fichiers.
-          </Text>
-        </Box>
-        <Footer hints={[]} />
-      </Box>
+      <RunningView
+        cwd={cwd}
+        totalFiles={wavFiles.length}
+        totalChunksEstimate={state.totalChunks}
+        totalBytes={state.totalBytes}
+        onMount={(handles) => {
+          runningHandlesRef.current = handles;
+        }}
+      />
     );
   }
 
@@ -226,11 +248,13 @@ export const ConfirmScreen = ({
   return (
     <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
       <Text>📁 {cwd}</Text>
-      <Box marginTop={1}>
+      <Box marginTop={1} flexDirection="column">
         <Text>
           {`On va découper ${wavFiles.length.toString()} enregistrement${
             wavFiles.length > 1 ? "s" : ""
-          } (environ ${formatDuration(state.totalDurationSec)} d'audio)`}
+          } (environ ${formatDuration(state.totalDurationSec)} d'audio${
+            input.mode === "expand-10x" ? " une fois étendu" : ""
+          })`}
         </Text>
         <Text>en morceaux de 5 secondes.</Text>
       </Box>

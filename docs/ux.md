@@ -23,8 +23,9 @@ Ce document est la source de vérité pour **tous les libellés affichés** et l
 - `📁` — dossier
 - `→` — transition (avant → après)
 - `•` — puce de liste (jamais `-` ou `*`)
+- `█` `░` — barre de progression (run Découper)
 
-**Pas d'autres emojis décoratifs** dans les libellés. On garde ces 6.
+**Pas d'autres emojis décoratifs** dans les libellés. On garde ces 7.
 
 ### Layout général
 
@@ -583,10 +584,12 @@ L'aide `dimColor` sous le sélecteur est volontairement **descriptive plutôt qu
 
 ### P-Confirmation
 
+**Variante mode `expand-10x` (Autre détecteur)** — la durée affichée est l'audio **post-ralentissement** (≈ 10× le temps d'enregistrement réel). On le rend explicite avec « une fois étendu » :
+
 ```
 📁 /Users/.../Vigie-2026-pointA1
 
-On va découper 12 enregistrements (environ 30 minutes d'audio)
+On va découper 12 enregistrements (environ 2 h 30 d'audio une fois étendu)
 en morceaux de 5 secondes.
 
 Type d'enregistreur choisi : Autre détecteur (ralentissement 10×)
@@ -597,22 +600,75 @@ Vos fichiers d'origine ne seront pas modifiés.
   Entrée découper   Échap modifier la saisie
 ```
 
+**Variante mode `preserve` (Boîtier PaRec)** — pas de ralentissement, durée affichée = temps d'enregistrement = audio d'analyse. Pas de qualifier :
+
+```
+On va découper 12 enregistrements (environ 30 minutes d'audio)
+en morceaux de 5 secondes.
+```
+
 **Wording-clé** :
 
 - **« morceaux »** (jamais `chunks`). C'est de l'anglais, jargon, et la non-tech ne le reconnaît pas.
-- **Durée en minutes** plutôt qu'en compte de morceaux — c'est l'unité mentale qu'elle a (« combien de temps j'ai enregistré »).
+- **Durée en minutes/heures** plutôt qu'en compte de morceaux — c'est l'unité mentale qu'elle a.
+- **« une fois étendu »** uniquement en `expand-10x`. Évite de faire croire à l'utilisatrice qu'elle a enregistré 2 h 30 alors qu'elle a enregistré 15 min de full-spectrum. Aligne avec le wording du sélecteur (« ralentir 10× pour l'analyse »).
 - **Rappel non-destructif** en `dimColor`, parallèle au rappel du flow rename (« rien n'est perdu »).
 - **« Autre détecteur (ralentissement 10×) »** : reprend le wording de l'option choisie pour confirmer le bon choix.
 
 ### P-Confirmation — pendant l'exécution
 
-```
-Découpage en cours… (12 fichiers)
+**Variante 1 — pendant le 1ᵉʳ fichier (ETA pas encore disponible)** :
 
-  Cela peut prendre quelques minutes pour les gros fichiers.
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+Découpage en cours…
+
+  Fichier 1 sur 100  •  20260507_210501T.WAV
+
+  █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  2 %
+  3 morceaux • Temps écoulé 5 s • Calcul du temps restant…
+
+  Vos fichiers d'origine ne sont pas modifiés.
+  Dossier de sortie : ./processed/
 ```
 
-Footer vide (cf. Footer raccourcis § Cas particuliers — pas afficher Ctrl+C pour éviter les abandons accidentels).
+**Variante 2 — après ≥ 1 fichier complet (ETA visible)** :
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+Découpage en cours…
+
+  Fichier 6 sur 100  •  20260507_212001T.WAV
+
+  ████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  12 %
+  120 morceaux • Temps écoulé 1 min 30 s • Encore environ 5 min 40 s
+
+  Vos fichiers d'origine ne sont pas modifiés.
+  Dossier de sortie : ./processed/
+```
+
+Les 2 dernières lignes en `dimColor`. **Barre de 40 caractères** : `█` pour la partie remplie, `░` pour la partie vide. Pourcentage = `round((chunksWritten / totalChunksEstimate) × 100)` clamp à 100.
+
+**Wordings calibrés** :
+
+- `Calcul du temps restant…` (pas `Estimation en cours…`)
+- `Encore environ X` (pas `Restant ≈ X` — `≈` est trop technique)
+- `Temps écoulé X` (pas `Écoulé X` — elliptique)
+- `N morceaux` (pas `N morceaux créés` — redondant, on voit qu'on crée)
+
+**Format court de durée** (pour `Temps écoulé` et `Encore environ`) :
+
+- `< 60 s` → `42 s`
+- `< 1 h` → `1 min` ou `2 min 05 s`
+- `≥ 1 h` → `1 h 30 min`
+
+**Adaptive masking — petits batches** : si `filesTotal < 5`, la barre reste affichée mais la portion `• Encore environ X` (ou `• Calcul du temps restant…`) est **masquée** de la ligne stats. La ligne devient alors `N morceaux • Temps écoulé X`. Raison : sur un petit batch (< 25 s de run estimé), l'ETA n'apporte rien et la barre seule suffit.
+
+**Refresh** : throttle UI à ~10 Hz (100 ms entre setStates sur `chunk-written`). `file-start` et `file-done` forcent un setState. Un `finalizeRender()` synchrone est appelé avant `onComplete()` pour garantir la barre à 100 % juste avant l'unmount (jamais dans un cleanup `useEffect` — risque de setState post-unmount).
+
+Footer vide (cf. Footer raccourcis § Cas particuliers — pas afficher Ctrl+C pour éviter les abandons accidentels sur un run de 25 min).
 
 ### P-Résultat (variante A : tout OK)
 

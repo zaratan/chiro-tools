@@ -90,6 +90,25 @@ export type ProcessResultSerialized = {
   duration_ms: number;
 };
 
+// Note: only nominal events are emitted. Errors and skips are observable
+// on the final ProcessOutcome (`errored`, `skippedTooLarge`, `skippedAlreadyChunked`).
+// Keeping the surface narrow until we have a consumer that needs them.
+export type ProgressEvent =
+  | {
+      kind: "file-start";
+      fileIndex: number;
+      fileName: string;
+      fileSizeBytes: number;
+      totalFiles: number;
+    }
+  | { kind: "chunk-written"; fileIndex: number; chunkIndex: number }
+  | {
+      kind: "file-done";
+      fileIndex: number;
+      chunkCount: number;
+      fileSizeBytes: number;
+    };
+
 /**
  * Serialized form of `ProcessInput` for JSONL logging. Same shape as
  * `ProcessInput` but kept distinct so any future field additions to the

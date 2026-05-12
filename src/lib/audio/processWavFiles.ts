@@ -5,6 +5,7 @@ import type {
   ProcessInput,
   ProcessOutcome,
   ProcessedFile,
+  ProgressEvent,
 } from "../../types.js";
 import {
   extractErrorCode,
@@ -22,6 +23,7 @@ export type ProcessOptions = {
   fs?: WriteFsLike;
   /** Hard cap per source file. Defaults to 500 MB. */
   maxInputBytes?: number;
+  onProgress?: (event: ProgressEvent) => void;
 };
 
 const DEFAULT_MAX_INPUT_BYTES = 500 * 1024 * 1024;
@@ -102,6 +104,18 @@ export const processWavFiles = async (
   // the getter fresh at each call site.
   const isAborted = (): boolean => signal?.aborted === true;
   const maxInputBytes = options?.maxInputBytes ?? DEFAULT_MAX_INPUT_BYTES;
+
+  // Wrap onProgress so a buggy callback never crashes the batch.
+  const emit = (event: ProgressEvent): void => {
+    if (!options?.onProgress) return;
+    try {
+      options.onProgress(event);
+    } catch (err) {
+      if (process.env.CHIRO_DEV === "1") {
+        console.error(err);
+      }
+    }
+  };
   const start = performance.now();
   const processedDir = path.join(dir, PROCESSED_DIRNAME);
 
@@ -130,6 +144,7 @@ export const processWavFiles = async (
 
   await preCleanOrphanTmps(processedDir);
 
+  let fileIndex = 0;
   for (const file of files) {
     if (isAborted()) {
       interrupted = true;
@@ -138,6 +153,7 @@ export const processWavFiles = async (
 
     if (ALREADY_CHUNKED_REGEX.test(file)) {
       skippedAlreadyChunked.push(file);
+      fileIndex += 1;
       continue;
     }
 
@@ -149,19 +165,30 @@ export const processWavFiles = async (
       size = stats.size;
     } catch (statErr) {
       errored.push({ file, reason: extractErrorCode(statErr) });
+      fileIndex += 1;
       continue;
     }
 
     if (size > maxInputBytes) {
       skippedTooLarge.push(file);
+      fileIndex += 1;
       continue;
     }
+
+    emit({
+      kind: "file-start",
+      fileIndex,
+      fileName: file,
+      fileSizeBytes: size,
+      totalFiles: files.length,
+    });
 
     let buffer: Uint8Array;
     try {
       buffer = await readFile(absSource);
     } catch (readErr) {
       errored.push({ file, reason: extractErrorCode(readErr) });
+      fileIndex += 1;
       continue;
     }
 
@@ -217,6 +244,8 @@ export const processWavFiles = async (
         break;
       }
 
+      emit({ kind: "chunk-written", fileIndex, chunkIndex: chunk.index });
+
       chunkCount += 1;
       outputSampleRate = chunk.outputSampleRate;
       channels = chunk.channels;
@@ -229,9 +258,20 @@ export const processWavFiles = async (
         outputSampleRate,
         channels,
       });
+      emit({ kind: "file-done", fileIndex, chunkCount, fileSizeBytes: size });
     }
 
+    fileIndex += 1;
     if (interrupted) break;
+
+    // Yield to the macrotask queue between files. The chunk loop above is a
+    // tight `await writeFileAtomic` chain producing only microtasks, which
+    // starves stdout flushing (Ink's progress repaint backs up and looks
+    // glitchy) and prevents the GC from reclaiming the 100-300 MB peak the
+    // current file allocated (source buffer + decoded samples + wavefile
+    // intermediates). One setImmediate lets I/O callbacks run and gives the
+    // GC a stop-the-world window before the next file's allocations begin.
+    await new Promise<void>((resolve) => setImmediate(resolve));
   }
 
   return {

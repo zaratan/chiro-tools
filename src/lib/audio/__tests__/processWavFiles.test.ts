@@ -1,7 +1,8 @@
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ProgressEvent } from "../../../types.js";
 import { processWavFiles } from "../processWavFiles.js";
 import { makeRampWav, readSamplesPerChannel } from "./fixtures.js";
 
@@ -184,5 +185,148 @@ describe("processWavFiles", () => {
 
     const entries = await readdir(path.join(tmpDir, "processed"));
     expect(entries).not.toContain("old_orphan.wav.tmp");
+  });
+
+  it("emits progress events in the expected sequence for two nominal files", async () => {
+    await writeWav("first.wav", { durationSeconds: 11 });
+    await writeWav("second.wav", { durationSeconds: 6 });
+
+    const events: ProgressEvent[] = [];
+    const onProgress = vi.fn((e: ProgressEvent) => {
+      events.push(e);
+    });
+
+    const outcome = await processWavFiles(
+      ["first.wav", "second.wav"],
+      tmpDir,
+      { mode: "preserve" },
+      { onProgress },
+    );
+
+    expect(outcome.errored).toEqual([]);
+    expect(outcome.processed.length).toBe(2);
+
+    // file-start for first file (fileIndex 0)
+    const firstStart = events.find(
+      (e) => e.kind === "file-start" && e.fileIndex === 0,
+    );
+    if (!firstStart) throw new Error("missing first file-start");
+    if (firstStart.kind !== "file-start") throw new Error("wrong kind");
+    expect(firstStart.fileName).toBe("first.wav");
+    expect(firstStart.fileSizeBytes).toBeGreaterThan(0);
+    expect(firstStart.totalFiles).toBe(2);
+
+    // chunk-written events for first file
+    const firstChunksWritten = events.filter(
+      (e) => e.kind === "chunk-written" && e.fileIndex === 0,
+    );
+    // 11s / 5s = 3 chunks
+    expect(firstChunksWritten.length).toBe(3);
+
+    // file-done for first file
+    const firstDone = events.find(
+      (e) => e.kind === "file-done" && e.fileIndex === 0,
+    );
+    if (!firstDone) throw new Error("missing first file-done");
+    if (firstDone.kind !== "file-done") throw new Error("wrong kind");
+    expect(firstDone.chunkCount).toBe(3);
+    expect(firstDone.fileSizeBytes).toBe(firstStart.fileSizeBytes);
+
+    // file-start for second file (fileIndex 1)
+    const secondStart = events.find(
+      (e) => e.kind === "file-start" && e.fileIndex === 1,
+    );
+    if (!secondStart) throw new Error("missing second file-start");
+    if (secondStart.kind !== "file-start") throw new Error("wrong kind");
+    expect(secondStart.fileName).toBe("second.wav");
+    expect(secondStart.totalFiles).toBe(2);
+
+    // chunk-written events for second file
+    const secondChunksWritten = events.filter(
+      (e) => e.kind === "chunk-written" && e.fileIndex === 1,
+    );
+    // 6s / 5s = 2 chunks
+    expect(secondChunksWritten.length).toBe(2);
+
+    // file-done for second file
+    const secondDone = events.find(
+      (e) => e.kind === "file-done" && e.fileIndex === 1,
+    );
+    if (!secondDone) throw new Error("missing second file-done");
+    if (secondDone.kind !== "file-done") throw new Error("wrong kind");
+    expect(secondDone.chunkCount).toBe(2);
+    expect(secondDone.fileSizeBytes).toBe(secondStart.fileSizeBytes);
+
+    // Verify ordering: all events for file 0 come before file 1
+    const firstStartIdx = events.indexOf(firstStart);
+    const firstDoneIdx = events.indexOf(firstDone);
+    const secondStartIdx = events.indexOf(secondStart);
+    expect(firstStartIdx).toBeLessThan(firstDoneIdx);
+    expect(firstDoneIdx).toBeLessThan(secondStartIdx);
+  });
+
+  it("emits file-start but no chunk-written or file-done for a garbage file", async () => {
+    await writeFile(path.join(tmpDir, "garbage.wav"), "not a wav");
+    await writeWav("good.wav", { durationSeconds: 6 });
+
+    const events: ProgressEvent[] = [];
+    const onProgress = vi.fn((e: ProgressEvent) => {
+      events.push(e);
+    });
+
+    const outcome = await processWavFiles(
+      ["garbage.wav", "good.wav"],
+      tmpDir,
+      { mode: "preserve" },
+      { onProgress },
+    );
+
+    expect(outcome.errored.length).toBe(1);
+    expect(outcome.errored[0]?.file).toBe("garbage.wav");
+
+    // file-start IS emitted for the garbage file (before readFile + split attempt)
+    const garbageStart = events.filter(
+      (e) => e.kind === "file-start" && e.fileName === "garbage.wav",
+    );
+    expect(garbageStart.length).toBe(1);
+
+    // No chunk-written or file-done for the garbage file
+    const garbageChunks = events.filter(
+      (e) =>
+        (e.kind === "chunk-written" || e.kind === "file-done") &&
+        e.fileIndex === 0,
+    );
+    expect(garbageChunks.length).toBe(0);
+
+    // Good file still gets full sequence
+    const goodChunks = events.filter(
+      (e) => e.kind === "chunk-written" && e.fileIndex === 1,
+    );
+    expect(goodChunks.length).toBe(2);
+    const goodDone = events.find(
+      (e) => e.kind === "file-done" && e.fileIndex === 1,
+    );
+    expect(goodDone).toBeDefined();
+  });
+
+  it("emits no progress events for skippedTooLarge and skippedAlreadyChunked", async () => {
+    await writeWav("small_000.wav", { durationSeconds: 1 });
+    await writeWav("big.wav", { durationSeconds: 1 });
+
+    const events: ProgressEvent[] = [];
+    const onProgress = vi.fn((e: ProgressEvent) => {
+      events.push(e);
+    });
+
+    await processWavFiles(
+      ["small_000.wav", "big.wav"],
+      tmpDir,
+      { mode: "preserve" },
+      { maxInputBytes: 100, onProgress },
+    );
+
+    // small_000.wav → skippedAlreadyChunked, big.wav → skippedTooLarge
+    // Neither should emit any progress event
+    expect(events).toHaveLength(0);
   });
 });
