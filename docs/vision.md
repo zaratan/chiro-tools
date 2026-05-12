@@ -1,5 +1,9 @@
 # Vision
 
+## Tagline
+
+> `chiro` outille **toute la préparation des enregistrements** entre la sortie d'enregistreur (Teensy/PaRec ou AudioMoth/full-spectrum) et l'upload sur **Vigie-Chiro** — pas seulement le renommage.
+
 ## Le besoin concret
 
 Une utilisatrice participe au programme **Vigie-Chiro**. Pour chaque session de terrain :
@@ -7,10 +11,11 @@ Une utilisatrice participe au programme **Vigie-Chiro**. Pour chaque session de 
 1. Elle pose un enregistreur ultrasonore sur un point d'écoute (`A1`, `B2`…) d'un carré géographique (`040962` = un carré du département 04).
 2. Elle laisse l'enregistreur tourner (souvent une nuit complète, parfois plusieurs).
 3. Elle récupère les `.wav` produits (depuis une carte SD, sur sa machine).
-4. **Avant upload** vers Vigie-Chiro, chaque fichier doit être renommé en ajoutant un préfixe précis :
-   `CarXXXXXX-AAAA-PassN-YY-<nom-original>.wav`
+4. **Avant upload** vers Vigie-Chiro, chaque fichier doit :
+   - être renommé en ajoutant un préfixe précis : `CarXXXXXX-AAAA-PassN-YY-<nom-original>.wav`
+   - **et pour les détecteurs full-spectrum (AudioMoth, SM4, etc.)** être expansé temporellement ×10 (lossless, réécriture du sample rate) puis découpé en morceaux de 5 secondes — étapes habituellement réalisées dans Kaleidoscope.
 
-Aujourd'hui, ce renommage se fait à la main, par lots, parfois sur des centaines de fichiers par nuit. C'est pénible, propice aux erreurs, et démoralisant après une nuit de terrain.
+Aujourd'hui, ces deux étapes se font à la main et avec plusieurs outils, parfois sur des centaines de fichiers par nuit. C'est pénible, propice aux erreurs, et démoralisant après une nuit de terrain.
 
 ## Utilisatrice cible
 
@@ -40,10 +45,10 @@ Aujourd'hui, ce renommage se fait à la main, par lots, parfois sur des centaine
 ## Ce que `chiro` n'est PAS
 
 - Pas un outil pour développeurs (pas de flags exotiques, pas de pipe-friendly, pas de mode batch CLI au MVP).
-- Pas un éditeur de métadonnées WAV (V2 peut-être).
+- Pas un éditeur de métadonnées WAV (V2 peut-être). Le découpage écrit des nouveaux fichiers WAV mais n'altère JAMAIS le contenu audio (lossless — seul le header `fmt.sampleRate` change en mode TE×10).
 - Pas un uploader Vigie-Chiro (l'upload reste manuel sur le site).
-- Pas un outil d'analyse acoustique. Il ne touche jamais au contenu des fichiers, seulement à leur nom.
-- Pas multi-projets pour le MVP. La "Suite d'outils chiro" est anticipée (menu principal extensible), mais le seul item du MVP est "Préfixer pour Vigie-Chiro".
+- Pas un outil d'**analyse** acoustique (spectrogramme, classification, ID auto). On prépare les fichiers pour Tadarida/Kaleidoscope — ces outils-là font l'analyse.
+- **Pipeline `Teensy`/`AudioMoth` → upload Vigie-Chiro**. Out of scope : visualisation, classification, anything Tadarida does.
 
 ## Critère de succès du MVP
 

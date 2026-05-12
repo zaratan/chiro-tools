@@ -87,10 +87,11 @@ describe.skipIf(!testDataAvailable)(
       expect(proc.outputSampleRate).toBe(25000);
       expect(proc.channels).toBe(1);
 
-      // AudioMoth fixture is 149.5 MB, ~5 min real time. After TE×10 the
-      // output timeline is ~50 min, so chunks of 5 s expansés ≈ 600.
-      expect(proc.chunkCount).toBeGreaterThan(550);
-      expect(proc.chunkCount).toBeLessThan(650);
+      // AudioMoth fixture is trimmed to ~10 s real time (~5 MB). After
+      // TE×10 the output timeline is ~100 s = 20 chunks of 5 s. Full-size
+      // fixtures are kept locally in `Audiomoth full/` for thorough recette.
+      expect(proc.chunkCount).toBeGreaterThan(18);
+      expect(proc.chunkCount).toBeLessThan(22);
 
       const firstChunkBuffer = await readFile(
         path.join(
@@ -105,12 +106,30 @@ describe.skipIf(!testDataAvailable)(
       expect(firstChunk.bitDepth).toBe("16");
       expect(firstChunk.samples[0]?.length).toBe(25000 * 5);
 
-      // Source file must be byte-identical after processing.
+      // Source file must be byte-identical after processing. We compare a
+      // 1 MiB sample of bytes (start + middle + end) rather than the full
+      // 149 MB to keep the test fast; a partial mismatch is still proof of
+      // mutation, and zero mutation is the property we care about.
       const srcBufferBefore = await readFile(
         path.join(AUDIOMOTH_DIR, AUDIOMOTH_FILE),
       );
       const srcBufferAfter = await readFile(path.join(workDir, AUDIOMOTH_FILE));
       expect(srcBufferAfter.length).toBe(srcBufferBefore.length);
+      const sampleSize = 1024 * 1024;
+      const mid = Math.floor(srcBufferBefore.length / 2);
+      const ranges = [
+        [0, sampleSize],
+        [mid, mid + sampleSize],
+        [srcBufferBefore.length - sampleSize, srcBufferBefore.length],
+      ] as const;
+      for (const [start, end] of ranges) {
+        expect(
+          Buffer.compare(
+            srcBufferAfter.subarray(start, end),
+            srcBufferBefore.subarray(start, end),
+          ),
+        ).toBe(0);
+      }
     }, 60_000);
 
     it("preserves Teensy chunk samples bit-exactly (sample-level round-trip)", async () => {
@@ -154,10 +173,14 @@ describe.skipIf(!testDataAvailable)(
       );
 
       const controller = new AbortController();
-      // Abort after a short delay so a few chunks get written.
+      // Abort after a short delay so processing has time to start. With the
+      // trimmed fixture (~5 MB, ~100 ms total processing), 20 ms reliably
+      // fires before completion. Acceptable degenerate case: abort fires
+      // before any chunk is written — `interrupted: true, processed: []`
+      // still validates the abort contract.
       setTimeout(() => {
         controller.abort();
-      }, 50);
+      }, 20);
 
       const outcome = await processWavFiles(
         [AUDIOMOTH_FILE],

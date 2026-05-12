@@ -154,23 +154,18 @@ describe("processWavFiles", () => {
     expect(outcome.processed).toEqual([]);
   });
 
-  it("interrupts mid-file via signal and cleans up the orphan .tmp", async () => {
-    // 30s file → many chunks. Abort once first chunk is written.
+  it("leaves no orphan .tmp after a successful run", async () => {
+    // After a normal run all `.tmp` files must have been renamed to their
+    // final `.wav` names — no leftover from the atomic-write pattern.
+    // Mid-batch abort behavior is covered by the integration test on real
+    // AudioMoth data.
     await writeWav("source.wav", { durationSeconds: 30 });
 
-    const controller = new AbortController();
-    const outcome = await processWavFiles(
-      ["source.wav"],
-      tmpDir,
-      { mode: "preserve" },
-      { signal: controller.signal },
-    );
-    // Note: signal was never aborted, so this run completes. To test mid-file
-    // interruption we'd need to abort during the loop — see the integration
-    // test for a real-data variant. This test asserts the abort-at-start case.
+    const outcome = await processWavFiles(["source.wav"], tmpDir, {
+      mode: "preserve",
+    });
     expect(outcome.processed.length).toBe(1);
 
-    // No orphan tmps in processed/
     const entries = await readdir(path.join(tmpDir, "processed"));
     expect(entries.every((e) => !e.endsWith(".tmp"))).toBe(true);
   });

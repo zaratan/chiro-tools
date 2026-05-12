@@ -86,9 +86,14 @@ export const renameWithFallback = async (
 };
 
 /**
- * Writes a buffer to `targetPath` atomically: writes to `targetPath + ".tmp"`,
- * then renames. On EXDEV (cross-device, typical with SD-card → home dir),
- * falls back to copyFile + unlink of the tmp.
+ * Writes a buffer to `targetPath` atomically: writes to a process-unique tmp
+ * (`targetPath + ".<pid>.tmp"`), then renames. On EXDEV (cross-device, typical
+ * with SD-card → home dir), falls back to copyFile + unlink of the tmp.
+ *
+ * The PID in the tmp suffix avoids races if two chiro instances write into
+ * the same destination directory (e.g., user opens two terminals on the
+ * same cwd). The orphan-tmp pre-clean in the caller still matches the
+ * `.tmp` suffix regardless of PID.
  *
  * Never throws. Returns a tagged Result.
  *
@@ -105,7 +110,7 @@ export const writeFileAtomic = async (
   }
 
   const fs = options?.fs ?? defaultWriteFs;
-  const tmpPath = `${targetPath}.tmp`;
+  const tmpPath = `${targetPath}.${process.pid.toString()}.tmp`;
 
   try {
     await fs.writeFile(tmpPath, data);

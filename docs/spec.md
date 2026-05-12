@@ -150,6 +150,100 @@ Affiché après exécution. Trois variantes possibles selon l'issue :
 
 Voir [`ux.md`](./ux.md) pour les wordings exacts.
 
+## Wizard "Découper les enregistrements" — 4 écrans (Phase 5)
+
+```
+[Menu] → [P-Constat] → [P-Saisie] → [P-Confirmation] → [P-Résultat] → (retour Menu)
+```
+
+Internalise les étapes `Découpage des données (AudioMoth only)` + `Kaleidoscope` du protocole Vigie-Chiro Point Fixe (cf. `test-data/Tutoriel Vigie Chiro - Perso.pdf` p. 5 et p. 7). Sortie : sous-dossier `processed/` dans le cwd. **Non-destructif** : les fichiers d'origine ne sont jamais modifiés.
+
+### Écran P-Constat
+
+Identique en posture à l'Écran 1 (cf. `ux.md` pour les wordings), mais avec **deux vérifications supplémentaires** :
+
+- **`processed/` existant** non-vide → bloque avec warning **jaune `⚠`** : propose à l'utilisatrice de **renommer ou supprimer** l'ancien dossier (non-destructif — ne propose pas d'écraser).
+- **Espace disque** insuffisant (`fs.statfs` → `free < total_input × 1.05`) → bloque avec warning jaune chiffré.
+
+### Écran P-Saisie
+
+**Un seul champ** : sélecteur radio inline (↑↓ Entrée). Deux options :
+
+- `Boîtier PaRec (Teensy) — fichiers déjà au bon format` (`mode: "preserve"`)
+- `Autre détecteur — fichiers à ralentir 10× pour l'analyse` (`mode: "expand-10x"`)
+
+Aide `dimColor` sous le sélecteur explique le pourquoi du ralentissement (full-spectrum vs déjà-expansé). Pas de Tab, pas de `←→` (1 seul champ).
+
+### Écran P-Confirmation
+
+Preview :
+
+- chemin absolu du cwd
+- `On va découper N enregistrements (environ X minutes d'audio) en morceaux de 5 secondes.`
+- type d'enregistreur choisi (libellé du mode)
+- dossier de sortie : `./processed/`
+- **réassurance non-destructive** : `Vos fichiers d'origine ne seront pas modifiés.`
+
+Footer : `Entrée découper   Échap modifier la saisie`.
+
+L'estimation de durée est **best-effort** basée sur la taille du fichier (16-bit PCM mono assumed). Pour stéréo on overestimate ×2 — acceptable pour un preview qui sert juste à donner un ordre de grandeur.
+
+### Écran P-Résultat
+
+Quatre variantes, mêmes principes UX que le rename :
+
+**Variante A — Succès complet**
+
+- `✓ Terminé !`
+- `N enregistrements découpés`
+- `M morceaux créés dans ./processed/`
+- (si applicable) skipped trop volumineux / déjà au format morceau en `dimColor`
+- réassurance `Vos fichiers d'origine sont intacts dans ce dossier.`
+
+**Variante B — Interrompu (Ctrl+C)**
+
+- `ℹ Découpage arrêté à votre demande`
+- résumé partiel + invitation à supprimer / renommer le `processed/` partiel avant de relancer
+
+**Variante C — Tout en échec** (rare — disque plein dès le 1er fichier, ou tous les fichiers non-PCM)
+
+- `⚠ Aucun enregistrement n'a pu être découpé`
+- groupage des erreurs par message
+- pas de réassurance positive — la situation est anormale
+
+**Variante D — Erreurs partielles**
+
+- `⚠ Découpage terminé avec X souci(s)`
+- résumé succès + groupage erreurs avec `TRUNCATE_PER_GROUP = 5`
+- `Les autres enregistrements ont bien été découpés.`
+- réassurance non-destructive
+
+### Règles métier — Découpage
+
+**Mode `preserve`** (Teensy / PaRec) : aucune modification du sample rate. Slice par tranches de `sampleRate × 5` samples.
+
+**Mode `expand-10x`** (AudioMoth / Wildlife Acoustics) : réécriture lossless du `fmt.sampleRate` (= `Math.round(source / 10)`), puis slice par tranches de `outputSampleRate × 5` samples. Les samples PCM eux-mêmes ne sont jamais touchés — seul le champ d'en-tête change, ce qui équivaut à un ralentissement à la lecture.
+
+**Référentiel des 5 s** : la timeline **du fichier de sortie**. Pour un fichier AudioMoth 250 kHz expansé en 25 kHz, 5 s de sortie = 0.5 s de temps réel. Convention alignée sur Kaleidoscope.
+
+**Multicanal** : les canaux sont conservés groupés dans chaque chunk (1 fichier stéréo → 1 fichier stéréo par chunk, pas 2 mono). À noter : Kaleidoscope coche par défaut « Split channels » → séparation en mono. Notre v1 garde groupé ; option de split en mono prévue en V2 (cf. `roadmap.md` follow-ups Phase 5).
+
+**Dernier chunk < 5 s** : conservé tel quel (lossless). Tadarida peut l'analyser avec une confiance moindre. Pas de padding silence, pas de drop.
+
+**Filtre `_NNN.wav$`** : tout fichier source dont le nom matche `_\d{3}\.wav$` (case-insensitive ext) est **skippé silencieusement** et reporté dans `skippedAlreadyChunked`. Évite de re-splitter par accident des morceaux déjà produits qui auraient été déplacés à la racine.
+
+**Hard cap 500 MB** par fichier source. Au-delà, le fichier est skippé (`skippedTooLarge`) sans tentative de lecture. Évite l'OOM sur les workstations 8 GB (`wavefile` charge tout en RAM).
+
+**AbortSignal (Ctrl+C)** : check entre fichiers ET entre chunks d'un même fichier. Le chunk write en cours ne peut pas être interrompu mid-syscall — c'est borné à ~100 ms par chunk.
+
+**Allowlist de formats** : `audioFormat ∈ {1 (PCM standard), 0xFFFE (EXTENSIBLE) avec subformat PCM}`. Bit depth 16 ou 24. Tout autre format → `ProcessError { reason: "unsupported-format" }`.
+
+### Glossaire — vocabulaire technique
+
+- **Time expansion ×10** : technique consistant à réécrire le sample rate d'un fichier ultrasonique pour que sa lecture soit 10× plus lente, donc audible. Pour un AudioMoth 250 kHz, on déclare 25 kHz → ce qui se prononçait à 80 kHz se joue à 8 kHz. Aucun sample modifié, juste un champ d'en-tête. Voir `architecture.md` § ADR pour les détails.
+- **5 s « en référentiel audio expansé »** : 5 s tels que mesurés sur la timeline du fichier de sortie. Si le fichier de sortie est à 25 kHz (post-TE×10) et qu'il représente du réel 250 kHz, alors 5 s d'audio expansé = 0.5 s de temps réel.
+- **PCM** : Pulse-Code Modulation. Format audio non compressé, échantillons entiers signés (16-bit ou 24-bit dans la chaîne Vigie-Chiro). Seul format accepté.
+
 ### Écran 5 — Mise à jour (transverse)
 
 Accessible depuis l'item de menu **"Vérifier les mises à jour"**. Indépendant du wizard de préfixage.
@@ -262,6 +356,38 @@ Format d'un événement :
 ```
 
 Le log est **append-only** (jamais tronqué). À surveiller dans le futur : rotation si dépassement de taille — pas dans le MVP.
+
+### Schéma v2 — sessions `vigie-process` (Phase 5)
+
+Pour les sessions de découpage, `schema_version: 2`. Format aligné avec v1 (timestamps, version, cwd) mais avec `input` et `result` adaptés au domaine :
+
+```json
+{
+  "schema_version": 2,
+  "ts": "2026-05-11T22:00:00.000Z",
+  "version": "0.2.0",
+  "cwd": "/Users/.../Vigie-2026-A1",
+  "action": "vigie-process",
+  "input": { "mode": "expand-10x" },
+  "result": {
+    "processed": [
+      {
+        "source_file": "20260511_220000T.WAV",
+        "chunk_count": 60,
+        "output_sample_rate": 25000,
+        "channels": 1
+      }
+    ],
+    "errored": [],
+    "skipped_too_large": [],
+    "skipped_already_chunked": [],
+    "interrupted": false,
+    "duration_ms": 14523
+  }
+}
+```
+
+**v1 reste byte-stable** : tout reader jq existant qui filtre sur `.action == "vigie-prefix"` ou `.schema_version == 1` continue à fonctionner. Un snapshot test (`src/lib/logging/log.test.ts`) asserte caractère par caractère le format v1 pour empêcher toute dérive silencieuse.
 
 ## Versioning
 

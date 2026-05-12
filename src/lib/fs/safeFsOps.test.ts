@@ -161,7 +161,6 @@ describe("writeFileAtomic", () => {
 
   it("cleans up tmp on rename failure (best effort)", async () => {
     const target = path.join(tmpDir, "out.bin");
-    const tmpPath = `${target}.tmp`;
     const renameErr = makeFsError("EACCES");
 
     let tmpExisted = false;
@@ -169,9 +168,10 @@ describe("writeFileAtomic", () => {
       writeFile: vi.fn(async (file, data) => {
         await realWriteFile(file as string, data as Uint8Array);
       }),
-      rename: vi.fn(async () => {
-        // Verify the tmp was written before we fail.
-        await readFile(tmpPath);
+      rename: vi.fn(async (from: string) => {
+        // Verify the tmp was written before we fail. The tmp path embeds
+        // the current PID so we recover it from the mock's first arg.
+        await readFile(from);
         tmpExisted = true;
         throw renameErr;
       }),

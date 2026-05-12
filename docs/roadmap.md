@@ -149,6 +149,32 @@ Activer **uniquement si** un test sur machine vierge révèle un blocage Gatekee
 - [ ] Test manuel : nouvelle version dispo sur GitHub → hint jaune apparaît au boot après ~1-2s
 - [ ] Test manuel : Menu → "Vérifier les mises à jour" → Entrée → install se lance en sortie de Ink, ré-install bien le binaire
 
+## Phase 5 — Découper les enregistrements (split + TE ×10) ✓
+
+**Objectif** : internaliser dans `chiro` les étapes Kaleidoscope du protocole Vigie-Chiro Point Fixe (expansion temporelle ×10 pour les détecteurs full-spectrum, puis découpe en morceaux de 5 secondes) — non-destructivement, dans un sous-dossier `processed/`. Référence canonique : `test-data/Tutoriel Vigie Chiro - Perso.pdf` (page 7).
+
+### Tâches (réalisées en 5.A / 5.B / 5.C / 5.D)
+
+- [x] **5.A** Spike `wavefile` × `bun --compile` × round-trip bit-exact sur Teensy + AudioMoth réels. `.gitattributes` LFS pour `test-data/`. Lib `src/lib/audio/` (`splitWavFile` générateur sync, `processWavFiles` orchestrateur), extraction `src/lib/fs/safeFsOps.ts` (`renameWithFallback` + `writeFileAtomic` EXDEV-safe). Allowlist `audioFormat ∈ {1, 0xFFFE}`, hard cap 500 MB, filtre `_NNN.wav$`, pre-clean orphan `.tmp`.
+- [x] **5.B** Screens `vigie-process/` : Constat (perms + `processed/` existant en jaune + `statfs` espace disque), Form (sélecteur Teensy/Autre inline), Confirm (preview durée + rappel non-destructif), Result (4 variantes : success / interrupted / all-failed / partial avec groupage erreurs).
+- [x] **5.C** Logging : `SessionEvent` discriminé sur `schema_version` (v1 = vigie-prefix byte-stable, v2 = vigie-process). Snapshot test assert l'immuabilité de la sérialisation v1. E2E test du flow process complet.
+- [x] **5.D** Docs sync + workflow CI `ci.yml` (lint + typecheck + test + smoke build) en plus de `release.yml`.
+
+### Critère de sortie
+
+- [x] `pnpm check` vert, 267+ tests (unit + integration sur fichiers réels Teensy/AudioMoth via git-lfs).
+- [x] Spike validé : round-trip bit-exact sur fichiers réels + `bun --compile` clean (27 modules, 0 warning).
+- [ ] Test manuel : dossier Teensy → mode `preserve` → chunks à 38 400 Hz dans `processed/`.
+- [ ] Test manuel : dossier AudioMoth → mode `expand-10x` → chunks à 25 000 Hz, durée 5 s expansée.
+- [ ] Test manuel : `processed/` existant → warning jaune ⚠ avec « renommer l'ancien dossier ».
+- [ ] Test manuel : Ctrl+C pendant un gros fichier → aucun `.tmp` orphelin, `interrupted: true` loggé.
+
+### Hard guardrails de scope (à ne JAMAIS franchir)
+
+> **In scope** : tout ce que la cible doit faire entre la sortie Teensy/AudioMoth et l'upload Vigie-Chiro (rename, split + TE×10, peut-être un jour : check fichier corrompu, contrôle metadata Vigie-Chiro).
+>
+> **Out of scope** : spectrogramme, lecteur audio, classification, ID auto, anything Tadarida does, anything Kaleidoscope analysis-side does.
+
 ## V2 (post-MVP, hors scope)
 
 Idées priorisées par valeur utilisateur :
@@ -160,6 +186,15 @@ Idées priorisées par valeur utilisateur :
 5. **Brew tap perso** (`homebrew-chiro`) — formula pointant sur les GH Releases existantes. Estimation : 1 h.
 6. **Linux arm64**, **macOS Intel x64**. Estimation : 1 h (juste 2 targets de build à ajouter).
 7. **Internationalisation** (EN) si l'usage déborde le réseau Vigie-Chiro français.
+
+### Follow-ups Phase 5 (split / TE) — différés
+
+8. **Option « split-channels » pour détecteurs stéréo** (SM2BAT+, SM4BAT) — alignée sur la case « Split channels » de Kaleidoscope. Aujourd'hui les canaux restent groupés ; un user avec stéréo devrait choisir explicitement de séparer (ou pas). Estimation : 2 h (passe `slices.map` en `slices.forEach` + boucle par canal).
+9. **Streaming pour fichiers > 500 MB** : `wavefile` charge tout en RAM. Pour passer les très gros fichiers, écrire un parseur RIFF streaming (~150 lignes). Estimation : 1 j.
+10. **Durée de morceau paramétrable** (UI) : aujourd'hui 5 s figé. Devrait être un champ optionnel du FormScreen pour les protocoles autres que Point Fixe (5 s pour Routier, par ex.). Estimation : 1 h.
+11. **Modes TE additionnels** : actuellement `preserve` (Teensy) et `expand-10x` (Autre). Si un détecteur émerge avec TE ×8 ou ×20, ajouter au type `TimeExpansionMode` + un sélecteur plus riche. Estimation : 30 min par mode.
+12. **Mode batch automatique** : détection auto Teensy vs AudioMoth via header `fmt.sampleRate` (38 400 → preserve, > 100 000 → expand-10x). Évite l'étape Form, à risque modéré. Estimation : 2 h.
+13. **Conservation du chunk `LIST/INFO`** (metadata AudioMoth « Recorded at … by AudioMoth … ») — aujourd'hui droppé par `wavefile.fromScratch`, cohérent avec Kaleidoscope. Si Tadarida en a besoin, écrire un patcheur post-encode qui réinjecte le LIST. Estimation : 4 h.
 
 ## Définition de "Terminé"
 

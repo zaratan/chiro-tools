@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Default least-privilege.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: pnpm check
+    runs-on: ubuntu-latest
+    # `src/lib/` is pure TS/Node — no platform-specific code. Running the
+    # full check on Linux only halves the LFS bandwidth per PR (test-data
+    # is ~450 MB) and saves ~30 s of duplicated test time. Cross-platform
+    # binary integrity is covered by the smoke-build matrix below.
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Required for the integration tests that read real Teensy/
+          # AudioMoth WAV fixtures from test-data/ (committed via LFS).
+          lfs: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+
+  smoke-build:
+    name: smoke ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: darwin-arm64
+          - os: ubuntu-latest
+            target: linux-x64
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: pnpm install --frozen-lockfile
+      - name: Build binary
+        run: pnpm build:${{ matrix.target }}
+      - name: Smoke test — --version
+        run: |
+          OUTPUT=$(./dist/chiro-${{ matrix.target }} --version)
+          echo "Got: $OUTPUT"
+          if [[ "$OUTPUT" != chiro* ]]; then
+            echo "::error::Expected output to start with 'chiro', got: $OUTPUT"
+            exit 1
+          fi
+      - name: Smoke test — --help
+        run: |
+          OUTPUT=$(./dist/chiro-${{ matrix.target }} --help)
+          echo "Got: $OUTPUT"
+          if [[ -z "$OUTPUT" ]]; then
+            echo "::error::--help produced no output"
+            exit 1
+          fi

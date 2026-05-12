@@ -70,6 +70,7 @@ chiro — outils Vigie-Chiro
 Que voulez-vous faire ?
 
   ▸ Préfixer des enregistrements pour Vigie-Chiro
+    Découper les enregistrements (pour Tadarida)
     Vérifier les mises à jour
     Quitter
 
@@ -86,6 +87,7 @@ chiro — outils Vigie-Chiro
 Que voulez-vous faire ?
 
   ▸ Préfixer des enregistrements pour Vigie-Chiro
+    Découper les enregistrements (pour Tadarida)
     Vérifier les mises à jour
     Quitter
 
@@ -507,10 +509,206 @@ dans un dossier d'enregistrements .wav.
 
 → stderr, quit code 0 (on ne traite pas ça comme une erreur dure).
 
+## Wordings — Flow « Découper les enregistrements » (Phase 5)
+
+### P-Constat (nominal)
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+✓ 12 enregistrements .wav prêts à découper
+  Volume total : 1.4 Go
+
+Ce sont bien les fichiers à découper ?
+
+  Entrée continuer   Échap retour au menu
+```
+
+Le « volume total » donne à l'utilisatrice un ordre de grandeur (utile pour les sessions AudioMoth où chaque fichier fait 150 Mo). Pas de comptage de « déjà au format » côté Constat — le filtre `_NNN.wav$` se déclenche silencieusement à l'exécution.
+
+### P-Constat (dégradé : `processed/` existe déjà)
+
+`color="yellow"` (warning **non-bloquant** au sens UX : on guide vers la solution, on ne crie pas).
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+⚠ Un dossier « processed » existe déjà ici.
+
+Pour éviter de mélanger les anciens et les nouveaux découpages,
+chiro ne va pas écrire par-dessus. Vous pouvez :
+  • renommer l'ancien dossier (par ex. « processed-ancien »)
+  • ou le supprimer s'il ne vous sert plus
+
+Puis relancez chiro dans ce dossier.
+
+  Échap retour au menu
+```
+
+**Important** : on propose « renommer » **avant** « supprimer » — moins anxiogène pour une non-tech. Pas d'option « écraser » dans l'UI ; le principe non-destructif l'interdit.
+
+### P-Constat (dégradé : espace disque insuffisant)
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+⚠ Pas assez d'espace disque pour cette opération.
+
+  Espace requis : ~1.5 Go
+  Espace dispo  : 700 Mo
+
+Libérez de la place puis relancez.
+
+  Échap retour au menu
+```
+
+Chiffres formatés via `formatBytes` (`octets` / `Ko` / `Mo` / `Go`). Threshold = total input × 1.05 (5 % de marge pour les headers WAV).
+
+### P-Saisie
+
+```
+Quel type d'enregistreur a produit ces fichiers ?
+
+  ▸ Boîtier PaRec (Teensy) — fichiers déjà au bon format
+    Autre détecteur — fichiers à ralentir 10× pour l'analyse
+
+  Les détecteurs full-spectrum (AudioMoth, SM4, etc.) enregistrent
+  à très haute fréquence — il faut les ralentir pour pouvoir les
+  analyser. Le boîtier PaRec le fait déjà à l'enregistrement.
+
+  Entrée valider   Échap retour
+```
+
+L'aide `dimColor` sous le sélecteur est volontairement **descriptive plutôt que technique** : « ralentir 10× » > « expansion temporelle ×10 », « très haute fréquence » > « 250 kHz full-spectrum ». Footer simplifié à 2 hints (1 seul champ — pas de Tab, pas de `←→`).
+
+### P-Confirmation
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+On va découper 12 enregistrements (environ 30 minutes d'audio)
+en morceaux de 5 secondes.
+
+Type d'enregistreur choisi : Autre détecteur (ralentissement 10×)
+Dossier de sortie :          ./processed/
+
+Vos fichiers d'origine ne seront pas modifiés.
+
+  Entrée découper   Échap modifier la saisie
+```
+
+**Wording-clé** :
+
+- **« morceaux »** (jamais `chunks`). C'est de l'anglais, jargon, et la non-tech ne le reconnaît pas.
+- **Durée en minutes** plutôt qu'en compte de morceaux — c'est l'unité mentale qu'elle a (« combien de temps j'ai enregistré »).
+- **Rappel non-destructif** en `dimColor`, parallèle au rappel du flow rename (« rien n'est perdu »).
+- **« Autre détecteur (ralentissement 10×) »** : reprend le wording de l'option choisie pour confirmer le bon choix.
+
+### P-Confirmation — pendant l'exécution
+
+```
+Découpage en cours… (12 fichiers)
+
+  Cela peut prendre quelques minutes pour les gros fichiers.
+```
+
+Footer vide (cf. Footer raccourcis § Cas particuliers — pas afficher Ctrl+C pour éviter les abandons accidentels).
+
+### P-Résultat (variante A : tout OK)
+
+```
+✓ Terminé !
+
+  12 enregistrements découpés
+  720 morceaux créés dans ./processed/
+
+  Vos fichiers d'origine sont intacts dans ce dossier.
+
+  Entrée retour au menu
+```
+
+Si applicable, ajouter en `dimColor` après le compte de morceaux :
+
+```
+  2 fichiers trop volumineux ignorés (> 500 Mo)
+  1 fichier ignoré (déjà au format morceau)
+```
+
+### P-Résultat (variante B : interruption Ctrl+C)
+
+```
+ℹ Découpage arrêté à votre demande
+
+  3 enregistrements découpés
+  180 morceaux créés dans ./processed/
+
+  Vous pouvez relancer chiro plus tard — il faudra d'abord renommer
+  ou supprimer le dossier « processed » créé.
+
+  Entrée retour au menu
+```
+
+L'invitation au re-run mentionne le dossier `processed/` partiel — l'utilisatrice doit savoir qu'il existe et qu'il faudra le déplacer/supprimer avant un nouveau run.
+
+### P-Résultat (variante C : tout en échec)
+
+`color="yellow"`. Rare en pratique (disque plein dès le 1ᵉʳ chunk, ou tous les fichiers non-PCM).
+
+```
+⚠ Aucun enregistrement n'a pu être découpé
+
+  • format audio inhabituel — non géré pour l'instant (12 fichiers)
+
+  Entrée retour au menu
+```
+
+Pas de phrase de réassurance — la situation est anormale, l'utilisatrice doit en parler à son conjoint dev.
+
+### P-Résultat (variante D : erreurs partielles)
+
+```
+⚠ Découpage terminé avec 2 soucis
+
+  10 enregistrements découpés
+  600 morceaux créés dans ./processed/
+
+  2 enregistrements n'ont pas pu être découpés :
+
+    • format audio inhabituel — non géré pour l'instant (1 fichier)
+        PaRec3_20260511_213045.wav
+    • fichier illisible — peut-être corrompu pendant le transfert (1 fichier)
+        PaRec3_20260511_220011.wav
+
+  Les autres enregistrements ont bien été découpés.
+  Vos fichiers d'origine sont intacts dans ce dossier.
+
+  Entrée retour au menu
+```
+
+Groupage par message d'erreur (max 5 fichiers affichés par groupe, le reste résumé en `dimColor` `... et N autres`).
+
+### Codes d'erreur Process → libellés FR
+
+| Code interne                | Libellé FR                                                        |
+| --------------------------- | ----------------------------------------------------------------- |
+| `invalid-header`            | `fichier illisible — peut-être corrompu pendant le transfert`     |
+| `unsupported-format`        | `format audio inhabituel — non géré pour l'instant`               |
+| `unsupported-bit-depth`     | `résolution audio non supportée (16 ou 24 bits uniquement)`       |
+| `no-samples`                | `fichier sans contenu audio`                                      |
+| `ENOENT`                    | `le fichier a disparu pendant l'opération`                        |
+| `EACCES`, `EPERM`           | `permission refusée par le système`                               |
+| `write:ENOSPC`              | `plus de place sur le disque — libérez de l'espace puis relancez` |
+| `write:EACCES`              | `permission refusée par le système`                               |
+| `write:<autre>`             | `écriture impossible (code: <X>)`                                 |
+| `mkdir:<X>`                 | `impossible de créer le sous-dossier « processed »`               |
+| `skippedTooLarge` (compte)  | `fichier trop volumineux (> 500 Mo) — non géré pour l'instant`    |
+| `skippedAlreadyChunked` (c) | (skip silencieux — pas affiché comme une erreur)                  |
+
 ## Choix UX validés (rappel)
 
-- **Composant FormScreen maison** (pas `ink-form`, pas `<Form>` générique réutilisable) : un seul formulaire dans le MVP, ~50 lignes avec `useState<number>(focusedIndex)` + 4 `<TextInput>` empilés. Refactor en composant générique uniquement à la 3ᵉ utilisation (Règle de Trois).
+- **Composant FormScreen maison** (pas `ink-form`, pas `<Form>` générique réutilisable) : un seul formulaire dans le MVP, ~50 lignes avec `useState<number>(focusedIndex)` + 4 `<TextInput>` empilés. Refactor en composant générique uniquement à la 3ᵉ utilisation (Règle de Trois). De même pour le sélecteur Teensy/Autre de la Phase 5 : inline dans `vigie-process/FormScreen.tsx`, pas extrait en `RadioSelect`.
 - **Validation hybride** : silencieuse pendant la frappe (juste un indicateur dimColor de complétion), erreurs explicites au blur ou à la tentative de submit.
 - **Pré-scan AVANT la saisie** (écran Constat) : économise 4 saisies si l'utilisatrice n'est pas dans le bon dossier.
 - **3 exemples sur l'écran de Confirmation**, pas 1 — montre un pattern cohérent.
 - **Confirmation explicite Entrée**, jamais une touche aléatoire pour déclencher l'action destructive.
+- **« morceaux » jamais « chunks »**, **durée en minutes** jamais en compte de morceaux côté Confirm, **réassurance non-destructive** systématique sur Confirm + Result du flow découper.

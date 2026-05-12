@@ -129,6 +129,9 @@ export const ResultScreen = ({
             supprimer le dossier « processed » créé.
           </Text>
         </Box>
+        <Text dimColor>
+          Vos fichiers d'origine sont intacts dans ce dossier.
+        </Text>
         <Footer hints={[{ key: "Entrée", label: "retour au menu" }]} />
       </Box>
     );

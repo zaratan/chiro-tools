@@ -97,6 +97,10 @@ export const processWavFiles = async (
   options?: ProcessOptions,
 ): Promise<ProcessOutcome> => {
   const signal = options?.signal;
+  // TS narrowing across async/iteration boundaries thinks signal.aborted
+  // cannot flip back to true once we've checked it once. A helper reads
+  // the getter fresh at each call site.
+  const isAborted = (): boolean => signal?.aborted === true;
   const maxInputBytes = options?.maxInputBytes ?? DEFAULT_MAX_INPUT_BYTES;
   const start = performance.now();
   const processedDir = path.join(dir, PROCESSED_DIRNAME);
@@ -127,7 +131,7 @@ export const processWavFiles = async (
   await preCleanOrphanTmps(processedDir);
 
   for (const file of files) {
-    if (signal?.aborted === true) {
+    if (isAborted()) {
       interrupted = true;
       break;
     }
@@ -182,6 +186,16 @@ export const processWavFiles = async (
         fileFailed = true;
         break;
       }
+      // Check the signal again before paying for a chunk write — on a large
+      // AudioMoth file each chunk encode is ~30-50 ms CPU and the write can
+      // be 250-500 KB on disk. Cancelling here saves a guaranteed-discarded
+      // write after the user has hit Ctrl+C.
+      if (isAborted()) {
+        interrupted = true;
+        fileFailed = true;
+        break;
+      }
+
       const chunk: EncodedChunk = yielded.chunk;
       const chunkName = `${baseName}_${padIndex(chunk.index)}.wav`;
       const targetPath = path.join(processedDir, chunkName);

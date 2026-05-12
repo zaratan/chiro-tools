@@ -24,6 +24,34 @@
 - **Pas de tsup** : Bun bundle directement, on évite une dépendance.
 - **Pas de commander/yargs** : le seul "argument" est `--version`/`--help`, géré en 5 lignes.
 - **Pas de Sentry/télémétrie** : logging local JSONL suffit.
+- **Pas de parseur RIFF maison** : on utilise `wavefile@^11.0.0` (MIT, pure-JS, zero dép runtime, ~30 KB). Cf. ADR ci-dessous.
+
+### ADR — choix de `wavefile` pour la lib audio (Phase 5)
+
+**Contexte** : la feature « Découper les enregistrements » a besoin de lire des WAV PCM 16/24-bit (mono ou stéréo), de slicer leurs samples par chunks de N secondes, et de réécrire des WAV avec un nouveau sample rate (pour l'expansion temporelle ×10). Le contenu PCM doit être bit-exact en entrée et en sortie (lossless).
+
+**Options considérées** :
+
+| Option                     | Pour                                                                               | Contre                                                                                                                  |
+| -------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **`wavefile@11` (choisi)** | MIT, pure-JS, zero dép runtime, ~30 KB, gère WAVE_FORMAT_EXTENSIBLE + LIST chunks. | API typée laxiste (`fmt: object` non discriminé), drop des chunks `LIST` au re-encode (acceptable — Kaleidoscope idem). |
+| Parseur RIFF maison        | Zero dép ajoutée, ownership total.                                                 | ~150 lignes + tests à maintenir, bugs subtils sur les variantes (EXTENSIBLE, RF64, `fact` chunk).                       |
+| `ffmpeg` sidecar binaire   | Le plus capable.                                                                   | Casse le contrat « binaire autonome » de `bun --compile`. Installation manuelle pour l'utilisatrice — DEAL-BREAKER.     |
+| `node-wav`, `wav-decoder`  | Plus simples.                                                                      | Couverture incomplète (24-bit, EXTENSIBLE manquants pour certains détecteurs).                                          |
+
+**Conclusion** : `wavefile` répond exactement au besoin (modification d'en-tête + slice de samples), s'embarque proprement dans `bun --compile` (validé par le spike A.0 : 27 modules bundled, 0 warning), et son comportement de drop des chunks `LIST` au re-encode est aligné avec celui de Kaleidoscope — référence canonique du protocole Vigie-Chiro.
+
+### Référence canonique — Kaleidoscope
+
+Le protocole Vigie-Chiro Point Fixe (documenté dans `test-data/Tutoriel Vigie Chiro - Perso.pdf`, page 7) prescrit l'usage de Kaleidoscope pour deux paramètres :
+
+| Paramètre Kaleidoscope       | Teensy / Passive Recorder | AudioMoth |
+| ---------------------------- | ------------------------- | --------- |
+| Time expansion factor INPUT  | 10                        | 1         |
+| Time expansion factor OUTPUT | 10                        | 10        |
+| Split to max duration (s)    | 5                         | 5         |
+
+Conséquence : Teensy enregistre **déjà** en TE×10 au record-time (38 400 Hz « audible » représentant un réel 384 000 Hz) — on ne touche pas au sample rate. AudioMoth enregistre full-spectrum à 250 000 Hz — on réécrit `fmt.sampleRate ← 25 000` (lossless, header-only). Dans les deux cas, on découpe en chunks de 5 s mesurés sur la **timeline de sortie**.
 
 ## Structure du repo
 
@@ -45,11 +73,18 @@ chiro-tools/
 │   │   ├── MenuScreen.tsx
 │   │   ├── UpdateScreen.tsx       # 4 états : checking / available / up-to-date / error
 │   │   ├── updateErrorMessages.ts # mapping FR pour les 6 codes d'erreur Update
-│   │   └── vigie-chiro/
-│   │       ├── ConstatScreen.tsx
-│   │       ├── FormScreen.tsx     # focusedIndex + 4 <TextField> (numeric en mode managed)
-│   │       ├── ConfirmScreen.tsx
-│   │       └── ResultScreen.tsx
+│   │   ├── vigie-chiro/           # flow "Préfixer" — 4 écrans
+│   │   │   ├── ConstatScreen.tsx
+│   │   │   ├── FormScreen.tsx     # focusedIndex + 4 <TextField> (numeric en mode managed)
+│   │   │   ├── ConfirmScreen.tsx
+│   │   │   ├── ResultScreen.tsx
+│   │   │   └── errorMessages.ts   # mapping FR pour codes d'erreur rename
+│   │   └── vigie-process/         # flow "Découper" — 4 écrans (Phase 5)
+│   │       ├── ConstatScreen.tsx  # scan + perms + processed/ existant + statfs
+│   │       ├── FormScreen.tsx     # sélecteur Teensy/Autre inline (pas de RadioSelect)
+│   │       ├── ConfirmScreen.tsx  # preview durée + execution + logSession v2
+│   │       ├── ResultScreen.tsx   # 4 variantes : success / interrupted / all-failed / partial
+│   │       └── errorMessages.ts   # mapping FR pour codes d'erreur process
 │   ├── components/
 │   │   ├── TextField.tsx          # label + ink-text-input (ou Text en mode managed) + aide/erreur
 │   │   └── Footer.tsx             # footer de raccourcis stylé
@@ -63,10 +98,20 @@ chiro-tools/
 │   │   ├── fs/
 │   │   │   ├── scanWavFiles.ts    # lit cwd, filtre .wav, ignore dotfiles/dirs/symlinks
 │   │   │   ├── scanWavFiles.test.ts
+│   │   │   ├── safeFsOps.ts       # renameWithFallback (EXDEV) + writeFileAtomic (.tmp + rename)
+│   │   │   ├── safeFsOps.test.ts
 │   │   │   ├── planRenames.ts     # produit la liste {from, to, skipReason?}
 │   │   │   ├── planRenames.test.ts
-│   │   │   ├── applyRenames.ts    # séquentiel, fallback EXDEV, gestion SIGINT
+│   │   │   ├── applyRenames.ts    # consume renameWithFallback, séquentiel, gestion SIGINT
 │   │   │   └── applyRenames.test.ts
+│   │   ├── audio/                 # lib audio Phase 5 — split + TE×10 lossless
+│   │   │   ├── splitWavFile.ts    # Generator<chunk|abort|error> ; pas d'I/O
+│   │   │   ├── processWavFiles.ts # orchestrateur I/O — fstat cap 500 MB, filtre _NNN.wav$, pre-clean .tmp
+│   │   │   └── __tests__/
+│   │   │       ├── fixtures.ts                       # makeRampWav, makeSineWav, readSamplesPerChannel
+│   │   │       ├── splitWavFile.test.ts
+│   │   │       ├── processWavFiles.test.ts
+│   │   │       └── processWavFiles.integration.test.ts  # SUR FICHIERS RÉELS test-data/ via git-lfs
 │   │   ├── update/
 │   │   │   ├── constants.ts       # GITHUB_REPO, RELEASES_API_URL, INSTALL_SCRIPT_URL, TTL, cache path
 │   │   │   ├── parseVersion.ts    # semver-light parser
@@ -76,7 +121,7 @@ chiro-tools/
 │   │   │   └── checkForUpdate.ts  # orchestrateur cache → fetch → compare, silent fail
 │   │   ├── logging/
 │   │   │   ├── log.ts             # append JSONL dans ~/.chiro/sessions.jsonl
-│   │   │   └── log.test.ts
+│   │   │   └── log.test.ts        # snapshot byte-stable v1 (vigie-prefix) + v2 (vigie-process)
 │   │   └── e2e.test.ts            # round-trip complet sur dossier mkdtemp
 │   └── types.ts                   # types partagés (FormInput, RenamePlan, …)
 ├── .eslintrc.cjs (ou eslint.config.js)
@@ -105,16 +150,23 @@ type Screen =
   | { kind: "vigie:constat" }
   | { kind: "vigie:form" }
   | { kind: "vigie:confirm"; input: FormInput; plan: RenamePlan }
-  | { kind: "vigie:result"; outcome: RenameOutcome };
+  | { kind: "vigie:result"; outcome: RenameOutcome }
+  | { kind: "process:constat" }
+  | { kind: "process:form"; wavFiles: string[] }
+  | { kind: "process:confirm"; input: ProcessInput; wavFiles: string[] }
+  | { kind: "process:result"; input: ProcessInput; outcome: ProcessOutcome };
 ```
 
 Transitions :
 
 ```
 menu --select "Préfixer"--> vigie:constat
+menu --select "Découper"--> process:constat
 menu --select "Mettre à jour"--> update
 update --Échap--> menu
 update --confirm install--> onRequestUpdate() + exit() → post-Ink spawn install.sh
+
+# Flow Préfixer (Phase 1–3)
 vigie:constat --Entrée--> vigie:form  (si .wav trouvés et writable)
 vigie:constat --Échap--> menu
 vigie:form --submit--> vigie:confirm (calcule le plan)
@@ -122,6 +174,15 @@ vigie:form --Échap--> vigie:constat
 vigie:confirm --Entrée--> applyRenames → vigie:result
 vigie:confirm --Échap--> vigie:form
 vigie:result --Entrée--> menu
+
+# Flow Découper (Phase 5)
+process:constat --Entrée--> process:form  (si .wav trouvés, processed/ vide, espace OK)
+process:constat --Échap--> menu
+process:form --submit--> process:confirm
+process:form --Échap--> process:constat
+process:confirm --Entrée--> processWavFiles → process:result (+ logSession v2)
+process:confirm --Échap--> process:constat
+process:result --Entrée--> menu
 ```
 
 L'`App` tient le state via `useState<Screen>` et passe des callbacks aux écrans. Pas de Redux, pas de Context, pas de routeur.
@@ -261,6 +322,66 @@ echo "Assurez-vous que $(dirname "$DEST") est dans votre PATH."
 - Mode : **append** (`fs.appendFile`). Jamais tronqué au MVP.
 - Schéma : cf. `spec.md` § "Logging local".
 - Une seule entrée par run de wizard (à la fin, succès OU échec OU interruption).
+- **`SessionEvent` est une union discriminée sur `schema_version`** :
+  - `v1` → action `vigie-prefix` (wire format **byte-stable** — assertion par snapshot test, toute modif accidentelle fait échouer `pnpm check`)
+  - `v2` → action `vigie-process` (introduit en Phase 5)
+- Lecteurs jq aval peuvent brancher sur `.schema_version` plutôt que sur `.action` pour une compatibilité future-proof.
+
+## Lib audio (Phase 5)
+
+### Séparation pure / I/O
+
+`src/lib/audio/splitWavFile.ts` est un **générateur sync** sans I/O :
+
+```ts
+function* splitWavFile(buffer: Uint8Array, opts): Generator<
+  | { kind: "chunk"; chunk: EncodedChunk }
+  | { kind: "abort" }
+  | { kind: "error"; code: SplitErrorCode }
+>;
+```
+
+Il prend un `Uint8Array` (= contenu lu d'un .wav) et yield un chunk encodé à la fois — la mémoire ne tient jamais plus d'un chunk décodé + un chunk encodé.
+
+`src/lib/audio/processWavFiles.ts` est l'**orchestrateur I/O** :
+
+1. `mkdir -p <cwd>/processed/`.
+2. Pre-clean `processed/*.tmp` orphelins d'un run interrompu (best-effort).
+3. Pour chaque fichier source :
+   - filtre regex `_\d{3}\.wav$` → `skippedAlreadyChunked` (évite de re-splitter des chunks déplacés à la racine)
+   - `fstat`, si `size > maxInputBytes (500 MB)` → `skippedTooLarge`
+   - `readFile`, puis `for (const yielded of splitWavFile(...))`
+   - chaque chunk passe par `writeFileAtomic` (`.tmp` puis `rename`, fallback `EXDEV`)
+4. Retourne `ProcessOutcome` avec processed / errored / skipped / interrupted / durationMs.
+
+### Non-destructivité — invariants garantis
+
+Le contrat « originaux jamais touchés » est garanti par construction :
+
+- `splitWavFile` ne fait **aucune** I/O ; il n'a même pas connaissance du chemin source.
+- `processWavFiles` n'exécute **aucun** `unlink` / `rename` / `writeFile` sur un path source. Tous les writes vont dans `<cwd>/processed/`.
+- L'écriture atomique opère à l'intérieur de `processed/` (`chunk_NNN.wav.tmp` → `chunk_NNN.wav`). Le path source ne devient jamais un `.tmp`.
+- Tests (`processWavFiles.test.ts` : « does not modify the source file ») asserte byte-equality des sources avant/après run. Intégration sur AudioMoth 149 MB asserte idem.
+
+### Allowlist de formats
+
+`splitWavFile` accepte uniquement :
+
+- `audioFormat === 1` (PCM linéaire standard)
+- `audioFormat === 0xFFFE` (`WAVE_FORMAT_EXTENSIBLE`) avec `subformat` PCM (préfixe `[0x01, 0x00]`)
+- bit depth 16 ou 24 (16 = `Int16Array`, 24 = `Int32Array` côté wavefile)
+
+Tout autre format (float, A-law, µ-law, ADPCM) retourne `{ kind: "error", code: "unsupported-format" }`. Volontairement strict : la chaîne Vigie-Chiro/Tadarida ne traite que des PCM entiers.
+
+### Quirks `wavefile` à connaître
+
+1. **`getSamples(false, IntXXArray)`** retourne :
+   - un `IntXXArray` plat pour le mono
+   - un `IntXXArray[]` (un par canal) pour le multichannel
+     → toujours normaliser en `IntXXArray[]` avant de slicer.
+2. **`fmt`** est typé `object` côté wavefile, mais runtime expose `audioFormat`, `numChannels`, `sampleRate`, `byteRate`, `blockAlign`, `bitsPerSample`, `cbSize`, `validBitsPerSample`, `dwChannelMask`, `subformat`. Cast local en type explicite, jamais `any`.
+3. **`bitDepth`** est une **string** (`"16"`, `"24"`, `"32"`, `"32f"`, `"64"`) — pas un number. Le constructeur `fromScratch` attend cette string.
+4. **Chunks `LIST` / `INFO` / `ICMT` (metadata AudioMoth)** : présents sur l'input, **non préservés** par `fromScratch` au re-encode. Comportement aligné avec Kaleidoscope. À documenter si un consommateur aval s'en plaint.
 
 ## Configuration (V2)
 
@@ -268,11 +389,14 @@ Pas de configuration utilisateur au MVP. En V2, `~/.config/chiro/last-session.js
 
 ## CI
 
-Au MVP, **un seul workflow** GitHub Actions (Phase 4) :
+Deux workflows GitHub Actions :
 
-- **`release.yml`** : déclenché sur tag `v*.*.*`. Build les 2 binaires, signe+notarise le macOS, crée la GitHub Release avec les 2 assets.
+- **`ci.yml`** : déclenché sur push et pull_request.
+  - Job `check` : `pnpm check` sur **Linux uniquement**. `src/lib/` est pur TS/Node, pas de code platform-specific — dupliquer sur macOS gaspille ~30 s + 450 MB de LFS bandwidth par PR. Tests d'intégration sur fichiers réels `test-data/` → requiert `actions/checkout@v6` avec **`lfs: true`**.
+  - Job `smoke-build` (matrix macOS arm64 + Linux x64) : compile et exécute `--version` + `--help`. Valide que `bun --compile` bundle proprement les 2 cibles. Pas de LFS.
+- **`release.yml`** : déclenché sur tag `v*.*.*`. Build les 2 binaires, (optionnel) signe+notarise le macOS, crée la GitHub Release avec les 2 assets. Pas besoin de LFS — ne lance pas `pnpm test`.
 
-Pas de workflow CI par PR au MVP. Ajouter `check.yml` (lint + typecheck + test) si des collaborateurs externes arrivent.
+Note : le smoke test post-build TUI complet (golden path interactif) nécessiterait un PTY simulé (`script -q /dev/null`, `unbuffer`) — différé en V2. Aujourd'hui le smoke test se limite aux commandes non-interactives `--version` et `--help` qui suffisent à valider que le binaire `bun --compile` charge proprement (incluant le bundle wavefile).
 
 ## Tests — stratégie
 

@@ -200,7 +200,10 @@ export const ConstatScreen = ({
           <Text color="yellow">⚠ Ce dossier est protégé en écriture.</Text>
         </Box>
         <Box marginTop={1}>
-          <Text>L'outil ne peut pas créer le sous-dossier « processed »</Text>
+          <Text>
+            L'outil ne peut pas créer le sous-dossier « processed » ici. Essayez
+            de :
+          </Text>
           <Text>
             {"  • copiez les fichiers dans un dossier de votre choix"}
           </Text>
@@ -241,6 +244,11 @@ export const ConstatScreen = ({
         <Box marginTop={1}>
           <Text>
             Vérifiez que vous êtes bien dans le dossier contenant vos fichiers.
+          </Text>
+          <Text>
+            Astuce : dans le Terminal, tapez <Text color="cyan">pwd</Text> pour
+            voir où vous êtes, ou <Text color="cyan">ls</Text> pour voir les
+            fichiers présents.
           </Text>
         </Box>
         <Footer hints={minimalFooter} />
