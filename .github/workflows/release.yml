@@ -15,9 +15,9 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      # version is read from the `packageManager` field of package.json
+      # (pnpm@11.0.9). Don't pin here to avoid "Multiple versions" errors.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -34,9 +34,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # version is read from the `packageManager` field of package.json
+      # (pnpm@11.0.9). Don't pin here to avoid "Multiple versions" errors.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
