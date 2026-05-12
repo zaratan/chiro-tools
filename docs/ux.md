@@ -39,7 +39,7 @@ Ce document est la source de vérité pour **tous les libellés affichés** et l
 Chaque écran a son footer adapté. Format type :
 
 ```
-  Tab champ suivant   Entrée valider   Échap retour
+  ↑↓ champ   ←→ ajuster   Entrée valider   Échap retour
 ```
 
 Couleur : `dimColor`. Séparateur : 3 espaces (pas de pipe `|`).
@@ -51,13 +51,14 @@ Couleur : `dimColor`. Séparateur : 3 espaces (pas de pipe `|`).
 
 ## Navigation clavier — référence
 
-| Touche            | Action                                               | Affichée en footer ?       |
-| ----------------- | ---------------------------------------------------- | -------------------------- |
-| `Tab` / `Maj+Tab` | Champ suivant / précédent (FormScreen)               | Oui sur FormScreen         |
-| `Entrée`          | Valider l'écran courant                              | Toujours                   |
-| `Échap`           | Revenir à l'écran précédent (ou quitter depuis Menu) | Toujours sauf Résultat     |
-| `↑` / `↓`         | Naviguer dans le menu                                | MenuScreen                 |
-| `Ctrl+C`          | Quitter immédiatement (ou stopper le batch en cours) | Implicite — jamais affiché |
+| Touche            | Action                                                        | Affichée en footer ?       |
+| ----------------- | ------------------------------------------------------------- | -------------------------- |
+| `Tab` / `Maj+Tab` | Champ suivant / précédent (FormScreen) — alias de `↓` / `↑`   | Non (redondant avec `↑↓`)  |
+| `↑` / `↓`         | Naviguer dans le menu, ou entre les champs du formulaire      | MenuScreen, FormScreen     |
+| `←` / `→`         | Décrémenter / incrémenter un champ numérique (Année, Passage) | Oui sur FormScreen         |
+| `Entrée`          | Valider l'écran courant                                       | Toujours                   |
+| `Échap`           | Revenir à l'écran précédent (ou quitter depuis Menu)          | Toujours sauf Résultat     |
+| `Ctrl+C`          | Quitter immédiatement (ou stopper le batch en cours)          | Implicite — jamais affiché |
 
 ## Wordings par écran — prêts à coller
 
@@ -223,20 +224,26 @@ Code du point d'écoute
 **Validation hybride** :
 
 - **Pendant la frappe** : silence total. Aucun rouge, aucun compteur de progression.
-- **À la sortie du champ** (Tab/Shift+Tab) ou à la **soumission** (Entrée) : la validation se déclenche. Si invalide, message en rouge à la place de l'aide.
+- **À la sortie du champ** (`↑`/`↓` ou `Tab`/`Shift+Tab`) ou à la **soumission** (Entrée) : la validation se déclenche. Si invalide, message en rouge à la place de l'aide.
 - **Quand le champ devient valide** : afficher un `✓` discret en `dimColor` à droite du champ. Pas de compteur.
 - **Sur le code du point d'écoute saisi en lowercase** (ex `a1`) : au blur, afficher en `dimColor` `sera enregistré en A1` à la place de l'aide.
 
+**Champs numériques (Année, Passage)** :
+
+- Rendus sans curseur (texte brut).
+- `←` / `→` décrémentent / incrémentent la valeur, clampée à `[1900, 2100]` (Année) et `[1, 9999]` (Passage).
+- Saisie au clavier également possible (chiffres ajoutés à droite, tronqués à la longueur max ; Backspace supprime le dernier chiffre).
+
 **Soumission** :
 
-**Entrée = toujours tenter la soumission**. Tab/Shift+Tab uniquement pour naviguer entre champs. Si la soumission échoue (champs invalides), la validation se déclenche sur **tous** les champs (affichant toutes les erreurs en même temps) et le focus va sur le 1er champ invalide.
+**Entrée = toujours tenter la soumission**. `↑`/`↓` (ou `Tab`/`Shift+Tab`) uniquement pour naviguer entre champs. Si la soumission échoue (champs invalides), la validation se déclenche sur **tous** les champs (affichant toutes les erreurs en même temps) et le focus va sur le 1er champ invalide.
 
 **Focus initial** : Au montage du formulaire, le focus est sur le champ Carré (1er champ vide ; Année et Passage sont préremplis avec des valeurs valides).
 
 **Footer** :
 
 ```
-  Tab champ suivant   Entrée valider   Échap retour
+  ↑↓ champ   ←→ ajuster   Entrée valider   Échap retour
 ```
 
 ### Écran 3 — Confirmation (nominal)

@@ -80,15 +80,16 @@ Formulaire à **4 champs** dans cet ordre :
 
 Comportement :
 
-- **Navigation** : `Tab` / `Maj+Tab` uniquement pour naviguer entre champs (jamais pour soumettre). `Échap` = retour au Constat.
+- **Navigation entre champs** : `↑` / `↓` (ou `Tab` / `Maj+Tab` en alias) pour naviguer entre champs (jamais pour soumettre). `Échap` = retour au Constat.
+- **Champs numériques (Année, Passage)** : rendus sans curseur. `←` / `→` décrémentent / incrémentent la valeur, clampée aux bornes du validateur (`[1900, 2100]` pour l'Année, `[1, 9999]` pour le Passage). Saisie au clavier toujours possible (chiffres ajoutés à droite et tronqués à la longueur max ; Backspace supprime le dernier chiffre).
 - **Soumission** : `Entrée` tente TOUJOURS la soumission, quel que soit le champ focused. Si invalide, validation déclenchée sur tous les champs simultanément, focus sur le 1er champ invalide.
 - **Focus initial au montage** : sur le champ Carré (1er champ vide ; Année et Passage sont préremplis avec des valeurs valides).
 - **Validation hybride** :
   - **Pendant la frappe** : silence total. Aucun rouge, aucun compteur de progression.
-  - **À la sortie du champ** (Tab/Shift+Tab) ou à la **soumission** (Entrée) : la validation se déclenche. Si invalide, message en rouge à la place de l'aide.
+  - **À la sortie du champ** (`↑`/`↓` ou `Tab`/`Shift+Tab`) ou à la **soumission** (Entrée) : la validation se déclenche. Si invalide, message en rouge à la place de l'aide.
   - **Quand le champ devient valide** : `✓` discret en `dimColor` à droite du champ.
   - **Code point lowercase** (ex `a1`) : au blur, afficher en `dimColor` `sera enregistré en A1`.
-- **Footer** : `Tab champ suivant   Entrée valider   Échap retour`
+- **Footer** : `↑↓ champ   ←→ ajuster   Entrée valider   Échap retour`
 
 **Génération du préfixe** (uniquement après validation complète) :
 

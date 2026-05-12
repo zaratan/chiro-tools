@@ -16,6 +16,13 @@ export type TextFieldProps = {
    * Falls back to `help` when not provided.
    */
   normalizationHint?: string;
+  /**
+   * When true, the value is rendered as plain text instead of using
+   * ink-text-input. The parent component is then responsible for all
+   * keyboard handling. Used for numeric fields where left/right arrows
+   * adjust the value instead of moving a cursor.
+   */
+  managed?: boolean;
 };
 
 /**
@@ -35,6 +42,7 @@ export const TextField = ({
   error,
   help,
   normalizationHint,
+  managed = false,
 }: TextFieldProps): React.JSX.Element => {
   const isValid = error === null && value.length > 0;
 
@@ -52,7 +60,11 @@ export const TextField = ({
       <Text>{label}</Text>
       <Box marginLeft={2}>
         <Text>{focus ? "│ " : "  "}</Text>
-        <TextInput value={value} onChange={onChange} focus={focus} />
+        {managed ? (
+          <Text>{value}</Text>
+        ) : (
+          <TextInput value={value} onChange={onChange} focus={focus} />
+        )}
         {isValid ? <Text color="green">{"  ✓"}</Text> : <Text>{"   "}</Text>}
       </Box>
       <Box marginLeft={2}>{footerLine}</Box>

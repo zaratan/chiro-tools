@@ -31,6 +31,19 @@ const validators: Record<FieldKey, (v: string) => string | null> = {
 
 const LOWERCASE_POINT_REGEX = /^[a-z]\d$/;
 
+type NumericFieldKey = "year" | "passNumber";
+
+const NUMERIC_FIELD_BOUNDS: Record<
+  NumericFieldKey,
+  { min: number; max: number }
+> = {
+  year: { min: 1900, max: 2100 },
+  passNumber: { min: 1, max: 9999 },
+};
+
+const isNumericField = (key: FieldKey): key is NumericFieldKey =>
+  key === "year" || key === "passNumber";
+
 const FIELD_LABELS: Record<FieldKey, string> = {
   squareCode: "Code du carré",
   year: "Année de la session",
@@ -97,6 +110,25 @@ export const FormScreen = ({
     );
   };
 
+  const adjustNumericField = (key: NumericFieldKey, delta: number) => {
+    const parsed = parseInt(values[key], 10);
+    const { min, max } = NUMERIC_FIELD_BOUNDS[key];
+    const base = Number.isFinite(parsed) ? parsed : min;
+    const next = Math.min(max, Math.max(min, base + delta));
+    updateValue(key, next.toString());
+  };
+
+  const appendDigitToNumericField = (key: NumericFieldKey, digit: string) => {
+    const { max } = NUMERIC_FIELD_BOUNDS[key];
+    const maxLength = max.toString().length;
+    const next = (values[key] + digit).slice(-maxLength);
+    updateValue(key, next);
+  };
+
+  const backspaceNumericField = (key: NumericFieldKey) => {
+    updateValue(key, values[key].slice(0, -1));
+  };
+
   const trySubmit = () => {
     const nextErrors: FieldErrors = {
       squareCode: validateField("squareCode", values.squareCode),
@@ -122,18 +154,37 @@ export const FormScreen = ({
     });
   };
 
-  useInput((_input, key) => {
+  useInput((input, key) => {
     if (key.escape) {
       onBack();
       return;
     }
-    if (key.tab && key.shift) {
+    if (key.upArrow || (key.tab && key.shift)) {
       moveFocus(-1);
       return;
     }
-    if (key.tab) {
+    if (key.downArrow || key.tab) {
       moveFocus(1);
       return;
+    }
+    const focusedKey = FIELD_ORDER[focusedIndex];
+    if (focusedKey && isNumericField(focusedKey)) {
+      if (key.leftArrow) {
+        adjustNumericField(focusedKey, -1);
+        return;
+      }
+      if (key.rightArrow) {
+        adjustNumericField(focusedKey, 1);
+        return;
+      }
+      if (key.backspace || key.delete) {
+        backspaceNumericField(focusedKey);
+        return;
+      }
+      if (input >= "0" && input <= "9") {
+        appendDigitToNumericField(focusedKey, input);
+        return;
+      }
     }
     if (key.return) {
       trySubmit();
@@ -161,11 +212,13 @@ export const FormScreen = ({
           normalizationHint={
             key === "pointCode" ? pointNormalizationHint : undefined
           }
+          managed={isNumericField(key)}
         />
       ))}
       <Footer
         hints={[
-          { key: "Tab", label: "champ suivant" },
+          { key: "↑↓", label: "champ" },
+          { key: "←→", label: "ajuster" },
           { key: "Entrée", label: "valider" },
           { key: "Échap", label: "retour" },
         ]}
