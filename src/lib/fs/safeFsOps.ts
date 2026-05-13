@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   copyFile as defaultCopyFile,
   rename as defaultRename,
@@ -110,7 +111,7 @@ export const writeFileAtomic = async (
   }
 
   const fs = options?.fs ?? defaultWriteFs;
-  const tmpPath = `${targetPath}.${process.pid.toString()}.tmp`;
+  const tmpPath = `${targetPath}.${randomUUID().slice(0, 8)}.tmp`;
 
   try {
     await fs.writeFile(tmpPath, data);

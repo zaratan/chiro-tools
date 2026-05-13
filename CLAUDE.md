@@ -99,6 +99,23 @@ Auto-check au boot : `App.useEffect` mount → `checkForUpdate` (cache disque 6 
 
 `ink-testing-library` ne couvre que le parcours nominal. Pour les flux interactifs complexes (rename, update, Ctrl+C), tester à la main dans `/tmp/chiro-demo`. Ne JAMAIS prétendre qu'une UI marche sans l'avoir vue tourner — dire explicitement "non testé manuellement" si c'est le cas.
 
+## Performance pipeline (Phase 6) — résumé exécutif
+
+Le découpage WAV est CPU-bound (`wavefile.toBuffer()` ré-encode header + samples par chunk). Deux pipelines livrés, **détails complets dans `docs/architecture.md` § « Performance pipeline »** :
+
+- **A : worker pool wavefile** (`splitWorkerPool.ts`) — toujours actif. N workers `node:worker_threads` calculé dynamiquement depuis RAM + CPU. Surchargeable via `CHIRO_WORKER_COUNT`. Gain 3–6×.
+- **B : fast-path sox** (`soxFastPath.ts`) — opt-in si `sox` détecté au boot (`detectSox`). Gain ~22× wall. Désactivable via `CHIRO_DISABLE_FASTPATH=1`.
+- **Header canonique unique** : `rewriteHeaderToStandardPcm` (`wavHeader.ts`) appliqué dans les **deux** pipelines après le split. Un seul format de sortie, un seul golden test (`__tests__/golden.test.ts`).
+- **Politique fallback per-batch first-error** : si sox crashe ou si spot-check stratifié (3 chunks : 1er + milieu + dernier) échoue sur le 1er fichier, **tout le batch** retraite via worker pool. Pas de mix de pipelines au sein d'un batch.
+- **Moteur silencieux dans la TUI** (cf. `docs/ux.md` § Choix UX validés). Pipeline utilisé tracé uniquement dans `~/.chiro/sessions.jsonl` (`engine`, `engine_fallback_count`).
+
+## Découpage et métadonnées — convention Kaleidoscope (Phase 7)
+
+- **5 s temps réel = 50 s timeline output**. Les constantes vivent dans `src/lib/audio/constants.ts` (`CHUNK_OUTPUT_SECONDS = 50`, `CHUNK_REAL_SECONDS = 5`). Teensy enregistre nativement en TE×10, AudioMoth est réécrit ×10 par chiro — donc dans les deux modes la sortie est TE×10 et on coupe à 50 s d'audio expansé = 5 s réel. Avant la Phase 7, chiro coupait à 5 s output (10× trop court en temps réel) et Chirosuf affichait les chunks "compactés au début".
+- **GUANO + wamd ancillaires** appendés après le `data` chunk via `src/lib/audio/finalizeChunk.ts` (wrapper de `rewriteHeaderToStandardPcm` + `appendAncillaryChunks`). Builders dans `src/lib/audio/metadata/`. Worker pool et sox partagent les mêmes builders → outputs byte-identiques (vérifié manuellement sur `test-data/real_process_teensy/`).
+- **Kill-switch** `CHIRO_DISABLE_METADATA=1` : désactive entièrement l'append (utile si Chirosuf râle sur un format wamd inattendu, sans rebuild). Tracé dans `sessions.jsonl` (`metadata: "full" | "off"`).
+- **Timestamp parsing** : `src/lib/files/parseTimestamp.ts`. Regex ancré sur `_YYYYMMDD_HHMMSS` pour éviter de matcher l'année du préfixe Vigie-Chiro (`Car340581-2026-`). Si non parsable → `Timestamp` omis du GUANO/wamd plutôt qu'écrit comme `Invalid Date`.
+
 ## Pièges connus
 
 - **APFS case-insensitive** : `foo.wav` et `FOO.WAV` collisionnent sur macOS. `planRenames` pré-vérifie via `fs.access` avant chaque rename.
@@ -108,3 +125,5 @@ Auto-check au boot : `App.useEffect` mount → `checkForUpdate` (cache disque 6 
 - **`wavefile` quirks** (résumé — détails complets dans `docs/architecture.md` § « Quirks wavefile ») : `getSamples(false, IntXXArray)` renvoie un flat IntXXArray pour mono / un IntXXArray[] pour multichannel (normaliser systématiquement). `bitDepth` est une **string**. Les chunks `LIST/INFO/ICMT` (metadata AudioMoth) sont droppés au re-encode — aligné Kaleidoscope.
 - **`tseslint` ne narrow pas `signal?.aborted` à travers un `yield`** : utiliser un helper local `const isAborted = (): boolean => opts.signal?.aborted === true;` pour les checks fréquents dans un générateur.
 - **`scripts/` est out-of-tsconfig**, donc out-of-eslint. Le dossier est dans `ignores` du `eslint.config.js`. Bun les exécute sans typecheck — assume that scripts may be loosely typed.
+- **`bun --compile` + worker bundles** : un fichier worker `.mjs` référencé via `import.meta.url` n'est **pas** embarqué automatiquement dans le binary. Pattern obligatoire : `import asset from "./worker.bundled.mjs" with { type: "file" }`. Vitest n'honore pas l'assertion → fallback `fileURLToPath` via narrow runtime. Le worker source TS est pré-bundlé via `pnpm build:worker` (hooked `predev`/`pretest`/`prebuild`/`precheck`). Bundle gitignored, ambient declaration dans `src/types/asset-imports.d.ts`. Cf. `splitWorkerPool.ts:resolveWorkerPath()`.
+- **ffmpeg rejeté pour le découpage** : le muxer `segment -c copy` aligne sur des packet boundaries internes (~131072 samples) au lieu du sample exact demandé. Pas d'output bit-exact possible sur stream-copy PCM. Validé empiriquement par le PoC `scripts/poc-*.ts` : 0/1802 MATCH. Sox bit-exact à 1802/1802 → retenu. Si futur use case ffmpeg, repartir du PoC pour re-valider.

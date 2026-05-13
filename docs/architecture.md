@@ -420,6 +420,117 @@ Internement :
 
 Le screen accumule maintenant : preview + run + progression + ETA + abort + log + state machine. Une prochaine modification non-triviale (ex : ajout d'une option de configuration, d'un step de validation supplémentaire) doit déclencher l'extraction d'un hook `useVigieProcessRun()` qui owne le controller d'abort, le `runningRef`, le `logSession`, et l'estimation. À la même occasion, migrer `estimateChunkCount` (logique audio domain actuellement inlinée dans le screen) vers `src/lib/audio/` — la layer rule de CLAUDE.md voudrait qu'elle y vive déjà, mais l'extraction est différée tant qu'elle a un seul consommateur. `ConfirmScreen` ne ferait alors plus que le rendu. Aujourd'hui le screen reste tolérable mais à la limite haute du raisonnable pour un screen unique.
 
+## Performance pipeline (Phase 6)
+
+Le découpage est CPU-bound : `wavefile.toBuffer()` ré-encode header + samples par chunk (~30–50 ms × 5–6 chunks × N fichiers). Sur dataset réel (9301 fichiers AudioMoth/Teensy déjà préfixés), le pipeline mono-thread initial prend ~3h30. Phase 6 livre deux optimisations cumulables : worker pool wavefile (toujours actif) et fast-path sox (opt-in).
+
+### Pipeline A — Worker pool wavefile
+
+`src/lib/audio/splitWorkerPool.ts` orchestre N workers `node:worker_threads` qui exécutent chacun `splitWavFile` sur un fichier dédié. Le pool fait la queue files-as-tasks, dispatche au prochain worker idle, agrège les `ProgressEvent` avec throttle 100 Hz. Gain attendu 3–6× selon la machine.
+
+`N` calculé dynamiquement au mount :
+
+```ts
+const N = Math.max(
+  2,
+  Math.min(
+    Math.floor((totalMB * 0.7) / 400), // 400 MB pic / worker AudioMoth
+    cpuCount - 1, // 1 core libre pour main + UI
+    12, // hard cap : I/O contention + GC
+  ),
+);
+```
+
+Surchargeable via `CHIRO_WORKER_COUNT`. Pour M1 Max 64 GB / 10 cores → N=9. MacBook 16 GB / 8 cores → N=7.
+
+**Abort propre** : sur signal, le main poste `{kind:"abort"}` à chaque worker, attend leur `{kind:"aborted"}` (timeout 2s), puis `worker.terminate()` forcé pour les retardataires. Garantie principale : à la sortie de `run()`, aucun chunk `.tmp.*` n'est laissé sur disque (le worker finit son `await rename` en cours avant de répondre `aborted`). Suffixe tmp en `crypto.randomUUID().slice(0,8)` (workers partagent le PID parent → collision possible avec `.tmp.${PID}`).
+
+**Second safety net** : `preCleanOrphanTmps(outDir)` est appelé au démarrage de chaque `run()`, qui supprime tout `.tmp` orphelin laissé par un run précédent (cas où un worker aurait été tué brutalement avant la fin de son `await rename`, par exemple sur SD lente où le timeout 2s aurait été atteint). Le pre-clean garantit que le `processed/` est toujours dans un état cohérent avant un nouveau batch — pas de chunk corrompu visible côté utilisatrice.
+
+### Pipeline B — Fast-path sox
+
+`src/lib/audio/soxFastPath.ts` : si `sox` détecté au boot via `Bun.which("sox")` + `spawnSync sox --version` exit 0 (et `CHIRO_DISABLE_FASTPATH` non set), `runSoxBatch` remplace le worker pool. Gain attendu ~22× wall sur AudioMoth (PoC : 1802/1802 chunks bit-exact validés).
+
+Pour chaque fichier : spawn `sox <src> <outDir>/<baseName>_raw_.wav trim 0 <segmentSeconds> : newfile : restart`. Pool de N spawns concurrents (même heuristique que A). Après spawn : `rewriteHeaderToStandardPcm(chunk, expand10x)` sur chaque chunk produit. ATTENTION : pour `expand-10x`, on passe `expand10x=true` côté sox (sox écrit la sampleRate source dans le header, doit être divisée) alors que côté worker pool wavefile on passe `expand10x=false` (wavefile a déjà encodé le bon rate).
+
+### Header canonique unifié (cohérence A/B)
+
+`src/lib/audio/wavHeader.ts` exporte `rewriteHeaderToStandardPcm(filePath, expand10x)`. Appliqué dans les **deux** pipelines après le split : strip `LIST/INFO/JUNK/fact`, force `audioFormat=1` PCM standard, écrit un header 44-byte canonical, préserve la zone `data` byte-pour-byte. Conséquence : A et B produisent des fichiers bit-identiques (un seul SHA256 golden test, un seul format de sortie). Validé par `__tests__/golden.test.ts`.
+
+### Métadonnées GUANO + wamd
+
+`src/lib/audio/finalizeChunk.ts` wrappe `rewriteHeaderToStandardPcm` puis appelle `appendAncillaryChunks(filePath, chunks)` pour appender les RIFF ancillaires après la zone `data`. La fonction recalcule la `RIFF size` à offset 4 et insère 1 byte `0x00` de padding si `dataSize` est impair (alignement 2-byte). Chaque chunk passé est lui-même 2-byte aligné.
+
+Les builders vivent dans `src/lib/audio/metadata/` :
+
+- `guano.ts` — sérialise un `GuanoMeta` en chunk `guan` UTF-8 (GUANO 1.0).
+- `wamd.ts` — sérialise un `WamdMeta` en chunk `wamd` Wildlife Acoustics (records `tag(2 LE)+length(4 LE)+value`, pas de header).
+- `chunkMetadata.ts` — orchestrateur per-chunk : reçoit `(sourceTimestamp, chunkIndex, chunkSamples, outputSampleRate, …)` et produit le `(guano, wamd)` correspondant. `Length` = `chunkSamples / outputSR / timeExpansion` (secondes réelles). `Timestamp` = `sourceTs + chunkIndex × 5 s`.
+
+Pipeline worker pool (A) : `splitWorker.writeTmpAndRename` appelle `finalizeChunk(tmp, { expand10x: false, ancillaries: [wamd, guano] })`. Pipeline sox (B) : `processOneFile` appelle `rewriteHeaderToStandardPcm` puis lit `dataSize` du header canonique pour calculer `chunkSamples` avant `appendAncillaryChunks`. Les deux pipelines produisent des bytes identiques (validé par run manuel sur `test-data/real_process_teensy/`).
+
+Le kill-switch `CHIRO_DISABLE_METADATA=1` est lu dans `ConfirmScreen.tsx` au démarrage de la session ; il est propagé via `ProcessOptions.metadata.enabled = false`. État tracé dans `SessionEvent.result.metadata: "full" | "off"`. Le timestamp source est parsé depuis le filename (`src/lib/files/parseTimestamp.ts`) — pattern `_YYYYMMDD_HHMMSS` ancré pour éviter de matcher l'année du préfixe Vigie-Chiro (`Car…-2026-…`). Si non parsable, la ligne `Timestamp:` est omise du GUANO et le record `0x0005` est omis du wamd.
+
+### Routage et politique fallback
+
+`processWavFiles.ts` route selon `options.sox` (passé par `App.tsx` après `detectSox`) :
+
+```ts
+if (sox) {
+  const r = await soxFastPath.runSoxBatch(
+    sox.binPath,
+    files,
+    dir,
+    input,
+    options,
+  );
+  if (r.kind === "fallback") {
+    logSessionFallback(r.reason);
+    return splitWorkerPool.run(files, dir, input, options);
+  }
+  return r.outcome;
+}
+return splitWorkerPool.run(files, dir, input, options);
+```
+
+**Politique per-batch first-error** : si sox crashe OU si spot-check échoue sur le 1er fichier, **tout le batch** retraite via le worker pool (pas de mix per-file). Un seul invariant à vérifier, pas de drift inter-pipeline au sein d'un batch. Si sox foire seulement à partir du fichier #3 (le 1er a validé), c'est probablement un fichier corrompu — log warning, ajoute à `errored`, continue le batch. `SessionEvent.result.engine` et `engine_fallback_count` enregistrent le pipeline réellement utilisé.
+
+### Safety nets (priorité données scientifiques)
+
+1. **Header canonique unique A/B** (cf. ci-dessus) — invariant testable.
+2. **Spot-check stratifié** sur le 1er fichier sox : 3 chunks (1er, milieu, dernier) décodés via wavefile, comparaison de 100 samples à la formule attendue. Mismatch → fallback immédiat du batch.
+3. **Golden CI test** (`__tests__/golden.test.ts`) sur 2 fixtures (AudioMoth-class + 24-bit stéréo) avec SHA256 hardcodés. CI matrix `sox: [with, without]` couvre les deux pipelines.
+4. **Env opt-out** `CHIRO_DISABLE_FASTPATH=1` : force le worker pool même si sox détecté. Utile pour debug et reproductibilité.
+
+### Asset embedding pour les workers (`bun --compile`)
+
+`splitWorker.ts` (source TS strict) est pré-bundlé via `bun build` (`pnpm build:worker`, hooked en `predev`/`pretest`/`prebuild`/`precheck`) en `splitWorker.bundled.mjs`. Ce bundle est embarqué dans le binary compilé via :
+
+```ts
+import workerBundleAsset from "./splitWorker.bundled.mjs" with { type: "file" };
+```
+
+Sans le `with { type: "file" }`, `bun --compile` ne suit pas l'import et le binary tombe en `ModuleNotFound /$bunfs/root/splitWorker.bundled.mjs` au runtime. Vitest n'honore pas l'import assertion → fallback runtime via `fileURLToPath(new URL(".", import.meta.url))`. Le pattern complet (avec narrow `typeof asset === "string"`) est dans `resolveWorkerPath()` de `splitWorkerPool.ts`.
+
+Le bundle est gitignored + dans `ignores` eslint + déclaré dans `src/types/asset-imports.d.ts` (ambient `declare module "*.bundled.mjs"`). Toujours regen avant chaque run → aucun drift dev/prod possible.
+
+### Pourquoi sox et pas ffmpeg
+
+Le PoC initial (`scripts/poc-*.ts`) testait ffmpeg ET sox. Résultat sur 1802 chunks AudioMoth + synthétiques :
+
+- **sox + rewrite header** : 1802/1802 MATCH bit-exact, 22× wall, samples préservés.
+- **ffmpeg `-f segment -c copy`** : 0/1802 MATCH. ffmpeg paquetise le PCM par blocs internes de ~131072 samples (~0.524s @ 250 kHz au lieu de 0.5s cible). Les frontières de chunks ne peuvent pas être alignées au sample près sur du stream-copy PCM — limitation architecturale du muxer segment pour codecs raw. Pas de patch possible sans re-encoding (qui réintroduit du risque de dither). **ffmpeg définitivement écarté pour notre usage**.
+
+Si un futur use case justifie ffmpeg (un autre format que PCM), repartir du PoC dans `scripts/poc-*.ts` pour re-valider bit-exact.
+
+### ETA — moyenne glissante 5 fichiers
+
+`etaTracker.ts` calcule l'ETA sur les **5 derniers fichiers** (au lieu du cumulé global `bytesDone / elapsedMs`). Avec sox + workers, certains fichiers finissent en sub-seconde — la moyenne cumulée devient yo-yo, la glissante absorbe. Wording UX `Encore environ X` (avec "environ") reste calibré, pas d'ajout "estimation peut varier".
+
+### Moteur silencieux dans la TUI
+
+Aucun affichage de "Moteur : sox" / "Moteur : interne" dans `RunningView`. Décision UX actée (cf. `docs/ux.md` § Choix UX validés). Le pipeline utilisé est tracé dans `~/.chiro/sessions.jsonl` (`engine`, `engine_fallback_count`) pour diagnostic dev.
+
 ## Configuration (V2)
 
 Pas de configuration utilisateur au MVP. En V2, `~/.config/chiro/last-session.json` stockera les derniers carré et code point pour pré-remplissage. À ne PAS implémenter au MVP.

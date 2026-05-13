@@ -247,7 +247,11 @@ describe("App — end-to-end", () => {
     }
 
     const { stdin, lastFrame } = render(
-      <App cwd={tmpDir} onRequestUpdate={vi.fn()} />,
+      <App
+        cwd={tmpDir}
+        onRequestUpdate={vi.fn()}
+        soxAvailability={{ kind: "absent" }}
+      />,
     );
 
     // --- Menu --- pick "Découper les enregistrements"

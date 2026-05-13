@@ -1,6 +1,10 @@
 import { useApp, useInput } from "ink";
 import { useEffect, useRef, useState } from "react";
-import { processWavFiles as defaultProcessWavFiles } from "./lib/audio/processWavFiles.js";
+import {
+  processWavFiles as defaultProcessWavFiles,
+  type SoxContext,
+} from "./lib/audio/processWavFiles.js";
+import { detectSox, type SoxAvailability } from "./lib/audio/soxFastPath.js";
 import { applyRenames as defaultApplyRenames } from "./lib/fs/applyRenames.js";
 import { checkForUpdate } from "./lib/update/checkForUpdate.js";
 import type { UpdateChecker } from "./screens/UpdateScreen.js";
@@ -24,9 +28,9 @@ import type {
   ConstatCounts,
   FormInput,
   ProcessInput,
-  ProcessOutcome,
   RenameOutcome,
 } from "./types.js";
+import type { ProcessResult } from "./lib/audio/processWavFiles.js";
 import { CHIRO_VERSION } from "./version.js";
 
 type Screen =
@@ -58,7 +62,7 @@ type Screen =
   | {
       kind: "process:result";
       input: ProcessInput;
-      outcome: ProcessOutcome;
+      outcome: ProcessResult;
     };
 
 type BootChecker = (opts: {
@@ -78,23 +82,62 @@ export type AppProps = {
   bootChecker?: BootChecker;
   /** Test seam forwarded to UpdateScreen. Defaults to real fetchLatestVersion. */
   updateChecker?: UpdateChecker;
+  /** Test seam for sox detection. When provided, detectSox is not called. */
+  soxAvailability?: SoxAvailability;
+};
+
+const buildProcessWavFiles = (
+  base: ProcessWavFilesFn,
+  sox: SoxContext | undefined,
+): ProcessWavFilesFn => {
+  if (sox === undefined) return base;
+  return (files, dir, input, options) =>
+    base(files, dir, input, { ...options, sox });
 };
 
 export const App = ({
   cwd,
   applyRenames = defaultApplyRenames,
-  processWavFiles = defaultProcessWavFiles,
+  processWavFiles: processWavFilesProp = defaultProcessWavFiles,
   onRequestUpdate,
   bootChecker,
   updateChecker,
+  soxAvailability: soxAvailabilityProp,
 }: AppProps): React.JSX.Element => {
   const { exit } = useApp();
   const [screen, setScreen] = useState<Screen>({ kind: "menu" });
   const [availableVersion, setAvailableVersion] = useState<string | null>(null);
+  const [soxAvailability, setSoxAvailability] = useState<
+    SoxAvailability | "pending"
+  >(soxAvailabilityProp ?? "pending");
   // Ref consulted by the global Ctrl+C handler. When true, Ctrl+C is ignored
   // at this level (ConfirmScreen handles it locally during a running rename
   // batch). When false, Ctrl+C exits the program cleanly.
   const runningRef = useRef<boolean>(false);
+
+  const soxContext: SoxContext | undefined =
+    soxAvailability !== "pending" && soxAvailability.kind === "available"
+      ? { binPath: soxAvailability.binPath }
+      : undefined;
+
+  const processWavFiles = buildProcessWavFiles(processWavFilesProp, soxContext);
+
+  useEffect(() => {
+    if (soxAvailabilityProp !== undefined) return;
+    let cancelled = false;
+    void detectSox()
+      .then((availability) => {
+        if (cancelled) return;
+        setSoxAvailability(availability);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSoxAvailability({ kind: "absent" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [soxAvailabilityProp]);
 
   useEffect(() => {
     const controller = new AbortController();

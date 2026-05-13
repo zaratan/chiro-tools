@@ -177,6 +177,9 @@ describe("logSession", () => {
         skipped_already_chunked: [],
         interrupted: false,
         duration_ms: 1234,
+        engine: "wavefile" as const,
+        engine_fallback_count: 0,
+        metadata: "full" as const,
       },
     };
 

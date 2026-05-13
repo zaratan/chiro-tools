@@ -33,8 +33,9 @@ describe("processWavFiles", () => {
     expect(outcome.interrupted).toBe(false);
   });
 
-  it("splits one 11-second file into 3 chunks in processed/", async () => {
-    await writeWav("source.wav", { durationSeconds: 11 });
+  it("splits one 110-second file into 3 chunks in processed/", async () => {
+    // 110 s @ 48 kHz preserve with 50 s chunks → 3 chunks (2 full + tail of 10 s).
+    await writeWav("source.wav", { durationSeconds: 110 });
 
     const outcome = await processWavFiles(["source.wav"], tmpDir, {
       mode: "preserve",
@@ -188,8 +189,9 @@ describe("processWavFiles", () => {
   });
 
   it("emits progress events in the expected sequence for two nominal files", async () => {
-    await writeWav("first.wav", { durationSeconds: 11 });
-    await writeWav("second.wav", { durationSeconds: 6 });
+    // 110 s preserve → 3 chunks ; 60 s preserve → 2 chunks (50 s + 10 s tail).
+    await writeWav("first.wav", { durationSeconds: 110 });
+    await writeWav("second.wav", { durationSeconds: 60 });
 
     const events: ProgressEvent[] = [];
     const onProgress = vi.fn((e: ProgressEvent) => {
@@ -220,7 +222,7 @@ describe("processWavFiles", () => {
     const firstChunksWritten = events.filter(
       (e) => e.kind === "chunk-written" && e.fileIndex === 0,
     );
-    // 11s / 5s = 3 chunks
+    // 110 s output / 50 s per chunk → 3 chunks
     expect(firstChunksWritten.length).toBe(3);
 
     // file-done for first file
@@ -245,7 +247,7 @@ describe("processWavFiles", () => {
     const secondChunksWritten = events.filter(
       (e) => e.kind === "chunk-written" && e.fileIndex === 1,
     );
-    // 6s / 5s = 2 chunks
+    // 60 s output / 50 s per chunk → 2 chunks
     expect(secondChunksWritten.length).toBe(2);
 
     // file-done for second file
@@ -257,17 +259,30 @@ describe("processWavFiles", () => {
     expect(secondDone.chunkCount).toBe(2);
     expect(secondDone.fileSizeBytes).toBe(secondStart.fileSizeBytes);
 
-    // Verify ordering: all events for file 0 come before file 1
+    // Verify intra-file ordering: file-start before chunk-written, chunk-written before file-done.
+    // Inter-file ordering is not guaranteed by the parallel worker pool.
     const firstStartIdx = events.indexOf(firstStart);
     const firstDoneIdx = events.indexOf(firstDone);
-    const secondStartIdx = events.indexOf(secondStart);
+    const firstChunkIdxs = firstChunksWritten.map((e) => events.indexOf(e));
     expect(firstStartIdx).toBeLessThan(firstDoneIdx);
-    expect(firstDoneIdx).toBeLessThan(secondStartIdx);
+    for (const chunkIdx of firstChunkIdxs) {
+      expect(firstStartIdx).toBeLessThan(chunkIdx);
+      expect(chunkIdx).toBeLessThan(firstDoneIdx);
+    }
+    const secondStartIdx = events.indexOf(secondStart);
+    const secondDoneIdx = events.indexOf(secondDone);
+    const secondChunkIdxs = secondChunksWritten.map((e) => events.indexOf(e));
+    expect(secondStartIdx).toBeLessThan(secondDoneIdx);
+    for (const chunkIdx of secondChunkIdxs) {
+      expect(secondStartIdx).toBeLessThan(chunkIdx);
+      expect(chunkIdx).toBeLessThan(secondDoneIdx);
+    }
   });
 
   it("emits file-start but no chunk-written or file-done for a garbage file", async () => {
     await writeFile(path.join(tmpDir, "garbage.wav"), "not a wav");
-    await writeWav("good.wav", { durationSeconds: 6 });
+    // 60 s preserve → 2 chunks
+    await writeWav("good.wav", { durationSeconds: 60 });
 
     const events: ProgressEvent[] = [];
     const onProgress = vi.fn((e: ProgressEvent) => {

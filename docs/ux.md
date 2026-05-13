@@ -677,11 +677,14 @@ Footer vide (cf. Footer raccourcis § Cas particuliers — pas afficher Ctrl+C p
 
   12 enregistrements découpés
   720 morceaux créés dans ./processed/
+  Temps écoulé : 12 minutes
 
   Vos fichiers d'origine sont intacts dans ce dossier.
 
   Entrée retour au menu
 ```
+
+`Temps écoulé` est en `dimColor` (information secondaire). Le format suit `formatDuration` (cf. `src/lib/format/duration.ts`) : secondes sous 1 min, minutes sous 1 h, sinon `X h MM`.
 
 Si applicable, ajouter en `dimColor` après le compte de morceaux :
 
@@ -697,6 +700,7 @@ Si applicable, ajouter en `dimColor` après le compte de morceaux :
 
   3 enregistrements découpés
   180 morceaux créés dans ./processed/
+  Temps écoulé : 5 minutes
 
   Vous pouvez relancer chiro plus tard — il faudra d'abord renommer
   ou supprimer le dossier « processed » créé.
@@ -727,6 +731,7 @@ Pas de phrase de réassurance — la situation est anormale, l'utilisatrice doit
 
   10 enregistrements découpés
   600 morceaux créés dans ./processed/
+  Temps écoulé : 12 minutes
 
   2 enregistrements n'ont pas pu être découpés :
 
@@ -768,3 +773,5 @@ Groupage par message d'erreur (max 5 fichiers affichés par groupe, le reste ré
 - **3 exemples sur l'écran de Confirmation**, pas 1 — montre un pattern cohérent.
 - **Confirmation explicite Entrée**, jamais une touche aléatoire pour déclencher l'action destructive.
 - **« morceaux » jamais « chunks »**, **durée en minutes** jamais en compte de morceaux côté Confirm, **réassurance non-destructive** systématique sur Confirm + Result du flow découper.
+- **Moteur de découpage silencieux** (Phase 6). Le pipeline interne (worker pool wavefile vs fast-path sox) est invisible dans la TUI : aucun footer "Moteur : sox", aucun hint "Astuce : installez sox". La cible naturaliste n'a pas le modèle mental ; nommer un moteur invite une question sans réponse utile. L'ETA absorbe naturellement les écarts via la moyenne glissante. L'incitation à installer sox vit **uniquement** dans le README (lu par le binôme dev au setup initial). Le pipeline réellement utilisé est loggé dans `~/.chiro/sessions.jsonl` (`engine: "wavefile" | "sox"`, `engine_fallback_count`) pour diagnostic dev.
+- **`formatDuration` affiche la durée audio source**, pas le wall-clock estimé du traitement. Avec sox, le wall-clock devient bien inférieur à la durée audio — c'est attendu, la "durée annoncée" reste celle des enregistrements, jamais le temps de calcul.

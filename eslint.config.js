@@ -13,6 +13,7 @@ export default tseslint.config(
       "*.config.ts",
       "*.config.js",
       "scripts/**",
+      "src/lib/audio/splitWorker.bundled.mjs",
     ],
   },
   eslint.configs.recommended,

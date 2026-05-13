@@ -5,14 +5,12 @@ import { useEffect, useRef, useState } from "react";
 import { Footer } from "../../components/Footer.js";
 import type {
   ProcessOptions,
+  ProcessResult,
   processWavFiles as ProcessWavFilesType,
 } from "../../lib/audio/processWavFiles.js";
+import { formatDuration } from "../../lib/format/duration.js";
 import { logSession } from "../../lib/logging/log.js";
-import type {
-  ProcessInput,
-  ProcessOutcome,
-  SessionEvent,
-} from "../../types.js";
+import type { ProcessInput, SessionEvent } from "../../types.js";
 import { CHIRO_VERSION } from "../../version.js";
 import { RunningView, type RunningViewHandles } from "./RunningView.js";
 
@@ -20,7 +18,7 @@ export type ProcessWavFilesFn = typeof ProcessWavFilesType;
 
 const buildSessionEvent = (
   input: ProcessInput,
-  outcome: ProcessOutcome,
+  outcome: ProcessResult,
   cwd: string,
 ): SessionEvent => ({
   schema_version: 2,
@@ -41,8 +39,14 @@ const buildSessionEvent = (
     skipped_already_chunked: outcome.skippedAlreadyChunked,
     interrupted: outcome.interrupted,
     duration_ms: outcome.durationMs,
+    engine: outcome.engine,
+    engine_fallback_count: outcome.engine_fallback_count,
+    metadata: outcome.metadata,
   },
 });
+
+const metadataEnabled = (): boolean =>
+  process.env.CHIRO_DISABLE_METADATA !== "1";
 
 const TEENSY_RATE = 38400;
 const AUDIOMOTH_OUTPUT_RATE = 25000;
@@ -95,16 +99,6 @@ const estimateChunkCount = async (
   return { totalChunks, totalDurationSec, totalBytes };
 };
 
-const formatDuration = (seconds: number): string => {
-  if (seconds < 60) return `${Math.round(seconds).toString()} secondes`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60)
-    return `${minutes.toString()} minute${minutes > 1 ? "s" : ""}`;
-  const hours = Math.floor(minutes / 60);
-  const remMin = minutes % 60;
-  return `${hours.toString()} h ${remMin.toString().padStart(2, "0")}`;
-};
-
 type ConfirmState =
   | { kind: "loading" }
   | {
@@ -127,7 +121,7 @@ export type ProcessConfirmScreenProps = {
   runningRef: React.RefObject<boolean>;
   /** Injected for tests. Defaults to the real implementation. */
   processWavFiles: ProcessWavFilesFn;
-  onComplete: (outcome: ProcessOutcome) => void;
+  onComplete: (outcome: ProcessResult) => void;
   onBack: () => void;
 };
 
@@ -184,6 +178,10 @@ export const ConfirmScreen = ({
       signal: controller.signal,
       onProgress: (event) => {
         runningHandlesRef.current?.onProgress(event);
+      },
+      metadata: {
+        enabled: metadataEnabled(),
+        chiroVersion: CHIRO_VERSION,
       },
     };
     const outcome = await processWavFiles(wavFiles, cwd, input, options);

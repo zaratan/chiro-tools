@@ -11,12 +11,23 @@ permissions:
 
 jobs:
   check:
-    name: pnpm check
-    runs-on: ubuntu-latest
-    # `src/lib/` is pure TS/Node — no platform-specific code. Running the
-    # full check on Linux only halves the LFS bandwidth per PR (test-data
-    # is ~450 MB) and saves ~30 s of duplicated test time. Cross-platform
-    # binary integrity is covered by the smoke-build matrix below.
+    name: pnpm check (${{ matrix.os }} sox=${{ matrix.sox }})
+    runs-on: ${{ matrix.os }}
+    # `src/lib/` is pure TS/Node — no platform-specific code, so we run the
+    # `without` variant on Linux only (the cheaper runner). The `with` variant
+    # runs on both Linux and macOS because sox versions differ between apt
+    # and Homebrew, and the cible utilisatrice est principalement macOS —
+    # any divergence on the sox fast-path must be caught on the target OS.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            sox: without
+          - os: ubuntu-latest
+            sox: with
+          - os: macos-latest
+            sox: with
     steps:
       - uses: actions/checkout@v6
         with:
@@ -30,6 +41,12 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      - name: Install sox (Linux)
+        if: matrix.sox == 'with' && runner.os == 'Linux'
+        run: sudo apt-get install -y sox
+      - name: Install sox (macOS)
+        if: matrix.sox == 'with' && runner.os == 'macOS'
+        run: brew install sox
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
 

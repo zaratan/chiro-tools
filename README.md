@@ -32,6 +32,19 @@ bash install.sh
 CHIRO_VERSION=v0.1.0 bash <(curl -fL https://raw.githubusercontent.com/zaratan/chiro-tools/main/scripts/install.sh)
 ```
 
+## Pour aller plus vite (optionnel)
+
+Le découpage peut prendre du temps sur une grosse session (par ex. une nuit complète d'AudioMoth). Pour accélérer fortement cette étape, vous pouvez installer **sox** :
+
+- macOS : `brew install sox`
+- Linux : `sudo apt install sox`
+
+Chiro-tools le détecte automatiquement au lancement suivant.
+
+Ordre de grandeur : une session qui prend 3 heures sans sox prend environ 10 minutes avec.
+
+Ce n'est pas obligatoire — sans sox, le découpage fonctionne quand même, c'est juste plus long.
+
 ## Documentation
 
 La spec complète du projet est dans [`docs/`](./docs/) :

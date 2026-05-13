@@ -253,15 +253,15 @@ Quatre variantes, mêmes principes UX que le rename :
 
 ### Règles métier — Découpage
 
-**Mode `preserve`** (Teensy / PaRec) : aucune modification du sample rate. Slice par tranches de `sampleRate × 5` samples.
+**Convention de durée** : un chunk couvre **5 secondes de temps réel ultrasonique**. Comme Teensy et AudioMoth produisent tous deux un signal joué en time-expansion ×10 dans le fichier de sortie, **5 s temps réel = 50 s sur la timeline de sortie audio**. C'est la convention Kaleidoscope, et celle attendue par Chirosuf / Tadarida. Les constantes vivent dans `src/lib/audio/constants.ts` (`CHUNK_OUTPUT_SECONDS = 50`, `CHUNK_REAL_SECONDS = 5`).
 
-**Mode `expand-10x`** (AudioMoth / Wildlife Acoustics) : réécriture lossless du `fmt.sampleRate` (= `Math.round(source / 10)`), puis slice par tranches de `outputSampleRate × 5` samples. Les samples PCM eux-mêmes ne sont jamais touchés — seul le champ d'en-tête change, ce qui équivaut à un ralentissement à la lecture.
+**Mode `preserve`** (Teensy / PaRec) : aucune modification du sample rate (Teensy enregistre déjà à un débit audio expansé). Slice par tranches de `sampleRate × 50` samples.
 
-**Référentiel des 5 s** : la timeline **du fichier de sortie**. Pour un fichier AudioMoth 250 kHz expansé en 25 kHz, 5 s de sortie = 0.5 s de temps réel. Convention alignée sur Kaleidoscope.
+**Mode `expand-10x`** (AudioMoth / Wildlife Acoustics) : réécriture lossless du `fmt.sampleRate` (= `Math.round(source / 10)`), puis slice par tranches de `outputSampleRate × 50` samples. Les samples PCM eux-mêmes ne sont jamais touchés — seul le champ d'en-tête change, ce qui équivaut à un ralentissement à la lecture.
 
 **Multicanal** : les canaux sont conservés groupés dans chaque chunk (1 fichier stéréo → 1 fichier stéréo par chunk, pas 2 mono). À noter : Kaleidoscope coche par défaut « Split channels » → séparation en mono. Notre v1 garde groupé ; option de split en mono prévue en V2 (cf. `roadmap.md` follow-ups Phase 5).
 
-**Dernier chunk < 5 s** : conservé tel quel (lossless). Tadarida peut l'analyser avec une confiance moindre. Pas de padding silence, pas de drop.
+**Dernier chunk < 5 s temps réel** : conservé tel quel (lossless). Tadarida peut l'analyser avec une confiance moindre. Pas de padding silence, pas de drop. La métadonnée GUANO `Length` reflète la durée réelle de ce tail chunk.
 
 **Filtre `_NNN.wav$`** : tout fichier source dont le nom matche `_\d{3}\.wav$` (case-insensitive ext) est **skippé silencieusement** et reporté dans `skippedAlreadyChunked`. Évite de re-splitter par accident des morceaux déjà produits qui auraient été déplacés à la racine.
 
@@ -271,10 +271,21 @@ Quatre variantes, mêmes principes UX que le rename :
 
 **Allowlist de formats** : `audioFormat ∈ {1 (PCM standard), 0xFFFE (EXTENSIBLE) avec subformat PCM}`. Bit depth 16 ou 24. Tout autre format → `ProcessError { reason: "unsupported-format" }`.
 
+### Métadonnées GUANO / wamd
+
+Chaque chunk de sortie reçoit, après le `data` chunk, deux RIFF ancillaires alignés sur ce que Kaleidoscope produit :
+
+- **`wamd`** (Wildlife Acoustics) : enregistrements `tag (uint16 LE) + length (uint32 LE) + value`. Tags écrits : `0x0000` WA Version (uint16 = 1), `0x000F` TE (uint16 = 10), `0x0005` Timestamp (ISO 8601 + offset TZ local), `0x0008` Software (`chiro <version>`).
+- **`guan`** (GUANO 1.0, [spec](https://github.com/riggsd/guano-spec)) : UTF-8, lignes `key:value\n` — `GUANO|Version`, `Length` (5.000000 s temps réel), `Original Filename`, `Samplerate` (= rate réel ultrasonique = output × 10), `TE` (= 10), `Timestamp` (omis si non parsable depuis le nom de fichier), `WA|chiro|Version`.
+
+Implémentation : `src/lib/audio/metadata/{guano,wamd,chunkMetadata}.ts`, appendage via `appendAncillaryChunks` dans `src/lib/audio/finalizeChunk.ts`. Le pipeline sox et le worker pool partagent les mêmes builders, donc les sorties sont byte-identiques modulo l'horodatage parsé.
+
+**Kill-switch** : `CHIRO_DISABLE_METADATA=1` désactive entièrement l'append. Utile en cas de divergence remontée par un outil aval (rollback ops sans rebuild). État tracé dans `~/.chiro/sessions.jsonl` sous `result.metadata: "full" | "off"`.
+
 ### Glossaire — vocabulaire technique
 
-- **Time expansion ×10** : technique consistant à réécrire le sample rate d'un fichier ultrasonique pour que sa lecture soit 10× plus lente, donc audible. Pour un AudioMoth 250 kHz, on déclare 25 kHz → ce qui se prononçait à 80 kHz se joue à 8 kHz. Aucun sample modifié, juste un champ d'en-tête. Voir `architecture.md` § ADR pour les détails.
-- **5 s « en référentiel audio expansé »** : 5 s tels que mesurés sur la timeline du fichier de sortie. Si le fichier de sortie est à 25 kHz (post-TE×10) et qu'il représente du réel 250 kHz, alors 5 s d'audio expansé = 0.5 s de temps réel.
+- **Time expansion ×10** : technique consistant à réécrire le sample rate d'un fichier ultrasonique pour que sa lecture soit 10× plus lente, donc audible. Pour un AudioMoth 250 kHz, on déclare 25 kHz → ce qui se prononçait à 80 kHz se joue à 8 kHz. Aucun sample modifié, juste un champ d'en-tête. Voir `architecture.md` § ADR pour les détails. Le Teensy enregistre **nativement** à un débit audio expansé : c'est pourquoi son mode `preserve` ne touche pas au sample rate.
+- **5 s temps réel** : convention de découpe. Sur la timeline du fichier de sortie (TE×10), cela correspond à 50 secondes d'audio à écouter.
 - **PCM** : Pulse-Code Modulation. Format audio non compressé, échantillons entiers signés (16-bit ou 24-bit dans la chaîne Vigie-Chiro). Seul format accepté.
 
 ### Écran 5 — Mise à jour (transverse)
