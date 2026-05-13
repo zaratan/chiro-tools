@@ -2,9 +2,22 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import { readFile } from "node:fs/promises";
 import { parentPort } from "node:worker_threads";
-import { rewriteHeaderToStandardPcm } from "./wavHeader.js";
+import { finalizeChunk } from "./finalizeChunk.js";
 import { splitWavFile } from "./splitWavFile.js";
+import { TIME_EXPANSION_FACTOR } from "./constants.js";
+import { buildChunkMeta } from "./metadata/chunkMetadata.js";
+import { buildGuanoChunk } from "./metadata/guano.js";
+import { buildWamdChunk } from "./metadata/wamd.js";
 import type { TimeExpansionMode } from "../../types.js";
+
+export type WorkerMetaConfig =
+  | { enabled: false }
+  | {
+      enabled: true;
+      originalFilename: string;
+      sourceTimestamp: number | null; // Date.getTime(), serialisable
+      chiroVersion: string;
+    };
 
 export type WorkerInMessage =
   | {
@@ -15,6 +28,7 @@ export type WorkerInMessage =
       outDir: string;
       fileIndex: number;
       baseName: string;
+      meta: WorkerMetaConfig;
     }
   | { kind: "abort" };
 
@@ -45,6 +59,7 @@ const writeTmpAndRename = async (
   outDir: string,
   chunkName: string,
   data: Uint8Array,
+  ancillaries: Buffer[],
 ): Promise<void> => {
   const tmpSuffix = randomUUID().slice(0, 8);
   const finalPath = `${outDir}/${chunkName}`;
@@ -52,10 +67,30 @@ const writeTmpAndRename = async (
 
   await writeFile(tmpPath, data);
   // splitWavFile already encodes the correct output sample rate in the buffer.
-  // rewriteHeaderToStandardPcm canonicalises the header (strips LIST/JUNK/fact,
-  // forces audioFormat=1) without re-applying the expand-10x rate division.
-  await rewriteHeaderToStandardPcm(tmpPath, false);
+  // finalizeChunk canonicalises the header (strips LIST/JUNK/fact, forces
+  // audioFormat=1) and appends ancillary chunks (wamd, GUANO) when provided.
+  await finalizeChunk(tmpPath, { expand10x: false, ancillaries });
   await rename(tmpPath, finalPath);
+};
+
+const buildAncillaries = (
+  meta: WorkerMetaConfig,
+  chunkIndex: number,
+  chunkSamples: number,
+  outputSampleRate: number,
+): Buffer[] => {
+  if (!meta.enabled) return [];
+  const { guano, wamd } = buildChunkMeta({
+    sourceTimestamp:
+      meta.sourceTimestamp === null ? null : new Date(meta.sourceTimestamp),
+    chunkIndex,
+    chunkSamples,
+    outputSampleRate,
+    timeExpansion: TIME_EXPANSION_FACTOR,
+    originalFilename: meta.originalFilename,
+    chiroVersion: meta.chiroVersion,
+  });
+  return [buildWamdChunk(wamd), buildGuanoChunk(guano)];
 };
 
 const processFile = async (
@@ -68,6 +103,7 @@ const processFile = async (
     outDir,
     fileIndex,
     baseName,
+    meta,
   } = msg;
 
   let fileSizeBytes: number;
@@ -118,9 +154,15 @@ const processFile = async (
 
     const { chunk } = yielded;
     const chunkName = `${baseName}_${padIndex(chunk.index)}.wav`;
+    const ancillaries = buildAncillaries(
+      meta,
+      chunk.index,
+      chunk.samplesInChunk,
+      chunk.outputSampleRate,
+    );
 
     try {
-      await writeTmpAndRename(outDir, chunkName, chunk.buffer);
+      await writeTmpAndRename(outDir, chunkName, chunk.buffer, ancillaries);
     } catch (err) {
       const reason =
         err instanceof Error && "code" in err

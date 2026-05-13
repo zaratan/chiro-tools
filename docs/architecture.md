@@ -457,6 +457,20 @@ Pour chaque fichier : spawn `sox <src> <outDir>/<baseName>_raw_.wav trim 0 <segm
 
 `src/lib/audio/wavHeader.ts` exporte `rewriteHeaderToStandardPcm(filePath, expand10x)`. Appliqué dans les **deux** pipelines après le split : strip `LIST/INFO/JUNK/fact`, force `audioFormat=1` PCM standard, écrit un header 44-byte canonical, préserve la zone `data` byte-pour-byte. Conséquence : A et B produisent des fichiers bit-identiques (un seul SHA256 golden test, un seul format de sortie). Validé par `__tests__/golden.test.ts`.
 
+### Métadonnées GUANO + wamd
+
+`src/lib/audio/finalizeChunk.ts` wrappe `rewriteHeaderToStandardPcm` puis appelle `appendAncillaryChunks(filePath, chunks)` pour appender les RIFF ancillaires après la zone `data`. La fonction recalcule la `RIFF size` à offset 4 et insère 1 byte `0x00` de padding si `dataSize` est impair (alignement 2-byte). Chaque chunk passé est lui-même 2-byte aligné.
+
+Les builders vivent dans `src/lib/audio/metadata/` :
+
+- `guano.ts` — sérialise un `GuanoMeta` en chunk `guan` UTF-8 (GUANO 1.0).
+- `wamd.ts` — sérialise un `WamdMeta` en chunk `wamd` Wildlife Acoustics (records `tag(2 LE)+length(4 LE)+value`, pas de header).
+- `chunkMetadata.ts` — orchestrateur per-chunk : reçoit `(sourceTimestamp, chunkIndex, chunkSamples, outputSampleRate, …)` et produit le `(guano, wamd)` correspondant. `Length` = `chunkSamples / outputSR / timeExpansion` (secondes réelles). `Timestamp` = `sourceTs + chunkIndex × 5 s`.
+
+Pipeline worker pool (A) : `splitWorker.writeTmpAndRename` appelle `finalizeChunk(tmp, { expand10x: false, ancillaries: [wamd, guano] })`. Pipeline sox (B) : `processOneFile` appelle `rewriteHeaderToStandardPcm` puis lit `dataSize` du header canonique pour calculer `chunkSamples` avant `appendAncillaryChunks`. Les deux pipelines produisent des bytes identiques (validé par run manuel sur `test-data/real_process_teensy/`).
+
+Le kill-switch `CHIRO_DISABLE_METADATA=1` est lu dans `ConfirmScreen.tsx` au démarrage de la session ; il est propagé via `ProcessOptions.metadata.enabled = false`. État tracé dans `SessionEvent.result.metadata: "full" | "off"`. Le timestamp source est parsé depuis le filename (`src/lib/files/parseTimestamp.ts`) — pattern `_YYYYMMDD_HHMMSS` ancré pour éviter de matcher l'année du préfixe Vigie-Chiro (`Car…-2026-…`). Si non parsable, la ligne `Timestamp:` est omise du GUANO et le record `0x0005` est omis du wamd.
+
 ### Routage et politique fallback
 
 `processWavFiles.ts` route selon `options.sox` (passé par `App.tsx` après `detectSox`) :

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { rewriteHeaderToStandardPcm } from "../wavHeader.js";
 import { splitWavFile } from "../splitWavFile.js";
 import { run as runPool, clampWorkerCount } from "../splitWorkerPool.js";
+import { CHUNK_OUTPUT_SECONDS } from "../constants.js";
 import { makeRampWav } from "./fixtures.js";
 
 const sha256 = (data: Buffer | Uint8Array): string =>
@@ -48,7 +49,10 @@ describe("splitWorkerPool", () => {
       const { mkdir } = await import("node:fs/promises");
       await mkdir(outSubDir, { recursive: true });
 
-      for (const yielded of splitWavFile(buffer, { mode, chunkSeconds: 5 })) {
+      for (const yielded of splitWavFile(buffer, {
+        mode,
+        chunkSeconds: CHUNK_OUTPUT_SECONDS,
+      })) {
         if (yielded.kind !== "chunk") continue;
         const { chunk } = yielded;
         const chunkName = `${baseName}_${padIndex(chunk.index)}.wav`;
@@ -357,7 +361,13 @@ describe("splitWorkerPool", () => {
   });
 
   it("writes files atomically (no partial .wav without corresponding .tmp rename)", async () => {
-    await writeWav("atomic-test.wav", { durationSeconds: 11 });
+    // 120 s @ 48 kHz mono with 50 s chunks → 3 output chunks (2 full + 1 tail).
+    await writeWav("atomic-test.wav", {
+      channels: 1,
+      sampleRate: 48000,
+      bitDepth: "16",
+      durationSeconds: 120,
+    });
 
     const outcome = await runPool(["atomic-test.wav"], tmpDir, {
       mode: "preserve",
@@ -379,11 +389,12 @@ describe("splitWorkerPool", () => {
   });
 
   it("chunk output files have canonical 44-byte header (audioFormat=1)", async () => {
+    // 120 s @ 48 kHz mono with 50 s chunks → 3 output chunks.
     await writeWav("canonical-test.wav", {
       channels: 1,
       sampleRate: 48000,
       bitDepth: "16",
-      durationSeconds: 6,
+      durationSeconds: 120,
     });
 
     const outcome = await runPool(["canonical-test.wav"], tmpDir, {
@@ -393,7 +404,7 @@ describe("splitWorkerPool", () => {
 
     const processedDir = path.join(tmpDir, "processed");
     const chunks = await readdir(processedDir);
-    expect(chunks.length).toBe(2);
+    expect(chunks.length).toBe(3);
 
     for (const chunkFile of chunks) {
       const buf = await readFile(path.join(processedDir, chunkFile));

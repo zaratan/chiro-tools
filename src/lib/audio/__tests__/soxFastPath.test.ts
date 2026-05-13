@@ -214,9 +214,11 @@ describe("runSoxBatch", () => {
 
   describe.skipIf(!soxAvailable)("with real sox", () => {
     it("processes a WAV file and returns completed with correct chunk count", async () => {
+      // 110 s @ 48 kHz preserve with 50 s chunks → 3 output chunks
+      // (2 full + 1 tail of 10 s).
       await writeWav("source.wav", {
         sampleRate: 48000,
-        durationSeconds: 11,
+        durationSeconds: 110,
         bitDepth: "16",
         channels: 1,
       });
@@ -253,9 +255,11 @@ describe("runSoxBatch", () => {
     }, 30_000);
 
     it("expand-10x mode: divides sample rate and produces correct chunk count", async () => {
+      // 11 s real-time @ 250 kHz → after rewrite to 25 kHz = 110 s output.
+      // 50 s output chunks → 3 chunks (2 full + 1 tail of 10 s).
       await writeWav("audiomoth.wav", {
         sampleRate: 250000,
-        durationSeconds: 1,
+        durationSeconds: 11,
         bitDepth: "16",
         channels: 1,
       });
@@ -270,15 +274,15 @@ describe("runSoxBatch", () => {
       expect(result.outcome.errored).toEqual([]);
       const proc = result.outcome.processed[0];
       if (!proc) throw new Error("no processed entry");
-      // 1s at 250kHz expand-10x → 10s at 25kHz → 2 chunks of 5s
       expect(proc.outputSampleRate).toBe(25000);
-      expect(proc.chunkCount).toBe(2);
+      expect(proc.chunkCount).toBe(3);
     }, 30_000);
 
     it("emits progress events: file-start, chunk-written×N, file-done", async () => {
+      // 110 s @ 48 kHz preserve with 50 s chunks → 3 chunk-written events.
       await writeWav("source.wav", {
         sampleRate: 48000,
-        durationSeconds: 11,
+        durationSeconds: 110,
         bitDepth: "16",
         channels: 1,
       });

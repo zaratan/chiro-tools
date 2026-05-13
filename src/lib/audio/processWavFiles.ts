@@ -1,4 +1,5 @@
 import type {
+  MetadataConfig,
   ProcessInput,
   ProcessOutcome,
   ProgressEvent,
@@ -17,11 +18,14 @@ export type ProcessOptions = {
   onProgress?: (event: ProgressEvent) => void;
   /** If provided, uses the sox fast path with fallback to worker pool. */
   sox?: SoxContext;
+  /** GUANO + wamd metadata config. When omitted, metadata is appended. */
+  metadata?: MetadataConfig;
 };
 
 export type ProcessResult = ProcessOutcome & {
   engine: "wavefile" | "sox";
   engine_fallback_count: number;
+  metadata: "full" | "off";
 };
 
 /**
@@ -55,7 +59,11 @@ export const processWavFiles = async (
     signal: options?.signal,
     maxInputBytes: options?.maxInputBytes,
     onProgress: options?.onProgress,
+    metadata: options?.metadata,
   };
+
+  const metadataLabel: "full" | "off" =
+    options?.metadata?.enabled === false ? "off" : "full";
 
   if (options?.sox) {
     const soxResult = await runSoxBatch(
@@ -71,6 +79,7 @@ export const processWavFiles = async (
         ...soxResult.outcome,
         engine: "sox",
         engine_fallback_count: 0,
+        metadata: metadataLabel,
       };
     }
 
@@ -80,9 +89,15 @@ export const processWavFiles = async (
       ...poolOutcome,
       engine: "wavefile",
       engine_fallback_count: 1,
+      metadata: metadataLabel,
     };
   }
 
   const outcome = await runPool(files, dir, input, poolOptions);
-  return { ...outcome, engine: "wavefile", engine_fallback_count: 0 };
+  return {
+    ...outcome,
+    engine: "wavefile",
+    engine_fallback_count: 0,
+    metadata: metadataLabel,
+  };
 };

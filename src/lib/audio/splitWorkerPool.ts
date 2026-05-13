@@ -4,8 +4,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import workerBundleAsset from "./splitWorker.bundled.mjs" with { type: "file" };
-import type { WorkerInMessage, WorkerOutMessage } from "./splitWorker.js";
 import type {
+  WorkerInMessage,
+  WorkerMetaConfig,
+  WorkerOutMessage,
+} from "./splitWorker.js";
+import { CHUNK_OUTPUT_SECONDS } from "./constants.js";
+import { parseSourceTimestamp } from "../files/parseTimestamp.js";
+import type {
+  MetadataConfig,
   ProcessInput,
   ProcessOutcome,
   ProcessedFile,
@@ -23,7 +30,6 @@ const resolveWorkerPath = (): string => {
   return path.join(dir, "splitWorker.bundled.mjs");
 };
 
-const CHUNK_SECONDS = 5;
 const ABORT_TIMEOUT_MS = 2000;
 const MEMORY_PER_WORKER_MB = 400;
 const MEMORY_USABLE_FRACTION = 0.7;
@@ -133,6 +139,20 @@ const terminateWorkers = async (workerStates: WorkerState[]): Promise<void> => {
   );
 };
 
+const buildWorkerMeta = (
+  fileName: string,
+  metadata: MetadataConfig | undefined,
+): WorkerMetaConfig => {
+  if (!metadata?.enabled) return { enabled: false };
+  const ts = parseSourceTimestamp(fileName);
+  return {
+    enabled: true,
+    originalFilename: fileName,
+    sourceTimestamp: ts === null ? null : ts.getTime(),
+    chiroVersion: metadata.chiroVersion,
+  };
+};
+
 export const run = async (
   files: string[],
   dir: string,
@@ -141,6 +161,7 @@ export const run = async (
     signal?: AbortSignal;
     maxInputBytes?: number;
     onProgress?: (event: ProgressEvent) => void;
+    metadata?: MetadataConfig;
   },
 ): Promise<ProcessOutcome> => {
   const start = performance.now();
@@ -261,10 +282,11 @@ export const run = async (
         kind: "process-file",
         path: item.filePath,
         mode: input.mode,
-        chunkSeconds: CHUNK_SECONDS,
+        chunkSeconds: CHUNK_OUTPUT_SECONDS,
         outDir,
         fileIndex: item.fileIndex,
         baseName: item.baseName,
+        meta: buildWorkerMeta(path.basename(item.filePath), options?.metadata),
       };
       ws.worker.postMessage(msg);
     };

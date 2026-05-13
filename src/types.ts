@@ -20,6 +20,21 @@ export type ProcessInput = {
   mode: TimeExpansionMode;
 };
 
+/**
+ * Metadata configuration for chunk output. When `enabled`, every chunk gets
+ * `wamd` and `guan` (GUANO) RIFF chunks appended after the audio data — this
+ * matches Kaleidoscope's behaviour and is required for downstream tools like
+ * Chirosuf to interpret the time-expansion factor.
+ *
+ * The kill switch is controlled by the `CHIRO_DISABLE_METADATA=1` environment
+ * variable. The version string flows into `WA|chiro|Version` (GUANO) and
+ * `Software` (wamd).
+ */
+export type MetadataConfig = {
+  enabled: boolean;
+  chiroVersion: string;
+};
+
 export type ProcessedFile = {
   sourceFile: string;
   chunkCount: number;
@@ -90,6 +105,8 @@ export type ProcessResultSerialized = {
   duration_ms: number;
   engine: "wavefile" | "sox";
   engine_fallback_count: number;
+  /** "full" when GUANO + wamd chunks are appended, "off" via CHIRO_DISABLE_METADATA. */
+  metadata: "full" | "off";
 };
 
 // Note: only nominal events are emitted. Errors and skips are observable

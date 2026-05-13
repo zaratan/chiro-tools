@@ -41,8 +41,12 @@ const buildSessionEvent = (
     duration_ms: outcome.durationMs,
     engine: outcome.engine,
     engine_fallback_count: outcome.engine_fallback_count,
+    metadata: outcome.metadata,
   },
 });
+
+const metadataEnabled = (): boolean =>
+  process.env.CHIRO_DISABLE_METADATA !== "1";
 
 const TEENSY_RATE = 38400;
 const AUDIOMOTH_OUTPUT_RATE = 25000;
@@ -174,6 +178,10 @@ export const ConfirmScreen = ({
       signal: controller.signal,
       onProgress: (event) => {
         runningHandlesRef.current?.onProgress(event);
+      },
+      metadata: {
+        enabled: metadataEnabled(),
+        chiroVersion: CHIRO_VERSION,
       },
     };
     const outcome = await processWavFiles(wavFiles, cwd, input, options);

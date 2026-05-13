@@ -109,6 +109,13 @@ Le découpage WAV est CPU-bound (`wavefile.toBuffer()` ré-encode header + sampl
 - **Politique fallback per-batch first-error** : si sox crashe ou si spot-check stratifié (3 chunks : 1er + milieu + dernier) échoue sur le 1er fichier, **tout le batch** retraite via worker pool. Pas de mix de pipelines au sein d'un batch.
 - **Moteur silencieux dans la TUI** (cf. `docs/ux.md` § Choix UX validés). Pipeline utilisé tracé uniquement dans `~/.chiro/sessions.jsonl` (`engine`, `engine_fallback_count`).
 
+## Découpage et métadonnées — convention Kaleidoscope (Phase 7)
+
+- **5 s temps réel = 50 s timeline output**. Les constantes vivent dans `src/lib/audio/constants.ts` (`CHUNK_OUTPUT_SECONDS = 50`, `CHUNK_REAL_SECONDS = 5`). Teensy enregistre nativement en TE×10, AudioMoth est réécrit ×10 par chiro — donc dans les deux modes la sortie est TE×10 et on coupe à 50 s d'audio expansé = 5 s réel. Avant la Phase 7, chiro coupait à 5 s output (10× trop court en temps réel) et Chirosuf affichait les chunks "compactés au début".
+- **GUANO + wamd ancillaires** appendés après le `data` chunk via `src/lib/audio/finalizeChunk.ts` (wrapper de `rewriteHeaderToStandardPcm` + `appendAncillaryChunks`). Builders dans `src/lib/audio/metadata/`. Worker pool et sox partagent les mêmes builders → outputs byte-identiques (vérifié manuellement sur `test-data/real_process_teensy/`).
+- **Kill-switch** `CHIRO_DISABLE_METADATA=1` : désactive entièrement l'append (utile si Chirosuf râle sur un format wamd inattendu, sans rebuild). Tracé dans `sessions.jsonl` (`metadata: "full" | "off"`).
+- **Timestamp parsing** : `src/lib/files/parseTimestamp.ts`. Regex ancré sur `_YYYYMMDD_HHMMSS` pour éviter de matcher l'année du préfixe Vigie-Chiro (`Car340581-2026-`). Si non parsable → `Timestamp` omis du GUANO/wamd plutôt qu'écrit comme `Invalid Date`.
+
 ## Pièges connus
 
 - **APFS case-insensitive** : `foo.wav` et `FOO.WAV` collisionnent sur macOS. `planRenames` pré-vérifie via `fs.access` avant chaque rename.

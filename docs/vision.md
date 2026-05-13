@@ -13,7 +13,7 @@ Une utilisatrice participe au programme **Vigie-Chiro**. Pour chaque session de 
 3. Elle récupère les `.wav` produits (depuis une carte SD, sur sa machine).
 4. **Avant upload** vers Vigie-Chiro, chaque fichier doit :
    - être renommé en ajoutant un préfixe précis : `CarXXXXXX-AAAA-PassN-YY-<nom-original>.wav`
-   - **et pour les détecteurs full-spectrum (AudioMoth, SM4, etc.)** être expansé temporellement ×10 (lossless, réécriture du sample rate) puis découpé en morceaux de 5 secondes — étapes habituellement réalisées dans Kaleidoscope.
+   - **et pour les détecteurs full-spectrum (AudioMoth, SM4, etc.)** être expansé temporellement ×10 (lossless, réécriture du sample rate) puis découpé en morceaux de 5 secondes réelles (= 50 s d'audio expansé) — étapes habituellement réalisées dans Kaleidoscope.
 
 Aujourd'hui, ces deux étapes se font à la main et avec plusieurs outils, parfois sur des centaines de fichiers par nuit. C'est pénible, propice aux erreurs, et démoralisant après une nuit de terrain.
 
