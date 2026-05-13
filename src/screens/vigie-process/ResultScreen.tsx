@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import { Footer } from "../../components/Footer.js";
+import { formatDuration } from "../../lib/format/duration.js";
 import type { ProcessError, ProcessOutcome } from "../../types.js";
 import { mapProcessErrorCodeToMessage } from "./errorMessages.js";
 
@@ -82,6 +83,9 @@ const renderSummary = (outcome: ProcessOutcome): React.JSX.Element => {
           } (déjà au format morceau)`}
         </Text>
       ) : null}
+      <Text dimColor>
+        {`  Temps d'exécution : ${formatDuration(outcome.durationMs / 1000)}`}
+      </Text>
     </Box>
   );
 };

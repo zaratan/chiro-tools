@@ -8,6 +8,7 @@ import type {
   ProcessResult,
   processWavFiles as ProcessWavFilesType,
 } from "../../lib/audio/processWavFiles.js";
+import { formatDuration } from "../../lib/format/duration.js";
 import { logSession } from "../../lib/logging/log.js";
 import type { ProcessInput, SessionEvent } from "../../types.js";
 import { CHIRO_VERSION } from "../../version.js";
@@ -92,16 +93,6 @@ const estimateChunkCount = async (
   const totalChunks = Math.ceil(totalSamples / samplesPerChunk);
   const totalDurationSec = totalSamples / outputRate;
   return { totalChunks, totalDurationSec, totalBytes };
-};
-
-const formatDuration = (seconds: number): string => {
-  if (seconds < 60) return `${Math.round(seconds).toString()} secondes`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60)
-    return `${minutes.toString()} minute${minutes > 1 ? "s" : ""}`;
-  const hours = Math.floor(minutes / 60);
-  const remMin = minutes % 60;
-  return `${hours.toString()} h ${remMin.toString().padStart(2, "0")}`;
 };
 
 type ConfirmState =
