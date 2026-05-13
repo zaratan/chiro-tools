@@ -443,7 +443,9 @@ const N = Math.max(
 
 Surchargeable via `CHIRO_WORKER_COUNT`. Pour M1 Max 64 GB / 10 cores → N=9. MacBook 16 GB / 8 cores → N=7.
 
-**Abort propre** : sur signal, le main poste `{kind:"abort"}` à chaque worker, attend leur `{kind:"aborted"}` (timeout 2s), puis `worker.terminate()` forcé pour les retardataires. Garantie : à la sortie de `run()`, aucun chunk `.tmp.*` n'est laissé sur disque (le worker finit son `await rename` en cours avant de répondre `aborted`). Suffixe tmp en `crypto.randomUUID().slice(0,8)` (workers partagent le PID parent → collision possible avec `.tmp.${PID}`).
+**Abort propre** : sur signal, le main poste `{kind:"abort"}` à chaque worker, attend leur `{kind:"aborted"}` (timeout 2s), puis `worker.terminate()` forcé pour les retardataires. Garantie principale : à la sortie de `run()`, aucun chunk `.tmp.*` n'est laissé sur disque (le worker finit son `await rename` en cours avant de répondre `aborted`). Suffixe tmp en `crypto.randomUUID().slice(0,8)` (workers partagent le PID parent → collision possible avec `.tmp.${PID}`).
+
+**Second safety net** : `preCleanOrphanTmps(outDir)` est appelé au démarrage de chaque `run()`, qui supprime tout `.tmp` orphelin laissé par un run précédent (cas où un worker aurait été tué brutalement avant la fin de son `await rename`, par exemple sur SD lente où le timeout 2s aurait été atteint). Le pre-clean garantit que le `processed/` est toujours dans un état cohérent avant un nouveau batch — pas de chunk corrompu visible côté utilisatrice.
 
 ### Pipeline B — Fast-path sox
 

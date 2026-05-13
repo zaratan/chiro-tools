@@ -677,14 +677,14 @@ Footer vide (cf. Footer raccourcis § Cas particuliers — pas afficher Ctrl+C p
 
   12 enregistrements découpés
   720 morceaux créés dans ./processed/
-  Temps d'exécution : 12 minutes
+  Temps écoulé : 12 minutes
 
   Vos fichiers d'origine sont intacts dans ce dossier.
 
   Entrée retour au menu
 ```
 
-`Temps d'exécution` est en `dimColor` (information secondaire). Le format suit `formatDuration` (cf. `src/lib/format/duration.ts`) : secondes sous 1 min, minutes sous 1 h, sinon `X h MM`.
+`Temps écoulé` est en `dimColor` (information secondaire). Le format suit `formatDuration` (cf. `src/lib/format/duration.ts`) : secondes sous 1 min, minutes sous 1 h, sinon `X h MM`.
 
 Si applicable, ajouter en `dimColor` après le compte de morceaux :
 
@@ -700,7 +700,7 @@ Si applicable, ajouter en `dimColor` après le compte de morceaux :
 
   3 enregistrements découpés
   180 morceaux créés dans ./processed/
-  Temps d'exécution : 5 minutes
+  Temps écoulé : 5 minutes
 
   Vous pouvez relancer chiro plus tard — il faudra d'abord renommer
   ou supprimer le dossier « processed » créé.
@@ -731,7 +731,7 @@ Pas de phrase de réassurance — la situation est anormale, l'utilisatrice doit
 
   10 enregistrements découpés
   600 morceaux créés dans ./processed/
-  Temps d'exécution : 12 minutes
+  Temps écoulé : 12 minutes
 
   2 enregistrements n'ont pas pu être découpés :
 

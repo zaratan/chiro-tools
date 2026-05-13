@@ -84,7 +84,7 @@ const renderSummary = (outcome: ProcessOutcome): React.JSX.Element => {
         </Text>
       ) : null}
       <Text dimColor>
-        {`  Temps d'exécution : ${formatDuration(outcome.durationMs / 1000)}`}
+        {`  Temps écoulé : ${formatDuration(outcome.durationMs / 1000)}`}
       </Text>
     </Box>
   );

@@ -38,9 +38,12 @@ export type ProcessResult = ProcessOutcome & {
  *
  * AbortSignal: checked between files and between chunks of the same file.
  *
- * If `options.sox` is provided, attempts the sox fast path first. On first-file
- * failure or spot-check mismatch, falls back to the worker pool for the entire
- * batch (per-batch first-error policy).
+ * If `options.sox` is provided, attempts the sox fast path first. Fallback to
+ * the worker pool is only triggered if sox fails OR spot-check mismatches on
+ * the FIRST file (first-file-only policy). Once the first file has validated
+ * the sox pipeline, subsequent per-file errors are recorded in `errored` and
+ * the batch continues — re-running through wavefile would waste work on the
+ * N-1 already-completed files and risk duplicate output.
  */
 export const processWavFiles = async (
   files: string[],

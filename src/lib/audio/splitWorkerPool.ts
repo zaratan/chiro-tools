@@ -333,16 +333,6 @@ export const run = async (
       workerStates.push(ws);
     }
 
-    if (isAborted()) {
-      batchAborted = true;
-      resolveBatch(true);
-      return;
-    }
-
-    for (const ws of workerStates) {
-      dispatchToWorker(ws);
-    }
-
     signal?.addEventListener(
       "abort",
       () => {
@@ -352,6 +342,17 @@ export const run = async (
       },
       { once: true },
     );
+
+    if (isAborted()) {
+      batchAborted = true;
+      state.interrupted = true;
+      resolveBatch(true);
+      return;
+    }
+
+    for (const ws of workerStates) {
+      dispatchToWorker(ws);
+    }
   });
 
   if (batchDone) {
