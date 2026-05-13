@@ -257,12 +257,24 @@ describe("processWavFiles", () => {
     expect(secondDone.chunkCount).toBe(2);
     expect(secondDone.fileSizeBytes).toBe(secondStart.fileSizeBytes);
 
-    // Verify ordering: all events for file 0 come before file 1
+    // Verify intra-file ordering: file-start before chunk-written, chunk-written before file-done.
+    // Inter-file ordering is not guaranteed by the parallel worker pool.
     const firstStartIdx = events.indexOf(firstStart);
     const firstDoneIdx = events.indexOf(firstDone);
-    const secondStartIdx = events.indexOf(secondStart);
+    const firstChunkIdxs = firstChunksWritten.map((e) => events.indexOf(e));
     expect(firstStartIdx).toBeLessThan(firstDoneIdx);
-    expect(firstDoneIdx).toBeLessThan(secondStartIdx);
+    for (const chunkIdx of firstChunkIdxs) {
+      expect(firstStartIdx).toBeLessThan(chunkIdx);
+      expect(chunkIdx).toBeLessThan(firstDoneIdx);
+    }
+    const secondStartIdx = events.indexOf(secondStart);
+    const secondDoneIdx = events.indexOf(secondDone);
+    const secondChunkIdxs = secondChunksWritten.map((e) => events.indexOf(e));
+    expect(secondStartIdx).toBeLessThan(secondDoneIdx);
+    for (const chunkIdx of secondChunkIdxs) {
+      expect(secondStartIdx).toBeLessThan(chunkIdx);
+      expect(chunkIdx).toBeLessThan(secondDoneIdx);
+    }
   });
 
   it("emits file-start but no chunk-written or file-done for a garbage file", async () => {

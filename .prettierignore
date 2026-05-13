@@ -4,3 +4,5 @@ coverage/
 *.tsbuildinfo
 pnpm-lock.yaml
 .claude/settings.local.json
+scripts/
+src/lib/audio/splitWorker.bundled.mjs

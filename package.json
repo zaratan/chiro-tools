@@ -5,11 +5,12 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "bun src/index.tsx",
-    "dev:watch": "bun --watch src/index.tsx",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "test:watch": "vitest",
+    "build:worker": "bun build src/lib/audio/splitWorker.ts --target=bun --format=esm --outfile=src/lib/audio/splitWorker.bundled.mjs",
+    "dev": "pnpm build:worker && bun src/index.tsx",
+    "dev:watch": "pnpm build:worker && bun --watch src/index.tsx",
+    "test": "pnpm build:worker && vitest run",
+    "test:coverage": "pnpm build:worker && vitest run --coverage",
+    "test:watch": "pnpm build:worker && vitest",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -17,8 +18,8 @@
     "format:check": "prettier --check .",
     "build:darwin-arm64": "bun build src/index.tsx --compile --target=bun-darwin-arm64 --outfile=dist/chiro-darwin-arm64",
     "build:linux-x64": "bun build src/index.tsx --compile --target=bun-linux-x64 --outfile=dist/chiro-linux-x64",
-    "build": "pnpm build:darwin-arm64 && pnpm build:linux-x64",
-    "check": "pnpm lint && pnpm typecheck && pnpm format:check && pnpm test",
+    "build": "pnpm build:worker && pnpm build:darwin-arm64 && pnpm build:linux-x64",
+    "check": "pnpm build:worker && pnpm lint && pnpm typecheck && pnpm format:check && vitest run",
     "prepare": "husky"
   },
   "keywords": [
