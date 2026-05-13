@@ -5,14 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import { Footer } from "../../components/Footer.js";
 import type {
   ProcessOptions,
+  ProcessResult,
   processWavFiles as ProcessWavFilesType,
 } from "../../lib/audio/processWavFiles.js";
 import { logSession } from "../../lib/logging/log.js";
-import type {
-  ProcessInput,
-  ProcessOutcome,
-  SessionEvent,
-} from "../../types.js";
+import type { ProcessInput, SessionEvent } from "../../types.js";
 import { CHIRO_VERSION } from "../../version.js";
 import { RunningView, type RunningViewHandles } from "./RunningView.js";
 
@@ -20,7 +17,7 @@ export type ProcessWavFilesFn = typeof ProcessWavFilesType;
 
 const buildSessionEvent = (
   input: ProcessInput,
-  outcome: ProcessOutcome,
+  outcome: ProcessResult,
   cwd: string,
 ): SessionEvent => ({
   schema_version: 2,
@@ -41,6 +38,8 @@ const buildSessionEvent = (
     skipped_already_chunked: outcome.skippedAlreadyChunked,
     interrupted: outcome.interrupted,
     duration_ms: outcome.durationMs,
+    engine: outcome.engine,
+    engine_fallback_count: outcome.engine_fallback_count,
   },
 });
 
@@ -127,7 +126,7 @@ export type ProcessConfirmScreenProps = {
   runningRef: React.RefObject<boolean>;
   /** Injected for tests. Defaults to the real implementation. */
   processWavFiles: ProcessWavFilesFn;
-  onComplete: (outcome: ProcessOutcome) => void;
+  onComplete: (outcome: ProcessResult) => void;
   onBack: () => void;
 };
 

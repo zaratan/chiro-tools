@@ -11,12 +11,20 @@ permissions:
 
 jobs:
   check:
-    name: pnpm check
+    name: pnpm check (sox=${{ matrix.sox }})
     runs-on: ubuntu-latest
     # `src/lib/` is pure TS/Node — no platform-specific code. Running the
     # full check on Linux only halves the LFS bandwidth per PR (test-data
     # is ~450 MB) and saves ~30 s of duplicated test time. Cross-platform
     # binary integrity is covered by the smoke-build matrix below.
+    #
+    # The sox matrix covers both pipelines: `with` exercises the sox
+    # fast-path and the golden A-vs-B parity test; `without` exercises the
+    # worker-pool fallback (the default for end users without sox installed).
+    strategy:
+      fail-fast: false
+      matrix:
+        sox: [with, without]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -30,6 +38,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      - name: Install sox
+        if: matrix.sox == 'with'
+        run: sudo apt-get install -y sox
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
 

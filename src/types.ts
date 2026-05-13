@@ -88,6 +88,8 @@ export type ProcessResultSerialized = {
   skipped_already_chunked: string[];
   interrupted: boolean;
   duration_ms: number;
+  engine: "wavefile" | "sox";
+  engine_fallback_count: number;
 };
 
 // Note: only nominal events are emitted. Errors and skips are observable
