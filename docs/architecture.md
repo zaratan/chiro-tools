@@ -502,6 +502,18 @@ return splitWorkerPool.run(files, dir, input, options);
 3. **Golden CI test** (`__tests__/golden.test.ts`) sur 2 fixtures (AudioMoth-class + 24-bit stéréo) avec SHA256 hardcodés. CI matrix `sox: [with, without]` couvre les deux pipelines.
 4. **Env opt-out** `CHIRO_DISABLE_FASTPATH=1` : force le worker pool même si sox détecté. Utile pour debug et reproductibilité.
 
+### Auto-update — kill-switch en install gérée externalement
+
+`src/lib/runtime/isHomebrewInstall.ts` résout `process.execPath` via `realpathSync` et retourne `true` si le path contient `/Cellar/` (canonical Homebrew layout, vrai sur `/opt/homebrew/Cellar/` macOS arm64 et `/home/linuxbrew/.linuxbrew/Cellar/` Linuxbrew). `src/index.tsx` calcule `autoUpdateDisabled = isHomebrewInstall() || process.env.CHIRO_DISABLE_AUTOUPDATE === "1"` et propage à `<App>`. Quand `true` :
+
+- Le boot check `useEffect` dans `app.tsx` early-returns (aucun fetch réseau, aucun cache disque).
+- `MenuScreen` filtre l'entrée "Vérifier les mises à jour" hors de `items` (silencieux total, pas de footer note).
+- `UpdateScreen` early-returns un JSX qui pointe vers `brew upgrade chiro` (garde défensive — inatteignable via le menu).
+
+Kill-switch utilisateur : `CHIRO_DISABLE_AUTOUPDATE=1` (seule la valeur littérale `"1"` est reconnue, cohérent avec `CHIRO_DISABLE_FASTPATH` / `CHIRO_DISABLE_METADATA`). Raison d'être : permettre à un power-user installé via `install.sh` de désactiver l'auto-check (ex. environnement air-gapped, debug du flow update lui-même).
+
+Edge case maintainer : si `bun` lui-même est brew-installé (`brew install oven-sh/bun/bun`), `pnpm dev` voit `process.execPath` dans `/Cellar/` et désactive l'auto-update en dev. Accepté — n'affecte que le maintainer du projet, et le kill-switch en dev est de toute façon désirable.
+
 ### Asset embedding pour les workers (`bun --compile`)
 
 `splitWorker.ts` (source TS strict) est pré-bundlé via `bun build` (`pnpm build:worker`, hooked en `predev`/`pretest`/`prebuild`/`precheck`) en `splitWorker.bundled.mjs`. Ce bundle est embarqué dans le binary compilé via :

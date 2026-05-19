@@ -338,6 +338,41 @@ describe("App — end-to-end", () => {
     expect(frame).toContain("renommer l'ancien dossier");
   });
 
+  it("skips the boot check when autoUpdateDisabled=true", async () => {
+    const bootChecker = vi
+      .fn()
+      .mockResolvedValue({ availableVersion: "v0.9.9" });
+    const { unmount } = render(
+      <App
+        cwd={tmpDir}
+        onRequestUpdate={vi.fn()}
+        bootChecker={bootChecker}
+        autoUpdateDisabled={true}
+      />,
+    );
+
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+
+    expect(bootChecker).not.toHaveBeenCalled();
+
+    unmount();
+  });
+
+  it("hides the update menu entry when autoUpdateDisabled=true", async () => {
+    const { lastFrame, unmount } = render(
+      <App cwd={tmpDir} onRequestUpdate={vi.fn()} autoUpdateDisabled={true} />,
+    );
+
+    await new Promise((r) => setImmediate(r));
+
+    const frame = lastFrame() ?? "";
+    expect(frame).not.toContain("Vérifier les mises à jour");
+    expect(frame).toContain("Quitter");
+
+    unmount();
+  });
+
   it("calls onRequestUpdate when user picks update and confirms install", async () => {
     const onRequestUpdate = vi.fn();
     const bootChecker = vi.fn().mockResolvedValue({ availableVersion: null });

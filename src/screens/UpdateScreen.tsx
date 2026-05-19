@@ -34,6 +34,7 @@ export type UpdateScreenProps = {
    * over rate-limit avoidance.
    */
   checker?: UpdateChecker;
+  autoUpdateDisabled?: boolean;
 };
 
 const resolveState = (
@@ -67,10 +68,22 @@ export const UpdateScreen = ({
   onRequestInstall,
   runningRef,
   checker = fetchLatestVersion,
+  autoUpdateDisabled = false,
 }: UpdateScreenProps): React.JSX.Element => {
   const [state, setState] = useState<LocalState>({ kind: "checking" });
 
+  useInput((_input, key) => {
+    if (key.escape) {
+      onBack();
+      return;
+    }
+    if (key.return && state.kind === "available") {
+      onRequestInstall();
+    }
+  });
+
   useEffect(() => {
+    if (autoUpdateDisabled) return;
     runningRef.current = true;
     const controller = new AbortController();
     let cancelled = false;
@@ -88,7 +101,7 @@ export const UpdateScreen = ({
         setState({ kind: "error", code: "network" });
       })
       .finally(() => {
-        runningRef.current = false;
+        if (!cancelled) runningRef.current = false;
       });
 
     return () => {
@@ -96,17 +109,7 @@ export const UpdateScreen = ({
       controller.abort();
       runningRef.current = false;
     };
-  }, [checker, currentVersion, runningRef]);
-
-  useInput((_input, key) => {
-    if (key.escape) {
-      onBack();
-      return;
-    }
-    if (key.return && state.kind === "available") {
-      onRequestInstall();
-    }
-  });
+  }, [checker, currentVersion, runningRef, autoUpdateDisabled]);
 
   const header = (
     <Text bold color="cyan">
@@ -119,6 +122,28 @@ export const UpdateScreen = ({
     { key: "Entrée", label: "installer" },
     { key: "Échap", label: "retour au menu" },
   ];
+
+  if (autoUpdateDisabled) {
+    return (
+      <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
+        {header}
+        <Box marginTop={1}>
+          <Text>{"ℹ "}</Text>
+          <Text>{"chiro a été installé via Homebrew sur cet ordinateur."}</Text>
+        </Box>
+        <Box marginTop={1} flexDirection="column">
+          <Text>{"Les mises à jour passent donc par Homebrew."}</Text>
+          <Text>{"Dans votre terminal, lancez :"}</Text>
+          <Box marginTop={1} marginLeft={2}>
+            <Text bold color="cyan">
+              {"brew upgrade chiro"}
+            </Text>
+          </Box>
+        </Box>
+        <Footer hints={backFooter} />
+      </Box>
+    );
+  }
 
   if (state.kind === "checking") {
     return (

@@ -2,6 +2,7 @@
 import { render } from "ink";
 import { spawnSync } from "node:child_process";
 import { App } from "./app.js";
+import { isHomebrewInstall } from "./lib/runtime/isHomebrewInstall.js";
 import { INSTALL_SCRIPT_URL } from "./lib/update/constants.js";
 import { CHIRO_VERSION } from "./version.js";
 
@@ -46,9 +47,13 @@ if (!process.stdout.isTTY) {
 // always-falsy by @typescript-eslint/no-unnecessary-condition).
 const state = { installAfterExit: false };
 
+const autoUpdateDisabled =
+  isHomebrewInstall() || process.env.CHIRO_DISABLE_AUTOUPDATE === "1";
+
 const instance = render(
   <App
     cwd={process.cwd()}
+    autoUpdateDisabled={autoUpdateDisabled}
     onRequestUpdate={() => {
       state.installAfterExit = true;
     }}

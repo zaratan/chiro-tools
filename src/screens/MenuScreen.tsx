@@ -23,6 +23,7 @@ export type MenuScreenProps = {
   onPickUpdate: () => void;
   onQuit: () => void;
   availableVersion: string | null;
+  autoUpdateDisabled?: boolean;
 };
 
 export const MenuScreen = ({
@@ -31,16 +32,21 @@ export const MenuScreen = ({
   onPickUpdate,
   onQuit,
   availableVersion,
+  autoUpdateDisabled = false,
 }: MenuScreenProps): React.JSX.Element => {
   const [focused, setFocused] = useState(0);
 
+  const items = autoUpdateDisabled
+    ? ITEMS.filter((item) => item.id !== "update")
+    : ITEMS;
+
   useInput((_input, key) => {
     if (key.upArrow) {
-      setFocused((f) => (f === 0 ? ITEMS.length - 1 : f - 1));
+      setFocused((f) => (f === 0 ? items.length - 1 : f - 1));
       return;
     }
     if (key.downArrow) {
-      setFocused((f) => (f === ITEMS.length - 1 ? 0 : f + 1));
+      setFocused((f) => (f === items.length - 1 ? 0 : f + 1));
       return;
     }
     if (key.escape) {
@@ -48,7 +54,7 @@ export const MenuScreen = ({
       return;
     }
     if (key.return) {
-      const item = ITEMS[focused];
+      const item = items[focused];
       if (!item) return;
       if (item.id === "update") onPickUpdate();
       else if (item.id === "vigie-prefix") onPickVigiePrefix();
@@ -66,7 +72,7 @@ export const MenuScreen = ({
         <Text>Que voulez-vous faire ?</Text>
       </Box>
       <Box flexDirection="column" marginTop={1}>
-        {ITEMS.map((item, i) => {
+        {items.map((item, i) => {
           const isFocused = i === focused;
           return (
             <Box key={item.id}>
@@ -78,7 +84,7 @@ export const MenuScreen = ({
           );
         })}
       </Box>
-      {availableVersion !== null && (
+      {availableVersion !== null && !autoUpdateDisabled && (
         <Box marginTop={1} flexDirection="column">
           <Text color="yellow">
             {`⚠ Une mise à jour est disponible (${availableVersion}).`}

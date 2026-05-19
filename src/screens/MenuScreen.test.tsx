@@ -164,4 +164,31 @@ describe("MenuScreen", () => {
     );
     expect(lastFrame() ?? "").not.toContain("Une mise à jour est disponible");
   });
+
+  it("hides update entry and jumps from Découper to Quitter when autoUpdateDisabled=true", async () => {
+    const onQuit = vi.fn();
+    const onPickVigieProcess = vi.fn();
+    const { stdin, lastFrame } = render(
+      <MenuScreen
+        onPickVigiePrefix={noop}
+        onPickVigieProcess={onPickVigieProcess}
+        onPickUpdate={noop}
+        onQuit={onQuit}
+        availableVersion={null}
+        autoUpdateDisabled={true}
+      />,
+    );
+
+    expect(lastFrame() ?? "").not.toContain("Vérifier les mises à jour");
+
+    // Down once → vigie-process, down again → quit (update entry absent)
+    stdin.write("\x1b[B");
+    await settle();
+    stdin.write("\x1b[B");
+    await settle();
+    stdin.write("\r");
+    await settle();
+    expect(onQuit).toHaveBeenCalledOnce();
+    expect(onPickVigieProcess).not.toHaveBeenCalled();
+  });
 });

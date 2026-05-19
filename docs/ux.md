@@ -386,6 +386,27 @@ renommés seront reconnus et ne seront pas touchés deux fois.
   Entrée retour au menu
 ```
 
+### Écran 5 — Mise à jour (installation Homebrew détectée)
+
+Quand chiro tourne depuis une install Homebrew (détecté via `isHomebrewInstall`) OU que `CHIRO_DISABLE_AUTOUPDATE=1` est posé, l'auto-check au boot est désactivé et l'entrée « Vérifier les mises à jour » est masquée du MenuScreen. Cet écran reste implémenté en garde défensive (au cas où un appel parviendrait par un chemin non prévu) et affiche :
+
+```
+chiro v0.1.0 — mise à jour
+
+ℹ chiro a été installé via Homebrew sur cet ordinateur.
+
+Les mises à jour passent donc par Homebrew.
+Dans votre terminal, lancez :
+
+    brew upgrade chiro
+
+  Échap retour au menu
+```
+
+- `ℹ` couleur par défaut (info neutre, ni succès ni avertissement).
+- `brew upgrade chiro` en `bold color="cyan"` — cohérent avec la convention "valeur/commande à copier" (cf. table couleurs).
+- Aucun `useEffect` réseau, aucun `runningRef.current = true` — early-return JSX avant les side-effects.
+
 ### Écran 5 — Mise à jour (vérification en cours)
 
 ```

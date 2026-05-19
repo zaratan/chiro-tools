@@ -474,4 +474,36 @@ describe("UpdateScreen", () => {
     const frame = lastFrame() ?? "";
     expect(frame).toContain("chiro v1.2.3 — mise à jour");
   });
+
+  // -------------------------------------------------------------------------
+  // autoUpdateDisabled mode
+  // -------------------------------------------------------------------------
+
+  it("shows the Homebrew message, never calls checker, and Échap returns when autoUpdateDisabled=true", async () => {
+    const checker = vi.fn();
+    const onBack = vi.fn();
+    const { stdin, lastFrame } = render(
+      <UpdateScreen
+        currentVersion="0.1.7"
+        onBack={onBack}
+        onRequestInstall={() => undefined}
+        runningRef={noopRef}
+        checker={checker}
+        autoUpdateDisabled={true}
+      />,
+    );
+
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain(
+      "chiro a été installé via Homebrew sur cet ordinateur.",
+    );
+    expect(frame).toContain("Les mises à jour passent donc par Homebrew.");
+    expect(frame).toContain("brew upgrade chiro");
+    expect(frame).toContain("Échap retour au menu");
+    expect(checker).not.toHaveBeenCalled();
+
+    stdin.write("\x1b");
+    await settle();
+    expect(onBack).toHaveBeenCalledOnce();
+  });
 });

@@ -84,6 +84,10 @@ export type AppProps = {
   updateChecker?: UpdateChecker;
   /** Test seam for sox detection. When provided, detectSox is not called. */
   soxAvailability?: SoxAvailability;
+  /** When true, the auto-updater is disabled: boot check skipped,
+   *  menu entry hidden, update screen shows a "managed externally" message.
+   *  Set when chiro runs from Homebrew or when CHIRO_DISABLE_AUTOUPDATE=1. */
+  autoUpdateDisabled?: boolean;
 };
 
 const buildProcessWavFiles = (
@@ -103,6 +107,7 @@ export const App = ({
   bootChecker,
   updateChecker,
   soxAvailability: soxAvailabilityProp,
+  autoUpdateDisabled = false,
 }: AppProps): React.JSX.Element => {
   const { exit } = useApp();
   const [screen, setScreen] = useState<Screen>({ kind: "menu" });
@@ -140,6 +145,7 @@ export const App = ({
   }, [soxAvailabilityProp]);
 
   useEffect(() => {
+    if (autoUpdateDisabled) return;
     const controller = new AbortController();
     let cancelled = false;
 
@@ -168,7 +174,7 @@ export const App = ({
       cancelled = true;
       controller.abort();
     };
-  }, [bootChecker]);
+  }, [bootChecker, autoUpdateDisabled]);
 
   useInput((input, key) => {
     if (key.ctrl && input === "c") {
@@ -182,6 +188,7 @@ export const App = ({
     return (
       <MenuScreen
         availableVersion={availableVersion}
+        autoUpdateDisabled={autoUpdateDisabled}
         onPickVigiePrefix={() => {
           setScreen({ kind: "vigie:constat" });
         }}
@@ -202,6 +209,7 @@ export const App = ({
     return (
       <UpdateScreen
         currentVersion={CHIRO_VERSION}
+        autoUpdateDisabled={autoUpdateDisabled}
         onBack={() => {
           setScreen({ kind: "menu" });
         }}
