@@ -46,10 +46,22 @@ jobs:
             echo "::error::Binary reports '${ACTUAL}' but tag is '${GITHUB_REF_NAME}'"
             exit 1
           fi
+      # Ad-hoc codesign so the binary runs without Gatekeeper quarantine on
+      # first launch (no Apple Developer ID needed). The com.apple.quarantine
+      # xattr is set on any curl-downloaded asset; without a valid signature,
+      # Gatekeeper blocks the first run. `--sign -` produces an ad-hoc
+      # signature accepted locally. Pattern used by gh, bun, deno.
+      - name: Ad-hoc codesign (macOS)
+        run: codesign --sign - --force --timestamp=none dist/chiro-darwin-arm64
+      # Package as versioned tarball. `brew audit --new --strict` rejects URLs
+      # pointing to a non-archive asset ("Stable should be a versioned
+      # tarball/zip"). Same reason gh, bun, deno ship tarballs.
+      - name: Package as tarball
+        run: tar -czf dist/chiro-darwin-arm64.tar.gz -C dist chiro-darwin-arm64
       - uses: actions/upload-artifact@v7
         with:
           name: chiro-darwin-arm64
-          path: dist/chiro-darwin-arm64
+          path: dist/chiro-darwin-arm64.tar.gz
 
   build-linux:
     runs-on: ubuntu-latest
@@ -81,10 +93,14 @@ jobs:
             echo "::error::Binary reports '${ACTUAL}' but tag is '${GITHUB_REF_NAME}'"
             exit 1
           fi
+      # Match the macOS asset shape (tarball) so the Homebrew formula and
+      # install.sh handle a single download/extract pattern across platforms.
+      - name: Package as tarball
+        run: tar -czf dist/chiro-linux-x64.tar.gz -C dist chiro-linux-x64
       - uses: actions/upload-artifact@v7
         with:
           name: chiro-linux-x64
-          path: dist/chiro-linux-x64
+          path: dist/chiro-linux-x64.tar.gz
 
   release:
     needs: [build-macos, build-linux]
@@ -108,5 +124,5 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
-            dist/chiro-darwin-arm64 \
-            dist/chiro-linux-x64
+            dist/chiro-darwin-arm64.tar.gz \
+            dist/chiro-linux-x64.tar.gz

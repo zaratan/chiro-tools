@@ -28,22 +28,30 @@ case "$OS-$ARCH" in
     ;;
 esac
 
+TARBALL="${ASSET}.tar.gz"
+
 if [ "$VERSION" = "latest" ]; then
-  URL="https://github.com/${REPO}/releases/latest/download/${ASSET}"
+  URL="https://github.com/${REPO}/releases/latest/download/${TARBALL}"
 else
-  URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET}"
+  URL="https://github.com/${REPO}/releases/download/${VERSION}/${TARBALL}"
 fi
 
 mkdir -p "$INSTALL_DIR"
 DEST="${INSTALL_DIR}/chiro"
-TMP="${DEST}.tmp.$$"
+TARBALL_TMP="${INSTALL_DIR}/.chiro-tarball.tmp.$$"
+BIN_TMP="${DEST}.tmp.$$"
+
+cleanup() { rm -f "$TARBALL_TMP" "$BIN_TMP"; }
+trap cleanup EXIT
 
 echo "Téléchargement de chiro (${VERSION}) depuis GitHub Releases…"
-# Atomic install: download to a tmp file first, only swap if successful.
-# Avoids leaving a partial binary at $DEST if curl is interrupted.
-curl -fL "$URL" -o "$TMP"
-chmod +x "$TMP"
-mv "$TMP" "$DEST"
+# Atomic install: download the tarball, extract the single binary entry to a
+# tmp path next to $DEST, then rename. The final `mv` is atomic on the same
+# filesystem and never leaves a partial binary at $DEST if curl or tar fail.
+curl -fL "$URL" -o "$TARBALL_TMP"
+tar -O -xzf "$TARBALL_TMP" "${ASSET}" > "$BIN_TMP"
+chmod +x "$BIN_TMP"
+mv "$BIN_TMP" "$DEST"
 
 echo "✓ chiro installé dans ${DEST}"
 
