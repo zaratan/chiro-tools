@@ -34,7 +34,7 @@ jobs:
           # Required for the integration tests that read real Teensy/
           # AudioMoth WAV fixtures from test-data/ (committed via LFS).
           lfs: true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
       - uses: pnpm/action-setup@v6
@@ -64,7 +64,7 @@ jobs:
             target: linux-x64
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
       - uses: pnpm/action-setup@v6
