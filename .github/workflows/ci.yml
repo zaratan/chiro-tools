@@ -29,7 +29,7 @@ jobs:
           - os: macos-latest
             sox: with
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Required for the integration tests that read real Teensy/
           # AudioMoth WAV fixtures from test-data/ (committed via LFS).
@@ -63,7 +63,7 @@ jobs:
           - os: ubuntu-latest
             target: linux-x64
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 24
