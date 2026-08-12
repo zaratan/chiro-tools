@@ -9,7 +9,7 @@ La spec figée vit dans [`docs/`](./docs/) — `vision.md`, `spec.md`, `ux.md`, 
 - **Bun** runtime + `bun --compile` pour les binaires (macOS arm64 + Linux x64)
 - **pnpm** 11 (lockfile committé) — Node 22.13+ requis pour `pnpm install`
 - **TypeScript strict** (NodeNext, `noUncheckedIndexedAccess`, `target: ES2022`)
-- **Ink 6** + **React 19** + `ink-text-input` (champs texte) + saisie maison (champs numériques)
+- **Ink 7** + **React 19** + `ink-text-input` (champs texte) + saisie maison (champs numériques)
 - **vitest 4** + `ink-testing-library` (E2E TUI)
 - **eslint** flat config (strictTypeChecked) + **prettier** + **husky** + lint-staged
 

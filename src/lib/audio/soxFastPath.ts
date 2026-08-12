@@ -31,8 +31,7 @@ import { parseSourceTimestamp } from "../files/parseTimestamp.js";
 import type { MetadataConfig } from "../../types.js";
 
 export type SoxAvailability =
-  | { kind: "available"; binPath: string }
-  | { kind: "absent" };
+  { kind: "available"; binPath: string } | { kind: "absent" };
 
 export type SoxBatchResult =
   | { kind: "completed"; outcome: ProcessOutcome }
@@ -111,9 +110,7 @@ const decodeFirstChannelSamples = (
   const Ctor: typeof Int16Array | typeof Int32Array =
     wav.bitDepth === "16" ? Int16Array : Int32Array;
   const raw = wav.getSamples(false, Ctor) as unknown as
-    | Int16Array
-    | Int32Array
-    | (Int16Array | Int32Array)[];
+    Int16Array | Int32Array | (Int16Array | Int32Array)[];
   const samples: (Int16Array | Int32Array)[] = Array.isArray(raw) ? raw : [raw];
   return samples[0] ?? null;
 };

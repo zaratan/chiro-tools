@@ -88,14 +88,12 @@ describe("rewriteHeaderToStandardPcm", () => {
     const wav = new WaveFile(result);
     const fmt = wav.fmt as { numChannels: number; sampleRate: number };
     const raw = wav.getSamples(false, Int16Array) as unknown as
-      | Int16Array
-      | Int16Array[];
+      Int16Array | Int16Array[];
     const samples: Int16Array[] = Array.isArray(raw) ? raw : [raw];
 
     const originalWav = new WaveFile(source);
     const originalRaw = originalWav.getSamples(false, Int16Array) as unknown as
-      | Int16Array
-      | Int16Array[];
+      Int16Array | Int16Array[];
     const originalSamples: Int16Array[] = Array.isArray(originalRaw)
       ? originalRaw
       : [originalRaw];
@@ -147,14 +145,12 @@ describe("rewriteHeaderToStandardPcm", () => {
     const result = await readFile(filePath);
     const wav = new WaveFile(result);
     const raw = wav.getSamples(false, Int32Array) as unknown as
-      | Int32Array
-      | Int32Array[];
+      Int32Array | Int32Array[];
     const samples: Int32Array[] = Array.isArray(raw) ? raw : [raw];
 
     const originalWav = new WaveFile(source);
     const originalRaw = originalWav.getSamples(false, Int32Array) as unknown as
-      | Int32Array
-      | Int32Array[];
+      Int32Array | Int32Array[];
     const originalSamples: Int32Array[] = Array.isArray(originalRaw)
       ? originalRaw
       : [originalRaw];

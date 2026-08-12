@@ -1,15 +1,10 @@
 import { RELEASES_API_URL, UPDATE_FETCH_TIMEOUT_MS } from "./constants.js";
 
 export type FetchErrorCode =
-  | "network"
-  | "timeout"
-  | "http-403"
-  | "http-404"
-  | "parse";
+  "network" | "timeout" | "http-403" | "http-404" | "parse";
 
 export type FetchResult =
-  | { kind: "ok"; tagName: string }
-  | { kind: "error"; code: FetchErrorCode };
+  { kind: "ok"; tagName: string } | { kind: "error"; code: FetchErrorCode };
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 

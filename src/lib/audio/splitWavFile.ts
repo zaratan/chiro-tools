@@ -117,9 +117,7 @@ export function* splitWavFile(
   }
 
   const raw = sourceWav.getSamples(false, mapping.Ctor) as unknown as
-    | Int16Array
-    | Int32Array
-    | (Int16Array | Int32Array)[];
+    Int16Array | Int32Array | (Int16Array | Int32Array)[];
   const channels = normalizeChannels(raw);
   const firstChannel = channels[0];
   if (firstChannel === undefined || firstChannel.length === 0) {
