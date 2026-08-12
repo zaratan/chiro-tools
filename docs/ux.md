@@ -48,18 +48,19 @@ Couleur : `dimColor`. Séparateur : 3 espaces (pas de pipe `|`).
 **Cas particuliers** :
 
 - **Sur les écrans dégradés (constat KO)**, le footer n'affiche que `Échap retour au menu`.
+- **Sur les écrans d'erreur pendant l'exécution** (run-error, cf. Écran 3 et P-Confirmation dégradés), le footer affiche `Échap revenir au début` : Échap ramène à l'écran Constat, pas au menu — un simple « retour » serait ambigu sur ce qu'il désigne.
 - **Sur l'écran de Confirmation pendant l'exécution du renommage**, le footer est vide (Ctrl+C reste fonctionnel mais on ne l'affiche pas pour éviter les abandons accidentels).
 
 ## Navigation clavier — référence
 
-| Touche            | Action                                                                              | Affichée en footer ?       |
-| ----------------- | ----------------------------------------------------------------------------------- | -------------------------- |
-| `Tab` / `Maj+Tab` | Champ suivant / précédent (FormScreen) — alias de `↓` / `↑`                         | Non (redondant avec `↑↓`)  |
-| `↑` / `↓`         | Naviguer dans le menu, ou entre les champs du formulaire                            | MenuScreen, FormScreen     |
-| `←` / `→`         | Décrémenter / incrémenter un champ numérique (Année, Passage)                       | Oui sur FormScreen         |
-| `Entrée`          | Valider l'écran courant (sur UpdateScreen : uniquement quand une version est dispo) | Toujours                   |
-| `Échap`           | Revenir à l'écran précédent (ou quitter depuis Menu)                                | Toujours sauf Résultat     |
-| `Ctrl+C`          | Quitter immédiatement (sauf pendant un renommage en cours ou un check update)       | Implicite — jamais affiché |
+| Touche            | Action                                                                                                                                                                      | Affichée en footer ?       |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `Tab` / `Maj+Tab` | Champ suivant / précédent (FormScreen) — alias de `↓` / `↑`                                                                                                                 | Non (redondant avec `↑↓`)  |
+| `↑` / `↓`         | Naviguer dans le menu, ou entre les champs du formulaire                                                                                                                    | MenuScreen, FormScreen     |
+| `←` / `→`         | Décrémenter / incrémenter un champ numérique (Année, Passage)                                                                                                               | Oui sur FormScreen         |
+| `Entrée`          | Valider l'écran courant (sur UpdateScreen : uniquement quand une version est dispo)                                                                                         | Toujours                   |
+| `Échap`           | Revenir à l'écran précédent (ou quitter depuis Menu)                                                                                                                        | Toujours sauf Résultat     |
+| `Ctrl+C`          | Quitter immédiatement (sauf pendant un renommage/découpage en cours, où Ctrl+C est ignoré — pendant un check de mise à jour, Ctrl+C annule et revient au menu, comme Échap) | Implicite — jamais affiché |
 
 ## Wordings par écran — prêts à coller
 
@@ -314,6 +315,25 @@ Rien à renommer. Vous pouvez retourner au menu.
   Entrée retour au menu   Échap retour à la saisie
 ```
 
+### Écran 3 — Confirmation (dégradé : erreur pendant le renommage)
+
+Rare : `applyRenames` peut rejeter en dehors du chemin normal (erreur non capturée par le per-file try/catch interne). Sans ce garde-fou, l'app crasherait avec une stack trace brute — exactement l'anxiété que ce mode dégradé évite.
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+⚠ Une erreur est survenue pendant le renommage.
+
+Permission refusée par le système.
+
+Détail technique : EACCES
+  (à transmettre si vous demandez de l'aide)
+
+  Échap revenir au début
+```
+
+Même structure que l'écran 1 « erreur inattendue au scan » : titre bienveillant, message clair issu de `mapErrorCodeToMessage` (affiché seulement si le code est reconnu — un code inconnu n'affiche que le détail technique, pas une devinette), code brut en cyan **au complet, jamais tronqué**, rappel `dimColor` en dessous. Pas de reprise possible sur cet écran — Échap ramène à l'écran Constat, l'utilisatrice relance depuis le début (d'où « revenir au début » plutôt qu'un « retour » ambigu).
+
 ### Écran 4 — Résultat (variante A : tout OK)
 
 ```
@@ -417,7 +437,7 @@ Vérification de la dernière version…
   Échap retour au menu
 ```
 
-Header en `bold cyan` comme l'écran Menu. Pendant cet état, le Ctrl+C global est désactivé (via `runningRef`) pour ne pas tuer le fetch en plein milieu — l'utilisatrice peut toujours sortir avec Échap.
+Header en `bold cyan` comme l'écran Menu. Pendant cet état, Ctrl+C annule la vérification et revient au menu — comme Échap — au lieu de quitter chiro immédiatement : le fetch est proprement aborté via l'`AbortController` local à l'écran. `runningRef` sert uniquement à empêcher le gestionnaire Ctrl+C **global** de l'App de couper court pendant que la promesse est en vol ; c'est `UpdateScreen` lui-même, via son propre `useInput`, qui intercepte Ctrl+C ici et déclenche l'annulation.
 
 ### Écran 5 — Mise à jour (nouvelle version disponible)
 
@@ -603,6 +623,16 @@ Quel type d'enregistreur a produit ces fichiers ?
 
 L'aide `dimColor` sous le sélecteur est volontairement **descriptive plutôt que technique** : « ralentir 10× » > « expansion temporelle ×10 », « très haute fréquence » > « 250 kHz full-spectrum ». Footer simplifié à 2 hints (1 seul champ — pas de Tab, pas de `←→`).
 
+### P-Confirmation (chargement : estimation)
+
+Avant que la durée et le nombre de morceaux estimés ne soient disponibles (le temps de `stat` chaque fichier — quasi instantané, mais un état transitoire existe) :
+
+```
+Estimation…
+```
+
+`Text dimColor`, pas de footer (l'écran est trop éphémère pour qu'une navigation ait du sens avant que l'estimation ne soit prête). Correspond à l'état `kind: "loading"` du `ConfirmScreen` du flow Découper.
+
 ### P-Confirmation
 
 **Variante mode `expand-10x` (Autre détecteur)** — la durée affichée est l'audio **post-ralentissement** (≈ 10× le temps d'enregistrement réel). On le rend explicite avec « une fois étendu » :
@@ -691,6 +721,25 @@ Les 2 dernières lignes en `dimColor`. **Barre de 40 caractères** : `█` pour 
 
 Footer vide (cf. Footer raccourcis § Cas particuliers — pas afficher Ctrl+C pour éviter les abandons accidentels sur un run de 25 min).
 
+### P-Confirmation (dégradé : erreur pendant le découpage)
+
+Rare : `processWavFiles` peut rejeter en dehors du chemin normal (erreur non capturée par le per-file try/catch interne). Sans ce garde-fou, l'app crasherait avec une stack trace brute — exactement l'anxiété que ce mode dégradé évite.
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+⚠ Une erreur est survenue pendant le découpage.
+
+Plus de place sur le disque — libérez de l'espace puis relancez.
+
+Détail technique : ENOSPC
+  (à transmettre si vous demandez de l'aide)
+
+  Échap revenir au début
+```
+
+Même structure que P-Constat § espace disque insuffisant : titre bienveillant, message clair issu de `mapProcessErrorCodeToMessage` (affiché seulement si le code est reconnu — un code inconnu n'affiche que le détail technique, pas une devinette), code brut en cyan **au complet, jamais tronqué**, rappel `dimColor` en dessous. Échap ramène à l'écran P-Constat (d'où « revenir au début » plutôt qu'un « retour » ambigu). Ctrl+C n'a pas de traitement spécifique sur cet écran (le run n'est plus « en cours » une fois `run-error` atteint) — Échap suffit.
+
 ### P-Résultat (variante A : tout OK)
 
 ```
@@ -771,20 +820,22 @@ Groupage par message d'erreur (max 5 fichiers affichés par groupe, le reste ré
 
 ### Codes d'erreur Process → libellés FR
 
-| Code interne                | Libellé FR                                                        |
-| --------------------------- | ----------------------------------------------------------------- |
-| `invalid-header`            | `fichier illisible — peut-être corrompu pendant le transfert`     |
-| `unsupported-format`        | `format audio inhabituel — non géré pour l'instant`               |
-| `unsupported-bit-depth`     | `résolution audio non supportée (16 ou 24 bits uniquement)`       |
-| `no-samples`                | `fichier sans contenu audio`                                      |
-| `ENOENT`                    | `le fichier a disparu pendant l'opération`                        |
-| `EACCES`, `EPERM`           | `permission refusée par le système`                               |
-| `write:ENOSPC`              | `plus de place sur le disque — libérez de l'espace puis relancez` |
-| `write:EACCES`              | `permission refusée par le système`                               |
-| `write:<autre>`             | `écriture impossible (code: <X>)`                                 |
-| `mkdir:<X>`                 | `impossible de créer le sous-dossier « processed »`               |
-| `skippedTooLarge` (compte)  | `fichier trop volumineux (> 500 Mo) — non géré pour l'instant`    |
-| `skippedAlreadyChunked` (c) | (skip silencieux — pas affiché comme une erreur)                  |
+| Code interne                                                      | Libellé FR                                                                                                           |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `invalid-header`                                                  | `fichier illisible — peut-être corrompu pendant le transfert`                                                        |
+| `unsupported-format`                                              | `format audio inhabituel — non géré pour l'instant`                                                                  |
+| `unsupported-bit-depth`                                           | `résolution audio non supportée (16 ou 24 bits uniquement)`                                                          |
+| `no-samples`                                                      | `fichier sans contenu audio`                                                                                         |
+| `ENOENT`                                                          | `le fichier a disparu pendant l'opération`                                                                           |
+| `EACCES`, `EPERM`                                                 | `permission refusée par le système`                                                                                  |
+| `ENOSPC`                                                          | `plus de place sur le disque — libérez de l'espace puis relancez`                                                    |
+| `EROFS`                                                           | `ce disque est protégé en écriture — copiez les fichiers ailleurs puis relancez`                                     |
+| `EXDEV`                                                           | `impossible de déplacer le fichier d'un disque à un autre (carte SD, disque externe…)`                               |
+| `sox-*` (`sox-exit:N`, `sox-no-output`), `non-aligned-data-size*` | `chiro n'a pas réussi à traiter cet enregistrement — réessayez, et si ça recommence transmettez le détail technique` |
+| `worker-died`, `worker-spawn-failed`, `no-workers-available`      | `le découpage s'est interrompu de façon inattendue — réessayez, et si ça recommence transmettez le détail technique` |
+| `mkdir:<X>`                                                       | `impossible de créer le sous-dossier « processed »`                                                                  |
+| `skippedTooLarge` (compte)                                        | `fichier trop volumineux (> 500 Mo) — non géré pour l'instant`                                                       |
+| `skippedAlreadyChunked` (c)                                       | (skip silencieux — pas affiché comme une erreur)                                                                     |
 
 ## Choix UX validés (rappel)
 

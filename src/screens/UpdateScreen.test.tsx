@@ -346,6 +346,52 @@ describe("UpdateScreen", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Keyboard — Ctrl+C while checking
+  // -------------------------------------------------------------------------
+
+  it("aborts the fetch and calls onBack on Ctrl+C while checking", async () => {
+    const onBack = vi.fn();
+    let capturedSignal: AbortSignal | undefined;
+    const blockingChecker: UpdateChecker = (opts) => {
+      capturedSignal = opts?.signal;
+      return new Promise(() => undefined);
+    };
+    const { stdin } = render(
+      <UpdateScreen
+        currentVersion="0.1.0"
+        onBack={onBack}
+        onRequestInstall={() => undefined}
+        runningRef={noopRef}
+        checker={blockingChecker}
+      />,
+    );
+
+    expect(capturedSignal?.aborted).toBe(false);
+    stdin.write("\x03");
+    await settle();
+
+    expect(onBack).toHaveBeenCalledOnce();
+    expect(capturedSignal?.aborted).toBe(true);
+  });
+
+  it("does NOT react to Ctrl+C once the check is no longer in progress (up-to-date)", async () => {
+    const onBack = vi.fn();
+    const { stdin } = render(
+      <UpdateScreen
+        currentVersion="0.1.0"
+        onBack={onBack}
+        onRequestInstall={() => undefined}
+        runningRef={noopRef}
+        checker={makeChecker({ kind: "ok", tagName: "v0.1.0" })}
+      />,
+    );
+    await waitForFrame();
+    stdin.write("\x03");
+    await settle();
+    expect(onBack).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
   // Keyboard — onRequestInstall
   // -------------------------------------------------------------------------
 

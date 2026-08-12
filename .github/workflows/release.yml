@@ -14,6 +14,12 @@ jobs:
   build-macos:
     runs-on: macos-latest
     steps:
+      # No `lfs: true`: the heavyweight fixture tests skip cleanly on an
+      # LFS-less checkout (RIFF-magic guard) and stay covered by ci.yml —
+      # pulling 40 MB of LFS objects per build job would burn quota for
+      # coverage the CI already provides. Note the release gate is therefore
+      # weaker than CI (no sox, no fixtures): lint + typecheck + format +
+      # unit tests only.
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
         with:
@@ -22,9 +28,11 @@ jobs:
       # (pnpm@11.0.9 requires Node ≥ 22.13). Don't pin here to avoid
       # "Multiple versions" errors.
       - uses: pnpm/action-setup@v6
+      # Pinned: bun is compiled INTO the shipped binary — a floating version
+      # means a release can change behavior with no dependency having moved.
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.13
       # Sync package.json version with the git tag so CHIRO_VERSION
       # (compiled into the binary via src/version.ts) matches the release.
       # Without this step the binary always reports the last value committed
@@ -35,8 +43,9 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version='${VERSION}'; fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n')"
       - run: pnpm install --frozen-lockfile
-      # Catch import-cycle / type breakage before producing a binary.
-      - run: pnpm typecheck
+      # Full gate (lint + typecheck + format + tests) — a tag on a commit
+      # whose CI never ran (or failed) must not produce a release.
+      - run: pnpm check
       - run: pnpm build:darwin-arm64
       - name: Verify binary version matches tag
         run: |
@@ -66,6 +75,12 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
+      # No `lfs: true`: the heavyweight fixture tests skip cleanly on an
+      # LFS-less checkout (RIFF-magic guard) and stay covered by ci.yml —
+      # pulling 40 MB of LFS objects per build job would burn quota for
+      # coverage the CI already provides. Note the release gate is therefore
+      # weaker than CI (no sox, no fixtures): lint + typecheck + format +
+      # unit tests only.
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
         with:
@@ -74,16 +89,19 @@ jobs:
       # (pnpm@11.0.9 requires Node ≥ 22.13). Don't pin here to avoid
       # "Multiple versions" errors.
       - uses: pnpm/action-setup@v6
+      # Pinned: bun is compiled INTO the shipped binary — a floating version
+      # means a release can change behavior with no dependency having moved.
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.13
       # See note in build-macos: keep package.json in sync with the tag.
       - name: Sync package.json version with tag
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version='${VERSION}'; fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n')"
       - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
+      # See note in build-macos: full gate before building a release binary.
+      - run: pnpm check
       - run: pnpm build:linux-x64
       - name: Verify binary version matches tag
         run: |
@@ -121,8 +139,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # A pre-release tag (v1.2.3-beta.1) must not become the "latest"
+          # release: /releases/latest feeds the in-app update check, so an
+          # unflagged beta would be pushed to every installed binary.
+          FLAGS=()
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            FLAGS=(--prerelease)
+          fi
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
+            "${FLAGS[@]}" \
             dist/chiro-darwin-arm64.tar.gz \
             dist/chiro-linux-x64.tar.gz

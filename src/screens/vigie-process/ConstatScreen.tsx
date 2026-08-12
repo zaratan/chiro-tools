@@ -1,3 +1,4 @@
+import { describeError } from "../../lib/errors/describeError.js";
 import { Box, Text, useInput } from "ink";
 import { constants as fsConstants } from "node:fs";
 import { access, readdir, statfs, stat } from "node:fs/promises";
@@ -7,17 +8,6 @@ import { Footer } from "../../components/Footer.js";
 
 const WAV_EXTENSION_REGEX = /\.wav$/i;
 const PROCESSED_DIRNAME = "processed";
-
-const extractErrorCode = (err: unknown): string => {
-  if (
-    err instanceof Error &&
-    "code" in err &&
-    typeof (err as { code: unknown }).code === "string"
-  ) {
-    return (err as { code: string }).code;
-  }
-  return "UNKNOWN";
-};
 
 const formatBytes = (bytes: number): string => {
   if (bytes < 1024) return `${bytes.toString()} octets`;
@@ -78,7 +68,7 @@ const scanDirectory = async (cwd: string): Promise<ScanState> => {
   try {
     entries = await readdir(cwd, { withFileTypes: true });
   } catch (err) {
-    return { kind: "scan-error", rawCode: extractErrorCode(err) };
+    return { kind: "scan-error", rawCode: describeError(err) };
   }
 
   const wavFiles: string[] = [];
@@ -205,9 +195,9 @@ export const ConstatScreen = ({
             de :
           </Text>
           <Text>
-            {"  • copiez les fichiers dans un dossier de votre choix"}
+            {"  • copier les fichiers dans un dossier de votre choix"}
           </Text>
-          <Text>{"  • puis relancez chiro dans ce nouveau dossier"}</Text>
+          <Text>{"  • puis relancer chiro dans ce nouveau dossier"}</Text>
         </Box>
         <Footer hints={minimalFooter} />
       </Box>
@@ -223,11 +213,11 @@ export const ConstatScreen = ({
             ⚠ Une erreur inattendue est survenue en lisant ce dossier.
           </Text>
         </Box>
-        <Box marginTop={1}>
+        <Box marginTop={1} flexDirection="column">
           <Text>
             Détail technique : <Text color="cyan">{state.rawCode}</Text>
           </Text>
-          <Text dimColor> (à transmettre si vous demandez de l'aide)</Text>
+          <Text dimColor>{"  (à transmettre si vous demandez de l'aide)"}</Text>
         </Box>
         <Footer hints={minimalFooter} />
       </Box>
@@ -241,7 +231,7 @@ export const ConstatScreen = ({
         <Box marginTop={1}>
           <Text>Aucun enregistrement .wav trouvé dans ce dossier.</Text>
         </Box>
-        <Box marginTop={1}>
+        <Box marginTop={1} flexDirection="column">
           <Text>
             Vérifiez que vous êtes bien dans le dossier contenant vos fichiers.
           </Text>

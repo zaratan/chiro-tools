@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
-import { readFile } from "node:fs/promises";
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { parentPort } from "node:worker_threads";
 import { finalizeChunk } from "./finalizeChunk.js";
 import { splitWavFile } from "./splitWavFile.js";
@@ -206,7 +212,6 @@ const cleanupOrphanTmps = async (
   outDir: string,
   baseName: string,
 ): Promise<void> => {
-  const { readdir } = await import("node:fs/promises");
   let entries: string[];
   try {
     entries = await readdir(outDir);

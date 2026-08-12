@@ -1,3 +1,4 @@
+import { describeError } from "../../lib/errors/describeError.js";
 import { Box, Text, useInput } from "ink";
 import { constants as fsConstants } from "node:fs";
 import { access, readdir } from "node:fs/promises";
@@ -17,17 +18,6 @@ type ScanState =
   | { kind: "scan-error"; rawCode: string }
   | { kind: "ready"; counts: ConstatCounts; wavFiles: string[] };
 
-const extractErrorCode = (err: unknown): string => {
-  if (
-    err instanceof Error &&
-    "code" in err &&
-    typeof (err as { code: unknown }).code === "string"
-  ) {
-    return (err as { code: string }).code;
-  }
-  return "UNKNOWN";
-};
-
 const scanDirectory = async (cwd: string): Promise<ScanState> => {
   try {
     await access(cwd, fsConstants.R_OK);
@@ -44,7 +34,7 @@ const scanDirectory = async (cwd: string): Promise<ScanState> => {
   try {
     entries = await readdir(cwd, { withFileTypes: true });
   } catch (err) {
-    return { kind: "scan-error", rawCode: extractErrorCode(err) };
+    return { kind: "scan-error", rawCode: describeError(err) };
   }
 
   const wavFiles: string[] = [];
@@ -183,11 +173,11 @@ export const ConstatScreen = ({
             ⚠ Une erreur inattendue est survenue en lisant ce dossier.
           </Text>
         </Box>
-        <Box marginTop={1}>
+        <Box marginTop={1} flexDirection="column">
           <Text>
             Détail technique : <Text color="cyan">{state.rawCode}</Text>
           </Text>
-          <Text dimColor> (à transmettre si vous demandez de l'aide)</Text>
+          <Text dimColor>{"  (à transmettre si vous demandez de l'aide)"}</Text>
         </Box>
         <Box marginTop={1}>
           <Text>
@@ -210,7 +200,7 @@ export const ConstatScreen = ({
         <Box marginTop={1}>
           <Text>Aucun enregistrement .wav trouvé dans ce dossier.</Text>
         </Box>
-        <Box marginTop={1}>
+        <Box marginTop={1} flexDirection="column">
           <Text>
             Vérifiez que vous êtes bien dans le dossier contenant vos fichiers.
           </Text>
@@ -240,8 +230,8 @@ export const ConstatScreen = ({
         <Text>
           {"  • "}
           {counts.alreadyPrefixed.toString()} fichier
-          {counts.alreadyPrefixed > 1 ? "s" : ""} déjà au bon format sera
-          {counts.alreadyPrefixed > 1 ? "ont" : ""} laissé
+          {counts.alreadyPrefixed > 1 ? "s" : ""} déjà au bon format ser
+          {counts.alreadyPrefixed > 1 ? "ont" : "a"} laissé
           {counts.alreadyPrefixed > 1 ? "s" : ""} tel
           {counts.alreadyPrefixed > 1 ? "s" : ""} quel
           {counts.alreadyPrefixed > 1 ? "s" : ""}
@@ -261,8 +251,10 @@ export const ConstatScreen = ({
           {"  • "}
           {counts.otherIgnored.toString()} autre
           {counts.otherIgnored > 1 ? "s" : ""} fichier
-          {counts.otherIgnored > 1 ? "s seront ignorés" : " sera ignoré"} (pas
-          des .wav)
+          {counts.otherIgnored > 1
+            ? "s seront ignorés"
+            : " sera ignoré"} (pas {counts.otherIgnored > 1 ? "des" : "un"}{" "}
+          .wav)
         </Text>
       ) : null}
       <Box marginTop={1}>

@@ -6,6 +6,7 @@ import {
   readFile,
   rename,
   rm,
+  stat,
   unlink,
 } from "node:fs/promises";
 import os from "node:os";
@@ -28,6 +29,7 @@ import { buildChunkMeta } from "./metadata/chunkMetadata.js";
 import { buildGuanoChunk } from "./metadata/guano.js";
 import { buildWamdChunk } from "./metadata/wamd.js";
 import { parseSourceTimestamp } from "../files/parseTimestamp.js";
+import { extractErrorCode } from "../fs/safeFsOps.js";
 import type { MetadataConfig } from "../../types.js";
 
 export type SoxAvailability =
@@ -35,7 +37,7 @@ export type SoxAvailability =
 
 export type SoxBatchResult =
   | { kind: "completed"; outcome: ProcessOutcome }
-  | { kind: "fallback"; reason: string; partialOutcome: ProcessOutcome };
+  | { kind: "fallback"; reason: string };
 
 const ALREADY_CHUNKED_REGEX = /_\d{3}\.wav$/i;
 const DEFAULT_MAX_INPUT_BYTES = 500 * 1024 * 1024;
@@ -138,24 +140,43 @@ const fingerprintChunkMiddle = async (
   return middleSamplesFingerprint(channel);
 };
 
-const fingerprintReferenceChunk = (
+// Fingerprints several reference chunks in a single traversal of the
+// wavefile generator. Calling fingerprintReferenceChunk once per target
+// index would re-decode the source and re-encode every chunk up to the
+// target for each call — exactly the CPU cost the sox fast path exists to
+// avoid. Returns a map from target index to its fingerprint (or null if
+// the chunk could not be decoded); indices the generator never reaches
+// (aborted/errored/out of range) are simply absent from the map.
+const fingerprintReferenceChunks = (
   sourceBuffer: Buffer,
   mode: ProcessInput["mode"],
-  targetIndex: number,
-): string | null => {
+  targetIndices: number[],
+): Map<number, string | null> => {
+  const targets = new Set(targetIndices);
+  const maxTarget = Math.max(...targetIndices);
+  const results = new Map<number, string | null>();
+
   for (const yielded of splitWavFile(sourceBuffer, {
     mode,
     chunkSeconds: CHUNK_OUTPUT_SECONDS,
   })) {
-    if (yielded.kind !== "chunk") continue;
+    if (yielded.kind !== "chunk") break;
     const { chunk } = yielded;
-    if (chunk.index !== targetIndex) continue;
+    if (chunk.index > maxTarget) break;
+    if (!targets.has(chunk.index)) continue;
 
     const channel = decodeFirstChannelSamples(Buffer.from(chunk.buffer));
-    if (channel === null || channel.length === 0) return null;
-    return middleSamplesFingerprint(channel);
+    results.set(
+      chunk.index,
+      channel === null || channel.length === 0
+        ? null
+        : middleSamplesFingerprint(channel),
+    );
+
+    if (results.size === targets.size) break;
   }
-  return null;
+
+  return results;
 };
 
 // Lists sox-produced raw files in numerical order
@@ -175,9 +196,16 @@ const listRawChunks = async (outDir: string): Promise<string[]> => {
     });
 };
 
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 // Cleans up partial sox output for a file — leaves no state on fallback.
 // Removes the final chunks (baseName_NNN.wav) and the tmp subdirectory.
-const cleanPartialOutput = async (
+//
+// The final-chunk match is anchored on `${baseName}_NNN.wav` exactly — a
+// plain startsWith would also delete a sibling file whose baseName is a
+// strict prefix of this one (e.g. "X_211006" vs "X_211006_Not_Processed").
+export const cleanPartialOutput = async (
   outDir: string,
   baseName: string,
 ): Promise<void> => {
@@ -192,8 +220,11 @@ const cleanPartialOutput = async (
   } catch {
     return;
   }
+  const finalChunkRegex = new RegExp(
+    `^${escapeRegExp(baseName)}_\\d{3}\\.wav$`,
+  );
   for (const entry of entries) {
-    if (entry.startsWith(baseName) && entry.endsWith(".wav")) {
+    if (finalChunkRegex.test(entry)) {
       await unlink(path.join(outDir, entry)).catch(() => undefined);
     }
   }
@@ -280,145 +311,153 @@ const processOneFile = async (
   // Each file gets its own temporary subdirectory to avoid raw_XXX.wav name
   // collisions when multiple files are processed concurrently.
   const tmpSubDir = path.join(outDir, `.sox-tmp-${baseName}`);
-  await mkdir(tmpSubDir, { recursive: true });
 
-  const outputBase = path.join(tmpSubDir, "raw_.wav");
-
-  // sox cuts on the input wall-clock at the source sample rate. For
-  // expand-10x (AudioMoth at real rate), 5 s of input wall-clock = 5 s real
-  // time = 50 s on the (TE×10) output timeline. For preserve (Teensy already
-  // TE×10), input wall-clock = output wall-clock, so we feed the full 50 s.
-  const segmentSeconds =
-    input.mode === "expand-10x"
-      ? CHUNK_OUTPUT_SECONDS / TIME_EXPANSION_FACTOR
-      : CHUNK_OUTPUT_SECONDS;
-
-  emit({
-    kind: "file-start",
-    fileIndex,
-    fileName: path.basename(file),
-    fileSizeBytes,
-    totalFiles,
-  });
-
-  const { exitCode } = await spawnSoxAsync(
-    soxPath,
-    srcPath,
-    outputBase,
-    segmentSeconds,
-    signal,
-  );
-
-  if (isAborted()) {
-    await rm(tmpSubDir, { recursive: true, force: true }).catch(
-      () => undefined,
-    );
-    return { kind: "aborted" };
-  }
-
-  if (exitCode !== 0) {
-    await rm(tmpSubDir, { recursive: true, force: true }).catch(
-      () => undefined,
-    );
-    return {
-      kind: "error",
-      reason: `sox-exit:${String(exitCode ?? "signal")}`,
-    };
-  }
-
-  const rawFiles = await listRawChunks(tmpSubDir);
-  if (rawFiles.length === 0) {
-    await rm(tmpSubDir, { recursive: true, force: true }).catch(
-      () => undefined,
-    );
-    return { kind: "error", reason: "sox-no-output" };
-  }
-
-  // expand-10x: sox writes source sampleRate (e.g. 250 kHz),
-  // rewriteHeaderToStandardPcm divides by 10 to match output rate.
-  const expand10x = input.mode === "expand-10x";
-  const sourceTimestamp =
-    metadata?.enabled === true ? parseSourceTimestamp(file) : null;
-
-  let outputSampleRate = 0;
-  let channels = 0;
-  let bitsPerSample = 0;
-  let chunkIndex = 0;
-
-  for (const rawFile of rawFiles) {
-    if (isAborted()) {
-      await rm(tmpSubDir, { recursive: true, force: true }).catch(
-        () => undefined,
-      );
-      return { kind: "aborted" };
-    }
-
-    const rawPath = path.join(tmpSubDir, rawFile);
-    await rewriteHeaderToStandardPcm(rawPath, expand10x);
-
-    // Canonical PCM header is always 44 bytes after rewrite — read just that
-    // slice rather than the (potentially MB-sized) full file.
-    const headerBuf = Buffer.alloc(44);
-    const fh = await open(rawPath, "r");
-    try {
-      await fh.read(headerBuf, 0, 44, 0);
-    } finally {
-      await fh.close();
-    }
-    if (chunkIndex === 0) {
-      outputSampleRate = headerBuf.readUInt32LE(24);
-      channels = headerBuf.readUInt16LE(22);
-      bitsPerSample = headerBuf.readUInt16LE(34);
-    }
-
-    if (metadata?.enabled === true) {
-      const dataSize = headerBuf.readUInt32LE(40);
-      const bytesPerSampleAllChannels = (channels * bitsPerSample) / 8;
-      if (dataSize % bytesPerSampleAllChannels !== 0) {
-        return {
-          kind: "error",
-          reason: `non-aligned-data-size:${String(dataSize)}/${String(bytesPerSampleAllChannels)}`,
-        };
-      }
-      const chunkSamples = dataSize / bytesPerSampleAllChannels;
-      const { guano, wamd } = buildChunkMeta({
-        sourceTimestamp,
-        chunkIndex,
-        chunkSamples,
-        outputSampleRate,
-        timeExpansion: TIME_EXPANSION_FACTOR,
-        originalFilename: file,
-        chiroVersion: metadata.chiroVersion,
-      });
-      await appendAncillaryChunks(rawPath, [
-        buildWamdChunk(wamd),
-        buildGuanoChunk(guano),
-      ]);
-    }
-
-    const paddedIndex = String(chunkIndex).padStart(3, "0");
-    const finalName = `${baseName}_${paddedIndex}.wav`;
-    const finalPath = path.join(outDir, finalName);
-    await rename(rawPath, finalPath);
-
-    emit({ kind: "chunk-written", fileIndex, chunkIndex });
-    chunkIndex += 1;
-  }
-
-  await rm(tmpSubDir, { recursive: true, force: true }).catch(() => undefined);
-
-  emit({ kind: "file-done", fileIndex, chunkCount: chunkIndex, fileSizeBytes });
-
-  return {
-    kind: "ok",
-    processed: {
-      sourceFile: file,
-      chunkCount: chunkIndex,
-      outputSampleRate,
-      channels,
-    },
-    chunkCount: chunkIndex,
+  // On any per-file error, no chunk for this file must survive in outDir —
+  // this matches the worker pool's per-file atomicity guarantee.
+  const failWithCleanup = async (
+    reason: string,
+  ): Promise<ProcessOneFileResult> => {
+    await cleanPartialOutput(outDir, baseName);
+    return { kind: "error", reason };
   };
+
+  try {
+    // A prior run's tmpSubDir can survive a SIGKILL (the `finally` cleanup
+    // below never runs). Without this, listRawChunks would mix leftover raw
+    // chunks from that stale run into this one's output.
+    await rm(tmpSubDir, { recursive: true, force: true }).catch(
+      () => undefined,
+    );
+    await mkdir(tmpSubDir, { recursive: true });
+
+    const outputBase = path.join(tmpSubDir, "raw_.wav");
+
+    // sox cuts on the input wall-clock at the source sample rate. For
+    // expand-10x (AudioMoth at real rate), 5 s of input wall-clock = 5 s
+    // real time = 50 s on the (TE×10) output timeline. For preserve
+    // (Teensy already TE×10), input wall-clock = output wall-clock, so we
+    // feed the full 50 s.
+    const segmentSeconds =
+      input.mode === "expand-10x"
+        ? CHUNK_OUTPUT_SECONDS / TIME_EXPANSION_FACTOR
+        : CHUNK_OUTPUT_SECONDS;
+
+    emit({
+      kind: "file-start",
+      fileIndex,
+      fileName: path.basename(file),
+      fileSizeBytes,
+      totalFiles,
+    });
+
+    const { exitCode } = await spawnSoxAsync(
+      soxPath,
+      srcPath,
+      outputBase,
+      segmentSeconds,
+      signal,
+    );
+
+    if (isAborted()) return { kind: "aborted" };
+
+    if (exitCode !== 0) {
+      return await failWithCleanup(`sox-exit:${String(exitCode ?? "signal")}`);
+    }
+
+    const rawFiles = await listRawChunks(tmpSubDir);
+    if (rawFiles.length === 0) {
+      return await failWithCleanup("sox-no-output");
+    }
+
+    // expand-10x: sox writes source sampleRate (e.g. 250 kHz),
+    // rewriteHeaderToStandardPcm divides by 10 to match output rate.
+    const expand10x = input.mode === "expand-10x";
+    const sourceTimestamp =
+      metadata?.enabled === true ? parseSourceTimestamp(file) : null;
+
+    let outputSampleRate = 0;
+    let channels = 0;
+    let bitsPerSample = 0;
+    let chunkIndex = 0;
+
+    for (const rawFile of rawFiles) {
+      if (isAborted()) return { kind: "aborted" };
+
+      const rawPath = path.join(tmpSubDir, rawFile);
+      await rewriteHeaderToStandardPcm(rawPath, expand10x);
+
+      // Canonical PCM header is always 44 bytes after rewrite — read just
+      // that slice rather than the (potentially MB-sized) full file.
+      const headerBuf = Buffer.alloc(44);
+      const fh = await open(rawPath, "r");
+      try {
+        await fh.read(headerBuf, 0, 44, 0);
+      } finally {
+        await fh.close();
+      }
+      if (chunkIndex === 0) {
+        outputSampleRate = headerBuf.readUInt32LE(24);
+        channels = headerBuf.readUInt16LE(22);
+        bitsPerSample = headerBuf.readUInt16LE(34);
+      }
+
+      if (metadata?.enabled === true) {
+        const dataSize = headerBuf.readUInt32LE(40);
+        const bytesPerSampleAllChannels = (channels * bitsPerSample) / 8;
+        if (dataSize % bytesPerSampleAllChannels !== 0) {
+          return await failWithCleanup(
+            `non-aligned-data-size:${String(dataSize)}/${String(bytesPerSampleAllChannels)}`,
+          );
+        }
+        const chunkSamples = dataSize / bytesPerSampleAllChannels;
+        const { guano, wamd } = buildChunkMeta({
+          sourceTimestamp,
+          chunkIndex,
+          chunkSamples,
+          outputSampleRate,
+          timeExpansion: TIME_EXPANSION_FACTOR,
+          originalFilename: file,
+          chiroVersion: metadata.chiroVersion,
+        });
+        await appendAncillaryChunks(rawPath, [
+          buildWamdChunk(wamd),
+          buildGuanoChunk(guano),
+        ]);
+      }
+
+      const paddedIndex = String(chunkIndex).padStart(3, "0");
+      const finalName = `${baseName}_${paddedIndex}.wav`;
+      const finalPath = path.join(outDir, finalName);
+      await rename(rawPath, finalPath);
+
+      emit({ kind: "chunk-written", fileIndex, chunkIndex });
+      chunkIndex += 1;
+    }
+
+    emit({
+      kind: "file-done",
+      fileIndex,
+      chunkCount: chunkIndex,
+      fileSizeBytes,
+    });
+
+    return {
+      kind: "ok",
+      processed: {
+        sourceFile: file,
+        chunkCount: chunkIndex,
+        outputSampleRate,
+        channels,
+      },
+      chunkCount: chunkIndex,
+    };
+  } catch (err) {
+    return await failWithCleanup(extractErrorCode(err));
+  } finally {
+    await rm(tmpSubDir, { recursive: true, force: true }).catch(
+      () => undefined,
+    );
+  }
 };
 
 // Spot-checks the sox output for the first processed file against the
@@ -436,6 +475,12 @@ const runSpotCheck = async (
     (v, i, arr) => arr.indexOf(v) === i,
   );
 
+  const refFingerprints = fingerprintReferenceChunks(
+    sourceBuffer,
+    mode,
+    checkIndices,
+  );
+
   for (const idx of checkIndices) {
     const paddedIndex = String(idx).padStart(3, "0");
     const chunkPath = path.join(outDir, `${baseName}_${paddedIndex}.wav`);
@@ -445,7 +490,7 @@ const runSpotCheck = async (
       return `spot-check: could not decode chunk ${String(idx)}`;
     }
 
-    const refFingerprint = fingerprintReferenceChunk(sourceBuffer, mode, idx);
+    const refFingerprint = refFingerprints.get(idx) ?? null;
     if (refFingerprint === null) {
       return `spot-check: could not decode reference chunk ${String(idx)}`;
     }
@@ -520,8 +565,6 @@ export const runSoxBatch = async (
     fileSizeBytes: number;
   };
 
-  const { stat } = await import("node:fs/promises");
-
   const queue: QueuedItem[] = [];
   let globalFileIndex = 0;
 
@@ -586,7 +629,6 @@ export const runSoxBatch = async (
     return {
       kind: "fallback",
       reason: `could not read first file: ${code}`,
-      partialOutcome: { ...state, durationMs: performance.now() - start },
     };
   }
 
@@ -621,12 +663,10 @@ export const runSoxBatch = async (
   }
 
   if (firstResult.kind === "error") {
-    const baseName = path.parse(firstFile).name;
-    await cleanPartialOutput(outDir, baseName);
+    // processOneFile already cleaned up its own partial output on error.
     return {
       kind: "fallback",
       reason: `first-file sox error: ${firstResult.reason}`,
-      partialOutcome: { ...state, durationMs: performance.now() - start },
     };
   }
 
@@ -639,12 +679,13 @@ export const runSoxBatch = async (
   );
 
   if (spotCheckReason !== null) {
+    // Unlike a processOneFile error, this file succeeded — its chunks are
+    // already in outDir and must be cleaned up explicitly here.
     const baseName = path.parse(firstFile).name;
     await cleanPartialOutput(outDir, baseName);
     return {
       kind: "fallback",
       reason: spotCheckReason,
-      partialOutcome: { ...state, durationMs: performance.now() - start },
     };
   }
 

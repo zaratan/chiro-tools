@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import {
   chmod,
+  mkdir,
   mkdtemp,
   readdir,
   readFile,
@@ -10,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { detectSox, runSoxBatch } from "../soxFastPath.js";
+import { cleanPartialOutput, detectSox, runSoxBatch } from "../soxFastPath.js";
 import { makeRampWav } from "./fixtures.js";
 
 // ---------------------------------------------------------------------------
@@ -99,13 +100,22 @@ const soxAvailable = SOX_BIN !== null;
 describe("runSoxBatch", () => {
   let tmpDir: string;
   let fakeSoxFail: string;
+  // Set by tests that chmod a directory read-only, so afterEach can restore
+  // write permission before rm — otherwise cleanup itself could fail to
+  // remove entries the test left behind, or mask a real cleanup bug.
+  let readOnlyDir: string | null = null;
 
   beforeEach(async () => {
     tmpDir = await mkdtemp(path.join(tmpdir(), "chiro-sox-test-"));
     fakeSoxFail = await makeFakeSox(tmpDir, "fake-sox-fail.sh", 1);
+    readOnlyDir = null;
   });
 
   afterEach(async () => {
+    if (readOnlyDir !== null) {
+      await chmod(readOnlyDir, 0o755).catch(() => undefined);
+      readOnlyDir = null;
+    }
     await rm(tmpDir, { recursive: true, force: true });
     delete process.env.CHIRO_DISABLE_FASTPATH;
     vi.restoreAllMocks();
@@ -206,6 +216,38 @@ describe("runSoxBatch", () => {
       // fallback due to read error on first file
       expect(result.kind).toBe("fallback");
     }
+  });
+
+  it("resolves instead of rejecting when processed/ is read-only (EACCES on mkdir)", async () => {
+    // processOneFile's mkdir(tmpSubDir) creates a new entry inside outDir —
+    // a read-only outDir makes that mkdir throw EACCES. Before the fix this
+    // exception was unguarded and propagated out of runSoxBatch as a
+    // rejection instead of a resolved fallback/error result.
+    await writeWav("source.wav", { durationSeconds: 1 });
+    const outDir = path.join(tmpDir, "processed");
+    await mkdir(outDir, { recursive: true });
+    await chmod(outDir, 0o555);
+    readOnlyDir = outDir;
+
+    await expect(
+      runSoxBatch(fakeSoxFail, ["source.wav"], tmpDir, { mode: "preserve" }),
+    ).resolves.toMatchObject({});
+  });
+
+  it("cleanPartialOutput does not delete a sibling whose baseName is a strict prefix", async () => {
+    const outDir = path.join(tmpDir, "processed");
+    await mkdir(outDir, { recursive: true });
+    await writeFile(path.join(outDir, "X_211006_000.wav"), "chunk");
+    await writeFile(
+      path.join(outDir, "X_211006_Not_Processed_000.wav"),
+      "sibling chunk",
+    );
+
+    await cleanPartialOutput(outDir, "X_211006");
+
+    const remaining = await readdir(outDir);
+    expect(remaining).not.toContain("X_211006_000.wav");
+    expect(remaining).toContain("X_211006_Not_Processed_000.wav");
   });
 
   // ---------------------------------------------------------------------------
@@ -335,6 +377,46 @@ describe("runSoxBatch", () => {
       expect(result.outcome.processed.length).toBeGreaterThanOrEqual(1);
     }, 30_000);
 
+    it("records an unguarded I/O failure on a non-first file as errored, without rejecting, and leaves no partial output", async () => {
+      // A basename long enough that ".sox-tmp-<baseName>" exceeds the
+      // filesystem's max filename length triggers ENAMETOOLONG on mkdir —
+      // an unguarded I/O failure that (pre-fix) only the first-file path
+      // partially handled. This file is queued second, so it goes through
+      // the concurrent runItem/scheduleItem path, where the original
+      // rejection propagated through Promise.race(inFlight) and made
+      // runSoxBatch itself reject.
+      await writeWav("good.wav", {
+        sampleRate: 48000,
+        durationSeconds: 6,
+        bitDepth: "16",
+        channels: 1,
+      });
+      const longBaseName = "a".repeat(250);
+      const longName = `${longBaseName}.wav`;
+      await writeWav(longName, { durationSeconds: 1 });
+
+      if (!SOX_BIN) throw new Error("sox not available");
+      const result = await runSoxBatch(
+        SOX_BIN,
+        ["good.wav", longName],
+        tmpDir,
+        { mode: "preserve" },
+      );
+
+      expect(result.kind).toBe("completed");
+      if (result.kind !== "completed") throw new Error("type narrowing");
+      expect(
+        result.outcome.processed.some((p) => p.sourceFile === "good.wav"),
+      ).toBe(true);
+      expect(result.outcome.errored.some((e) => e.file === longName)).toBe(
+        true,
+      );
+
+      const outDir = path.join(tmpDir, "processed");
+      const entries = await readdir(outDir).catch(() => []);
+      expect(entries.some((e) => e.includes(longBaseName))).toBe(false);
+    }, 30_000);
+
     it("chunk output files have canonical 44-byte PCM header", async () => {
       await writeWav("source.wav", {
         sampleRate: 48000,
@@ -360,6 +442,62 @@ describe("runSoxBatch", () => {
         expect(buf.readUInt16LE(20)).toBe(1); // audioFormat = PCM
         expect(buf.subarray(36, 40).toString("ascii")).toBe("data");
       }
+    }, 30_000);
+
+    it("clears a stale .sox-tmp-<baseName> directory left by a prior SIGKILLed run", async () => {
+      // "first.wav" only exists so the batch's mandatory first-file
+      // spot-check passes cleanly — that check would otherwise mask this bug
+      // by falling back on any chunk-count mismatch. "second.wav" is the
+      // real target: files after the first go through the concurrent
+      // runItem/scheduleItem path, which has no spot-check at all, so a
+      // stale tmpSubDir there would silently corrupt the finalized output
+      // instead of triggering a safe fallback.
+      await writeWav("first.wav", {
+        sampleRate: 48000,
+        durationSeconds: 6,
+        bitDepth: "16",
+        channels: 1,
+      });
+      await writeWav("second.wav", {
+        sampleRate: 48000,
+        durationSeconds: 6,
+        bitDepth: "16",
+        channels: 1,
+      });
+
+      const outDir = path.join(tmpDir, "processed");
+      const tmpSubDir = path.join(outDir, ".sox-tmp-second");
+      await mkdir(tmpSubDir, { recursive: true });
+      // Simulates a leftover raw chunk from a run that was SIGKILLed before
+      // its own `finally { rm(tmpSubDir, ...) }` cleanup could run. Its index
+      // (099) is far outside the range this run will actually produce, so a
+      // pre-fix mkdir({recursive:true}) reuse would let it survive and leak
+      // into this run's finalized output as a wrongly-numbered extra chunk.
+      await writeFile(
+        path.join(tmpSubDir, "raw_099.wav"),
+        makeRampWav({ durationSeconds: 1 }),
+      );
+
+      if (!SOX_BIN) throw new Error("sox not available");
+      const result = await runSoxBatch(
+        SOX_BIN,
+        ["first.wav", "second.wav"],
+        tmpDir,
+        { mode: "preserve" },
+      );
+
+      expect(result.kind).toBe("completed");
+      if (result.kind !== "completed") throw new Error("type narrowing");
+      expect(result.outcome.errored).toEqual([]);
+      const proc = result.outcome.processed.find(
+        (p) => p.sourceFile === "second.wav",
+      );
+      if (!proc) throw new Error("second.wav not processed");
+      expect(proc.chunkCount).toBe(1);
+
+      const entries = await readdir(outDir);
+      const chunkFiles = entries.filter((e) => /^second_\d{3}\.wav$/.test(e));
+      expect(chunkFiles).toEqual(["second_000.wav"]);
     }, 30_000);
   });
 });

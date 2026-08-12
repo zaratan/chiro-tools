@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from "ink";
 import { useEffect, useRef, useState } from "react";
 import { Footer } from "../../components/Footer.js";
+import { describeError } from "../../lib/errors/describeError.js";
 import type { ApplyOptions } from "../../lib/fs/applyRenames.js";
 import { planRenames } from "../../lib/fs/planRenames.js";
 import { logSession } from "../../lib/logging/log.js";
@@ -11,6 +12,7 @@ import type {
   RenamePlan,
   SessionEvent,
 } from "../../types.js";
+import { mapKnownErrorCode } from "./errorMessages.js";
 
 /**
  * Signature of the rename executor — extracted here so App can import it
@@ -27,17 +29,20 @@ type ConfirmState =
   | { kind: "loading" }
   | { kind: "plan-ready"; plan: RenamePlan }
   | { kind: "running"; plan: RenamePlan }
-  | { kind: "plan-error"; rawCode: string };
+  | { kind: "plan-error"; rawCode: string }
+  | { kind: "run-error"; rawCode: string };
 
-const extractErrorCode = (err: unknown): string => {
-  if (
-    err instanceof Error &&
-    "code" in err &&
-    typeof (err as { code: unknown }).code === "string"
-  ) {
-    return (err as { code: string }).code;
-  }
-  return "UNKNOWN";
+/**
+ * Capitalizes the first letter and appends a trailing period — the mapper
+ * wordings are calibrated lowercase for use as bullet points elsewhere.
+ * "chiro" stays lowercase even sentence-initial (brand name convention,
+ * cf. docs/ux.md — never capitalized, not even at the start of a sentence).
+ */
+const asSentence = (text: string): string => {
+  if (text.startsWith("chiro")) return `${text}.`;
+  const [first, ...rest] = text;
+  if (first === undefined) return text;
+  return `${first.toUpperCase()}${rest.join("")}.`;
 };
 
 const pickExamples = <T,>(items: readonly T[]): T[] => {
@@ -109,7 +114,7 @@ export const ConfirmScreen = ({
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setState({ kind: "plan-error", rawCode: extractErrorCode(err) });
+        setState({ kind: "plan-error", rawCode: describeError(err) });
       });
     return () => {
       cancelled = true;
@@ -151,9 +156,17 @@ export const ConfirmScreen = ({
     controllerRef.current = controller;
     runningRef.current = true;
     setState({ kind: "running", plan });
-    const outcome = await applyRenames(plan, cwd, {
-      signal: controller.signal,
-    });
+
+    let outcome: RenameOutcome;
+    try {
+      outcome = await applyRenames(plan, cwd, { signal: controller.signal });
+    } catch (err) {
+      runningRef.current = false;
+      controllerRef.current = null;
+      setState({ kind: "run-error", rawCode: describeError(err) });
+      return;
+    }
+
     try {
       await logSession(buildSessionEvent(input, outcome, cwd));
     } catch {
@@ -184,6 +197,32 @@ export const ConfirmScreen = ({
           </Text>
         </Box>
         <Footer hints={[{ key: "Échap", label: "retour" }]} />
+      </Box>
+    );
+  }
+
+  if (state.kind === "run-error") {
+    const knownMessage = mapKnownErrorCode(state.rawCode);
+    return (
+      <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
+        <Text>📁 {cwd}</Text>
+        <Box marginTop={1}>
+          <Text color="yellow">
+            ⚠ Une erreur est survenue pendant le renommage.
+          </Text>
+        </Box>
+        {knownMessage !== null ? (
+          <Box marginTop={1}>
+            <Text>{asSentence(knownMessage)}</Text>
+          </Box>
+        ) : null}
+        <Box marginTop={1} flexDirection="column">
+          <Text>
+            Détail technique : <Text color="cyan">{state.rawCode}</Text>
+          </Text>
+          <Text dimColor>{"  (à transmettre si vous demandez de l'aide)"}</Text>
+        </Box>
+        <Footer hints={[{ key: "Échap", label: "revenir au début" }]} />
       </Box>
     );
   }

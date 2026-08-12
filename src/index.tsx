@@ -2,6 +2,7 @@
 import { render } from "ink";
 import { spawnSync } from "node:child_process";
 import { App } from "./app.js";
+import { resolveInstallDirEnv } from "./lib/runtime/installDir.js";
 import { isHomebrewInstall } from "./lib/runtime/isHomebrewInstall.js";
 import { INSTALL_SCRIPT_URL } from "./lib/update/constants.js";
 import { CHIRO_VERSION } from "./version.js";
@@ -66,10 +67,18 @@ await instance.waitUntilExit();
 if (state.installAfterExit) {
   // Run install.sh post-Ink so stdout is not contested.
   // stdio inherited so the user sees curl progress and install.sh feedback directly.
+  // pipefail: without it the pipeline status is the inner bash's — a failed
+  // curl feeds it zero bytes and the whole command exits 0, reported to the
+  // user as a successful update that never happened.
+  const installEnv = { ...process.env, ...resolveInstallDirEnv() };
+  // install.sh reads CHIRO_VERSION as a version *pin*. A user who once
+  // exported it in their shell would silently be "updated" back to that old
+  // version forever — the in-app update always targets latest.
+  delete installEnv.CHIRO_VERSION;
   const proc = spawnSync(
     "bash",
-    ["-c", `curl -fL ${INSTALL_SCRIPT_URL} | bash`],
-    { stdio: "inherit" },
+    ["-c", `set -o pipefail; curl -fL ${INSTALL_SCRIPT_URL} | bash`],
+    { stdio: "inherit", env: installEnv },
   );
   // Propagate a meaningful exit code: real status if present, 130 on signal
   // (Ctrl+C convention), 1 otherwise so a silent crash is not reported as success.

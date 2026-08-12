@@ -1,5 +1,5 @@
 import os from "node:os";
-import { readdir, unlink } from "node:fs/promises";
+import { mkdir, readdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
@@ -35,6 +35,13 @@ const MEMORY_PER_WORKER_MB = 400;
 const MEMORY_USABLE_FRACTION = 0.7;
 const HARD_CAP = 12;
 const MIN_WORKERS = 2;
+// Stable error codes surfaced to the UI as `ProcessError.reason`. Any new
+// value added here must also be added to
+// `src/screens/vigie-process/errorMessages.ts`, its EMITTED_CODES test, and
+// the error code table in docs/ux.md.
+const WORKER_SPAWN_FAILED_REASON = "worker-spawn-failed";
+const NO_WORKERS_AVAILABLE_REASON = "no-workers-available";
+const WORKER_DIED_REASON = "worker-died";
 
 export const clampWorkerCount = (cpuCount: number, totalMB: number): number => {
   const usableMB = totalMB * MEMORY_USABLE_FRACTION;
@@ -58,6 +65,8 @@ const computeWorkerCount = (): number => {
 type WorkerState = {
   worker: Worker;
   idle: boolean;
+  alive: boolean;
+  currentFileIndex: number | null;
   abortedResolve: (() => void) | null;
 };
 
@@ -108,12 +117,17 @@ const preCleanOrphanTmps = async (outDir: string): Promise<void> => {
   }
 };
 
-// Sends abort to all workers and waits for their "aborted" acknowledgement
-// (with timeout), then terminates any that didn't respond.
+// Sends abort to all live workers and waits for busy ones' "aborted"
+// acknowledgement (with timeout), then terminates every worker. Idle workers
+// never ack (splitWorker.ts returns early on abort when nothing is in
+// flight), so waiting on them would burn the full timeout on every abort.
 const abortAndWaitWorkers = async (
   workerStates: WorkerState[],
 ): Promise<void> => {
-  const abortedPromises = workerStates.map((ws) => {
+  const aliveStates = workerStates.filter((ws) => ws.alive);
+  const busyStates = aliveStates.filter((ws) => !ws.idle);
+
+  const abortedPromises = busyStates.map((ws) => {
     return new Promise<void>((resolve) => {
       ws.abortedResolve = resolve;
       const abortMsg: WorkerInMessage = { kind: "abort" };
@@ -121,11 +135,20 @@ const abortAndWaitWorkers = async (
     });
   });
 
-  const timeout = new Promise<void>((resolve) =>
-    setTimeout(resolve, ABORT_TIMEOUT_MS),
-  );
+  for (const ws of aliveStates) {
+    if (ws.idle) {
+      const abortMsg: WorkerInMessage = { kind: "abort" };
+      ws.worker.postMessage(abortMsg);
+    }
+  }
+
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timeoutHandle = setTimeout(resolve, ABORT_TIMEOUT_MS);
+  });
 
   await Promise.race([Promise.all(abortedPromises), timeout]);
+  if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
 
   // Force-terminate any workers that didn't respond in time
   await Promise.allSettled(
@@ -162,6 +185,9 @@ export const run = async (
     maxInputBytes?: number;
     onProgress?: (event: ProgressEvent) => void;
     metadata?: MetadataConfig;
+    // Overrides the worker bundle path. Test-only escape hatch to exercise
+    // worker crash handling without mocking node:worker_threads.
+    workerPath?: string;
   },
 ): Promise<ProcessOutcome> => {
   const start = performance.now();
@@ -181,8 +207,6 @@ export const run = async (
     skippedAlreadyChunked: [],
     interrupted: false,
   };
-
-  const { mkdir, stat } = await import("node:fs/promises");
 
   try {
     await mkdir(outDir, { recursive: true });
@@ -244,10 +268,32 @@ export const run = async (
   }
 
   const workerCount = Math.min(computeWorkerCount(), queue.length);
-  const workerStates: WorkerState[] = [];
   const fileSizeMap = new Map<number, number>();
   for (const q of queue) {
     fileSizeMap.set(q.fileIndex, q.fileSizeBytes);
+  }
+
+  const workerBundlePath = options?.workerPath ?? resolveWorkerPath();
+  const workerStates: WorkerState[] = [];
+  try {
+    for (let i = 0; i < workerCount; i++) {
+      workerStates.push({
+        worker: new Worker(workerBundlePath),
+        idle: true,
+        alive: true,
+        currentFileIndex: null,
+        abortedResolve: null,
+      });
+    }
+  } catch {
+    await terminateWorkers(workerStates);
+    for (const item of queue) {
+      state.errored.push({
+        file: files[item.fileIndex] ?? "",
+        reason: WORKER_SPAWN_FAILED_REASON,
+      });
+    }
+    return { ...state, durationMs: performance.now() - start };
   }
 
   let pendingFiles = queue.length;
@@ -255,20 +301,28 @@ export const run = async (
   let batchAborted = false;
 
   const batchDone = await new Promise<boolean>((resolveBatch) => {
+    let batchSettled = false;
+    const resolveBatchOnce = (aborted: boolean): void => {
+      if (batchSettled) return;
+      batchSettled = true;
+      resolveBatch(aborted);
+    };
+
     const checkDone = (): void => {
       if (pendingFiles <= 0) {
-        resolveBatch(false);
+        resolveBatchOnce(false);
       }
     };
 
     const dispatchToWorker = (ws: WorkerState): void => {
-      if (nextQueueIndex >= queue.length || batchAborted) return;
+      if (!ws.alive || nextQueueIndex >= queue.length || batchAborted) return;
 
       const item = queue[nextQueueIndex];
       if (item === undefined) return;
       nextQueueIndex += 1;
 
       ws.idle = false;
+      ws.currentFileIndex = item.fileIndex;
 
       emit({
         kind: "file-start",
@@ -289,6 +343,52 @@ export const run = async (
         meta: buildWorkerMeta(path.basename(item.filePath), options?.metadata),
       };
       ws.worker.postMessage(msg);
+    };
+
+    // Marks every not-yet-dispatched queued file as errored. Used once every
+    // worker has died, since nothing remains to drain the queue.
+    const failRemainingQueue = (): void => {
+      while (nextQueueIndex < queue.length) {
+        const item = queue[nextQueueIndex];
+        nextQueueIndex += 1;
+        if (item === undefined) continue;
+        state.errored.push({
+          file: files[item.fileIndex] ?? "",
+          reason: NO_WORKERS_AVAILABLE_REASON,
+        });
+        pendingFiles -= 1;
+      }
+    };
+
+    // Handles a worker dying without ever posting file-done/file-error (OOM,
+    // unresolved bundle, uncaught exception at load time, or an unexpected
+    // clean exit while a file was still in flight). Guards against double
+    // handling when both "error" and "exit" fire for the same death. The
+    // reason is always the stable WORKER_DIED_REASON — the underlying error
+    // detail is not surfaced, since the UI maps on the code, not the message.
+    const handleWorkerDeath = (ws: WorkerState): void => {
+      if (!ws.alive) return;
+      ws.alive = false;
+
+      if (ws.abortedResolve !== null) {
+        ws.abortedResolve();
+        ws.abortedResolve = null;
+      }
+
+      if (batchSettled) return;
+
+      if (ws.currentFileIndex !== null) {
+        const sourceFile = files[ws.currentFileIndex] ?? "";
+        state.errored.push({ file: sourceFile, reason: WORKER_DIED_REASON });
+        ws.currentFileIndex = null;
+        pendingFiles -= 1;
+      }
+
+      if (workerStates.every((other) => !other.alive)) {
+        failRemainingQueue();
+      }
+
+      checkDone();
     };
 
     const handleMessage =
@@ -320,7 +420,16 @@ export const run = async (
             fileSizeBytes: size,
           });
           pendingFiles -= 1;
+          ws.currentFileIndex = null;
           ws.idle = true;
+          // If abort fired between the worker posting file-done and this
+          // handler running, the worker is actually idle now and will never
+          // post "aborted" (splitWorker.ts only acks abort while busy) — ack
+          // on its behalf so abortAndWaitWorkers doesn't burn the timeout.
+          if (batchAborted && ws.abortedResolve !== null) {
+            ws.abortedResolve();
+            ws.abortedResolve = null;
+          }
           dispatchToWorker(ws);
           checkDone();
           return;
@@ -330,7 +439,12 @@ export const run = async (
           const sourceFile = files[msg.fileIndex] ?? "";
           state.errored.push({ file: sourceFile, reason: msg.reason });
           pendingFiles -= 1;
+          ws.currentFileIndex = null;
           ws.idle = true;
+          if (batchAborted && ws.abortedResolve !== null) {
+            ws.abortedResolve();
+            ws.abortedResolve = null;
+          }
           dispatchToWorker(ws);
           checkDone();
           return;
@@ -344,15 +458,23 @@ export const run = async (
         }
       };
 
-    const workerBundlePath = resolveWorkerPath();
-    for (let i = 0; i < workerCount; i++) {
-      const ws: WorkerState = {
-        worker: new Worker(workerBundlePath),
-        idle: true,
-        abortedResolve: null,
-      };
+    for (const ws of workerStates) {
       ws.worker.on("message", handleMessage(ws));
-      workerStates.push(ws);
+      ws.worker.on("error", () => {
+        handleWorkerDeath(ws);
+      });
+      ws.worker.on("exit", (code) => {
+        // A non-zero exit is always a death. A zero (clean) exit is also a
+        // death if a file was still in flight — e.g. worker code that calls
+        // process.exit(0) mid-file. Without the second condition, such an
+        // exit would leave pendingFiles undecremented and the batch pending
+        // forever (handleWorkerDeath's `if (!ws.alive) return;` already
+        // guards against double-handling when both "error" and "exit" fire
+        // for the same death).
+        if (code !== 0 || ws.currentFileIndex !== null) {
+          handleWorkerDeath(ws);
+        }
+      });
     }
 
     signal?.addEventListener(
@@ -360,7 +482,7 @@ export const run = async (
       () => {
         batchAborted = true;
         state.interrupted = true;
-        resolveBatch(true);
+        resolveBatchOnce(true);
       },
       { once: true },
     );
@@ -368,7 +490,7 @@ export const run = async (
     if (isAborted()) {
       batchAborted = true;
       state.interrupted = true;
-      resolveBatch(true);
+      resolveBatchOnce(true);
       return;
     }
 

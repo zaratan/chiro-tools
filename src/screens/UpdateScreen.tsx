@@ -1,5 +1,5 @@
 import { Box, Text, useInput } from "ink";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FetchResult } from "../lib/update/fetchLatestVersion.js";
 import { fetchLatestVersion } from "../lib/update/fetchLatestVersion.js";
 import { compareVersions } from "../lib/update/compareVersions.js";
@@ -71,9 +71,20 @@ export const UpdateScreen = ({
   autoUpdateDisabled = false,
 }: UpdateScreenProps): React.JSX.Element => {
   const [state, setState] = useState<LocalState>({ kind: "checking" });
+  const controllerRef = useRef<AbortController | null>(null);
 
-  useInput((_input, key) => {
+  useInput((input, key) => {
     if (key.escape) {
+      onBack();
+      return;
+    }
+    if (
+      key.ctrl &&
+      input === "c" &&
+      !autoUpdateDisabled &&
+      state.kind === "checking"
+    ) {
+      controllerRef.current?.abort();
       onBack();
       return;
     }
@@ -86,6 +97,7 @@ export const UpdateScreen = ({
     if (autoUpdateDisabled) return;
     runningRef.current = true;
     const controller = new AbortController();
+    controllerRef.current = controller;
     let cancelled = false;
 
     checker({ signal: controller.signal })
@@ -107,6 +119,7 @@ export const UpdateScreen = ({
     return () => {
       cancelled = true;
       controller.abort();
+      controllerRef.current = null;
       runningRef.current = false;
     };
   }, [checker, currentVersion, runningRef, autoUpdateDisabled]);

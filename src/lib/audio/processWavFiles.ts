@@ -6,19 +6,21 @@ import type {
 } from "../../types.js";
 import { run as runPool } from "./splitWorkerPool.js";
 import { runSoxBatch } from "./soxFastPath.js";
-import type { WriteFsLike } from "../fs/safeFsOps.js";
 
 export type SoxContext = { binPath: string };
 
 export type ProcessOptions = {
   signal?: AbortSignal;
-  fs?: WriteFsLike;
   /** Hard cap per source file. Defaults to 500 MB. */
   maxInputBytes?: number;
   onProgress?: (event: ProgressEvent) => void;
   /** If provided, uses the sox fast path with fallback to worker pool. */
   sox?: SoxContext;
-  /** GUANO + wamd metadata config. When omitted, metadata is appended. */
+  /**
+   * GUANO + wamd metadata config. Metadata is appended only when
+   * `metadata.enabled === true`. Omitted, or `enabled: false`, means no
+   * metadata is appended — reported as `metadata: "off"` on the result.
+   */
   metadata?: MetadataConfig;
 };
 
@@ -63,7 +65,7 @@ export const processWavFiles = async (
   };
 
   const metadataLabel: "full" | "off" =
-    options?.metadata?.enabled === false ? "off" : "full";
+    options?.metadata?.enabled === true ? "full" : "off";
 
   if (options?.sox) {
     const soxResult = await runSoxBatch(

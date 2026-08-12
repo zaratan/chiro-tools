@@ -122,6 +122,7 @@ Le découpage WAV est CPU-bound (`wavefile.toBuffer()` ré-encode header + sampl
 - **`ink-text-input` consomme `←`/`→`** pour son curseur. Les champs numériques de `FormScreen` utilisent le mode `managed` (Text brut + handlers maison) pour éviter le conflit avec l'ajustement de valeur.
 - **`react-devtools-core` doit être en `devDep`** même si jamais importé explicitement — Ink l'importe statiquement et `bun --compile` ferait faillir sans.
 - **pnpm 11 nécessite Node ≥ 22.13** (utilise `node:sqlite`). Le runner CI doit avoir setup-node avant pnpm/action-setup.
+- **bun est pinné en CI** (`bun-version:` dans `ci.yml` + `release.yml`) car il est compilé _dans_ le binaire livré. Dependabot ne bump pas les inputs d'actions : relever le pin manuellement en même temps que le bun local (`bun --version`).
 - **`wavefile` quirks** (résumé — détails complets dans `docs/architecture.md` § « Quirks wavefile ») : `getSamples(false, IntXXArray)` renvoie un flat IntXXArray pour mono / un IntXXArray[] pour multichannel (normaliser systématiquement). `bitDepth` est une **string**. Les chunks `LIST/INFO/ICMT` (metadata AudioMoth) sont droppés au re-encode — aligné Kaleidoscope.
 - **`tseslint` ne narrow pas `signal?.aborted` à travers un `yield`** : utiliser un helper local `const isAborted = (): boolean => opts.signal?.aborted === true;` pour les checks fréquents dans un générateur.
 - **`scripts/` est out-of-tsconfig**, donc out-of-eslint. Le dossier est dans `ignores` du `eslint.config.js`. Bun les exécute sans typecheck — assume that scripts may be loosely typed.

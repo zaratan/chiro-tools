@@ -428,6 +428,162 @@ describe("splitWorkerPool", () => {
     expect(outcome.processed.length).toBe(1);
   });
 
+  it("resolves with the file marked errored when a worker dies mid-file instead of hanging", async () => {
+    const crashingWorkerPath = path.join(tmpDir, "crashing-worker.mjs");
+    await writeFile(
+      crashingWorkerPath,
+      [
+        'import { parentPort } from "node:worker_threads";',
+        "if (parentPort !== null) {",
+        '  parentPort.on("message", () => {',
+        "    process.exit(1);",
+        "  });",
+        "}",
+        "",
+      ].join("\n"),
+    );
+
+    await writeWav("crash-me.wav", { durationSeconds: 2 });
+
+    const outcome = await runPool(
+      ["crash-me.wav"],
+      tmpDir,
+      { mode: "preserve" },
+      { workerPath: crashingWorkerPath },
+    );
+
+    expect(outcome.processed).toEqual([]);
+    expect(outcome.errored.length).toBe(1);
+    expect(outcome.errored[0]?.file).toBe("crash-me.wav");
+    expect(outcome.errored[0]?.reason).toBe("worker-died");
+  }, 5000);
+
+  it("resolves with the file marked errored when a worker exits cleanly (code 0) mid-file instead of hanging forever", async () => {
+    // A worker that calls process.exit(0) after receiving a file but before
+    // ever posting file-done/file-error must still be treated as a death —
+    // otherwise pendingFiles never reaches 0 and the batch hangs forever.
+    const cleanExitWorkerPath = path.join(tmpDir, "clean-exit-worker.mjs");
+    await writeFile(
+      cleanExitWorkerPath,
+      [
+        'import { parentPort } from "node:worker_threads";',
+        "if (parentPort !== null) {",
+        '  parentPort.on("message", () => {',
+        "    process.exit(0);",
+        "  });",
+        "}",
+        "",
+      ].join("\n"),
+    );
+
+    await writeWav("clean-exit.wav", { durationSeconds: 2 });
+
+    const outcome = await runPool(
+      ["clean-exit.wav"],
+      tmpDir,
+      { mode: "preserve" },
+      { workerPath: cleanExitWorkerPath },
+    );
+
+    expect(outcome.processed).toEqual([]);
+    expect(outcome.errored.length).toBe(1);
+    expect(outcome.errored[0]?.file).toBe("clean-exit.wav");
+    expect(outcome.errored[0]?.reason).toBe("worker-died");
+  }, 5000);
+
+  it("resolves quickly on abort even when some workers are idle (no full timeout wait)", async () => {
+    const originalEnv = process.env.CHIRO_WORKER_COUNT;
+    process.env.CHIRO_WORKER_COUNT = "2";
+
+    try {
+      await writeWav("fast.wav", {
+        channels: 1,
+        sampleRate: 8000,
+        bitDepth: "16",
+        durationSeconds: 1,
+      });
+      await writeWav("slow.wav", {
+        channels: 1,
+        sampleRate: 48000,
+        bitDepth: "16",
+        durationSeconds: 120,
+      });
+
+      const controller = new AbortController();
+      const onProgress = (event: { kind: string }): void => {
+        if (event.kind === "file-done") {
+          controller.abort();
+        }
+      };
+
+      const startedAt = performance.now();
+      const outcome = await runPool(
+        ["fast.wav", "slow.wav"],
+        tmpDir,
+        { mode: "preserve" },
+        { signal: controller.signal, onProgress },
+      );
+      const elapsed = performance.now() - startedAt;
+
+      expect(outcome.interrupted).toBe(true);
+      expect(elapsed).toBeLessThan(500);
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.CHIRO_WORKER_COUNT;
+      } else {
+        process.env.CHIRO_WORKER_COUNT = originalEnv;
+      }
+    }
+  }, 5000);
+
+  it("resolves quickly when abort races a worker's already-in-flight file-done (no full timeout wait)", async () => {
+    // A single-chunk file makes the worker post "chunk-written" then
+    // "file-done" back to back, with no I/O in between. Aborting from the
+    // "chunk-written" progress callback races the main thread's abort
+    // handling against the already-in-flight "file-done" message: by the
+    // time abortAndWaitWorkers runs, ws.idle is still false (file-done not
+    // processed yet), so the worker is classified as busy and awaited — but
+    // it is actually idle already and will never post "aborted". Without
+    // resolving abortedResolve from the file-done handler, this hangs for
+    // the full ABORT_TIMEOUT_MS.
+    const originalEnv = process.env.CHIRO_WORKER_COUNT;
+    process.env.CHIRO_WORKER_COUNT = "1";
+
+    try {
+      await writeWav("race.wav", {
+        channels: 1,
+        sampleRate: 8000,
+        bitDepth: "16",
+        durationSeconds: 1,
+      });
+
+      const controller = new AbortController();
+      const onProgress = (event: { kind: string }): void => {
+        if (event.kind === "chunk-written") {
+          controller.abort();
+        }
+      };
+
+      const startedAt = performance.now();
+      const outcome = await runPool(
+        ["race.wav"],
+        tmpDir,
+        { mode: "preserve" },
+        { signal: controller.signal, onProgress },
+      );
+      const elapsed = performance.now() - startedAt;
+
+      expect(outcome.interrupted).toBe(true);
+      expect(elapsed).toBeLessThan(500);
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.CHIRO_WORKER_COUNT;
+      } else {
+        process.env.CHIRO_WORKER_COUNT = originalEnv;
+      }
+    }
+  }, 5000);
+
   it("stress abort: queue of 15 files, abort after 3 done → no orphan tmps", async () => {
     const fileCount = 15;
     const fileNames: string[] = [];

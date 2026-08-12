@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync } from "node:fs";
 import { copyFile, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,8 +11,22 @@ const REAL_DIR = path.join(TEST_DATA, "real_process_teensy");
 const RAW_FILE =
   "Car340581-2026-Pass1-Z5-PaRecPR1925645_20260507_211006_Not_Processed.wav";
 
-const realDataAvailable =
-  existsSync(REAL_DIR) && existsSync(path.join(REAL_DIR, RAW_FILE));
+// An LFS-less checkout still materializes pointer files (~130-byte text), so
+// an existsSync guard would let the suite run and fail on corrupt "WAV" data.
+// Only a real fixture starts with the RIFF magic.
+const isRealWav = (filePath: string): boolean => {
+  if (!existsSync(filePath)) return false;
+  const buf = Buffer.alloc(4);
+  const fd = openSync(filePath, "r");
+  try {
+    readSync(fd, buf, 0, 4, 0);
+  } finally {
+    closeSync(fd);
+  }
+  return buf.toString("ascii") === "RIFF";
+};
+
+const realDataAvailable = isRealWav(path.join(REAL_DIR, RAW_FILE));
 
 const findSoxBin = (): string | null => {
   const pathEnv = process.env.PATH ?? "";

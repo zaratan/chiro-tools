@@ -4,3 +4,61 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      # Dev tooling minors/patches grouped into a single weekly PR; majors
+      # arrive as separate PRs (an eslint/vitest major deserves its own diff).
+      dev-tooling:
+        patterns:
+          - "eslint*"
+          - "@eslint/*"
+          - "typescript-eslint"
+          - "prettier*"
+          - "vitest"
+          - "@vitest/*"
+          - "husky"
+          - "lint-staged"
+          - "globals"
+          - "@types/*"
+          - "ink-testing-library"
+          - "react-devtools-core"
+        exclude-patterns:
+          - "@types/react"
+        update-types:
+          - "minor"
+          - "patch"
+      # Runtime deps: minors/patches grouped; majors arrive as separate PRs
+      # because an ink/react major deserves a manual test of the compiled
+      # binary before merging.
+      runtime:
+        patterns:
+          - "ink"
+          - "ink-*"
+          - "react"
+          - "@types/react"
+          - "wavefile"
+        exclude-patterns:
+          - "ink-testing-library"
+        update-types:
+          - "minor"
+          - "patch"
+      # A react major only compiles together with its @types/react major —
+      # bundle the two so neither lands alone.
+      react-major:
+        patterns:
+          - "react"
+          - "@types/react"
+        update-types:
+          - "major"
+    ignore:
+      # typescript is pinned ~6.0.x: typescript-eslint's peer range is
+      # `<6.1.0`, so 6.1+/7.x must wait until tseslint widens it.
+      - dependency-name: "typescript"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"

@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync } from "node:fs";
 import { copyFile, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,12 +11,28 @@ const TEST_DATA = path.resolve(__dirname, "../../../../test-data");
 const TEENSY_DIR = path.join(TEST_DATA, "Teensy/Teensy brut");
 const AUDIOMOTH_DIR = path.join(TEST_DATA, "Audiomoth/Audiomoth brut");
 
-// Skip the whole suite if test-data is missing (e.g. checkout without LFS).
-const testDataAvailable = existsSync(TEENSY_DIR) && existsSync(AUDIOMOTH_DIR);
-
 const TEENSY_FILE =
   "Car340581-2026-Pass1-Z5-PaRecPR1925645_20260507_210616.wav";
 const AUDIOMOTH_FILE = "Car340581-2026-Pass2-Z5-20260507_210501T.WAV";
+
+// Skip the whole suite if test-data is missing. An LFS-less checkout still
+// materializes pointer files (~130-byte text), so an existsSync guard would
+// let the suite run and fail on corrupt "WAV" data — check the RIFF magic.
+const isRealWav = (filePath: string): boolean => {
+  if (!existsSync(filePath)) return false;
+  const buf = Buffer.alloc(4);
+  const fd = openSync(filePath, "r");
+  try {
+    readSync(fd, buf, 0, 4, 0);
+  } finally {
+    closeSync(fd);
+  }
+  return buf.toString("ascii") === "RIFF";
+};
+
+const testDataAvailable =
+  isRealWav(path.join(TEENSY_DIR, TEENSY_FILE)) &&
+  isRealWav(path.join(AUDIOMOTH_DIR, AUDIOMOTH_FILE));
 
 describe.skipIf(!testDataAvailable)(
   "processWavFiles — integration on real Vigie-Chiro fixtures",

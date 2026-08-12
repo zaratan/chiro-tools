@@ -324,6 +324,42 @@ describe("processWavFiles", () => {
     expect(goodDone).toBeDefined();
   });
 
+  it('reports metadata: "off" when options.metadata is omitted', async () => {
+    await writeWav("source.wav", { durationSeconds: 1 });
+
+    const outcome = await processWavFiles(["source.wav"], tmpDir, {
+      mode: "preserve",
+    });
+
+    expect(outcome.metadata).toBe("off");
+  });
+
+  it('reports metadata: "full" when metadata.enabled is true', async () => {
+    await writeWav("source.wav", { durationSeconds: 1 });
+
+    const outcome = await processWavFiles(
+      ["source.wav"],
+      tmpDir,
+      { mode: "preserve" },
+      { metadata: { enabled: true, chiroVersion: "1.0.0-test" } },
+    );
+
+    expect(outcome.metadata).toBe("full");
+  });
+
+  it('reports metadata: "off" when metadata.enabled is explicitly false', async () => {
+    await writeWav("source.wav", { durationSeconds: 1 });
+
+    const outcome = await processWavFiles(
+      ["source.wav"],
+      tmpDir,
+      { mode: "preserve" },
+      { metadata: { enabled: false, chiroVersion: "1.0.0-test" } },
+    );
+
+    expect(outcome.metadata).toBe("off");
+  });
+
   it("emits no progress events for skippedTooLarge and skippedAlreadyChunked", async () => {
     await writeWav("small_000.wav", { durationSeconds: 1 });
     await writeWav("big.wav", { durationSeconds: 1 });

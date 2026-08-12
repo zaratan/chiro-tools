@@ -48,6 +48,11 @@ echo "Téléchargement de chiro (${VERSION}) depuis GitHub Releases…"
 # Atomic install: download the tarball, extract the single binary entry to a
 # tmp path next to $DEST, then rename. The final `mv` is atomic on the same
 # filesystem and never leaves a partial binary at $DEST if curl or tar fail.
+#
+# INVARIANT — no destructive operation before the `mv` below. This script is
+# executed via `curl | bash` by the in-app updater: a truncated download must
+# never be able to leave a corrupt or missing $DEST. Keep every write on tmp
+# paths until the single atomic rename.
 curl -fL "$URL" -o "$TARBALL_TMP"
 tar -O -xzf "$TARBALL_TMP" "${ASSET}" > "$BIN_TMP"
 chmod +x "$BIN_TMP"

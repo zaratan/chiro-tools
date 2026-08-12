@@ -1,17 +1,18 @@
 import { Box, Text, useInput } from "ink";
-import { stat } from "node:fs/promises";
-import path from "node:path";
 import { useEffect, useRef, useState } from "react";
 import { Footer } from "../../components/Footer.js";
+import { estimateChunkCount } from "../../lib/audio/estimateChunks.js";
 import type {
   ProcessOptions,
   ProcessResult,
   processWavFiles as ProcessWavFilesType,
 } from "../../lib/audio/processWavFiles.js";
+import { describeError } from "../../lib/errors/describeError.js";
 import { formatDuration } from "../../lib/format/duration.js";
 import { logSession } from "../../lib/logging/log.js";
 import type { ProcessInput, SessionEvent } from "../../types.js";
 import { CHIRO_VERSION } from "../../version.js";
+import { mapKnownProcessErrorCode } from "./errorMessages.js";
 import { RunningView, type RunningViewHandles } from "./RunningView.js";
 
 export type ProcessWavFilesFn = typeof ProcessWavFilesType;
@@ -48,55 +49,22 @@ const buildSessionEvent = (
 const metadataEnabled = (): boolean =>
   process.env.CHIRO_DISABLE_METADATA !== "1";
 
-const TEENSY_RATE = 38400;
-const AUDIOMOTH_OUTPUT_RATE = 25000;
-
 const modeLabel = (mode: ProcessInput["mode"]): string =>
   mode === "preserve"
     ? "Boîtier PaRec (Teensy)"
     : "Autre détecteur (ralentissement 10×)";
 
-type ChunkEstimate = {
-  totalChunks: number;
-  totalDurationSec: number;
-  totalBytes: number;
-};
-
-const estimateChunkCount = async (
-  wavFiles: string[],
-  cwd: string,
-  mode: ProcessInput["mode"],
-): Promise<ChunkEstimate> => {
-  // Best-effort estimation based on file size. We assume 16-bit PCM
-  // (the format used by Teensy/AudioMoth/SM* in Vigie-Chiro). Files with
-  // headers and other framing add a few hundred bytes — negligible at
-  // the granularity used in the UI.
-  let totalSamples = 0;
-  let totalBytes = 0;
-  for (const name of wavFiles) {
-    try {
-      const stats = await stat(path.join(cwd, name));
-      totalBytes += stats.size;
-      // Each sample is 2 bytes (16-bit) per channel. We assume mono — the
-      // protocol's primary target. If files happen to be stereo we'll
-      // overestimate chunks by 2×, which is OK for an approximate preview.
-      totalSamples += Math.floor(stats.size / 2);
-    } catch {
-      // Ignore — best effort.
-    }
-  }
-  // We don't know the source sample rate without reading headers (slow on
-  // 149 MB files); approximate based on the chosen mode:
-  // - preserve (Teensy): source written at 38 400 Hz, output at 38 400 Hz
-  // - expand-10x (AudioMoth typical): source 250 000 Hz, output 25 000 Hz
-  //   The total *sample count* in the file is independent of the rate
-  //   change (TE is just a header rewrite), so chunks of 5 s @ output
-  //   rate of 25 000 Hz means 125 000 samples per chunk.
-  const outputRate = mode === "preserve" ? TEENSY_RATE : AUDIOMOTH_OUTPUT_RATE;
-  const samplesPerChunk = outputRate * 5;
-  const totalChunks = Math.ceil(totalSamples / samplesPerChunk);
-  const totalDurationSec = totalSamples / outputRate;
-  return { totalChunks, totalDurationSec, totalBytes };
+/**
+ * Capitalizes the first letter and appends a trailing period — the mapper
+ * wordings are calibrated lowercase for use as bullet points elsewhere.
+ * "chiro" stays lowercase even sentence-initial (brand name convention,
+ * cf. docs/ux.md — never capitalized, not even at the start of a sentence).
+ */
+const asSentence = (text: string): string => {
+  if (text.startsWith("chiro")) return `${text}.`;
+  const [first, ...rest] = text;
+  if (first === undefined) return text;
+  return `${first.toUpperCase()}${rest.join("")}.`;
 };
 
 type ConfirmState =
@@ -111,7 +79,8 @@ type ConfirmState =
       kind: "running";
       totalChunks: number;
       totalBytes: number;
-    };
+    }
+  | { kind: "run-error"; code: string };
 
 export type ProcessConfirmScreenProps = {
   cwd: string;
@@ -142,17 +111,21 @@ export const ConfirmScreen = ({
 
   useEffect(() => {
     let cancelled = false;
-    void estimateChunkCount(wavFiles, cwd, input.mode).then((estimate) => {
-      if (cancelled) return;
-      setState({
-        kind: "preview",
-        totalChunks: estimate.totalChunks,
-        totalDurationSec: estimate.totalDurationSec,
-        totalBytes: estimate.totalBytes,
-      });
-    });
+    const controller = new AbortController();
+    void estimateChunkCount(wavFiles, cwd, input.mode, controller.signal).then(
+      (estimate) => {
+        if (cancelled) return;
+        setState({
+          kind: "preview",
+          totalChunks: estimate.totalChunks,
+          totalDurationSec: estimate.totalDurationSec,
+          totalBytes: estimate.totalBytes,
+        });
+      },
+    );
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [cwd, input.mode, wavFiles]);
 
@@ -166,12 +139,12 @@ export const ConfirmScreen = ({
   }, [runningRef]);
 
   const startProcess = async (): Promise<void> => {
+    if (state.kind !== "preview") return;
+    const { totalChunks, totalBytes } = state;
+
     const controller = new AbortController();
     controllerRef.current = controller;
     runningRef.current = true;
-
-    if (state.kind !== "preview") return;
-    const { totalChunks, totalBytes } = state;
     setState({ kind: "running", totalChunks, totalBytes });
 
     const options: ProcessOptions = {
@@ -184,7 +157,16 @@ export const ConfirmScreen = ({
         chiroVersion: CHIRO_VERSION,
       },
     };
-    const outcome = await processWavFiles(wavFiles, cwd, input, options);
+
+    let outcome: ProcessResult;
+    try {
+      outcome = await processWavFiles(wavFiles, cwd, input, options);
+    } catch (err) {
+      runningRef.current = false;
+      controllerRef.current = null;
+      setState({ kind: "run-error", code: describeError(err) });
+      return;
+    }
 
     // Synchronous finalize — forces bar to 100 % before unmount.
     runningHandlesRef.current?.finalizeRender();
@@ -239,6 +221,32 @@ export const ConfirmScreen = ({
           runningHandlesRef.current = handles;
         }}
       />
+    );
+  }
+
+  if (state.kind === "run-error") {
+    const knownMessage = mapKnownProcessErrorCode(state.code);
+    return (
+      <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
+        <Text>📁 {cwd}</Text>
+        <Box marginTop={1}>
+          <Text color="yellow">
+            ⚠ Une erreur est survenue pendant le découpage.
+          </Text>
+        </Box>
+        {knownMessage !== null ? (
+          <Box marginTop={1}>
+            <Text>{asSentence(knownMessage)}</Text>
+          </Box>
+        ) : null}
+        <Box marginTop={1} flexDirection="column">
+          <Text>
+            Détail technique : <Text color="cyan">{state.code}</Text>
+          </Text>
+          <Text dimColor>{"  (à transmettre si vous demandez de l'aide)"}</Text>
+        </Box>
+        <Footer hints={[{ key: "Échap", label: "revenir au début" }]} />
+      </Box>
     );
   }
 
