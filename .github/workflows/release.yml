@@ -55,6 +55,20 @@ jobs:
             echo "::error::Binary reports '${ACTUAL}' but tag is '${GITHUB_REF_NAME}'"
             exit 1
           fi
+      # No sox on release runners (see the lfs/fixtures note above) — this
+      # only covers the worker-pool engine, but that's exactly the part that
+      # depends on the compiled binary's layout (/$bunfs/ asset resolution),
+      # so it's still worth running here.
+      - name: Smoke test — --self-test
+        run: |
+          set +e
+          OUTPUT=$(./dist/chiro-darwin-arm64 --self-test 2>&1)
+          STATUS=$?
+          echo "$OUTPUT"
+          if [[ $STATUS -ne 0 ]]; then
+            echo "::error::--self-test exited with status $STATUS"
+            exit 1
+          fi
       # Ad-hoc codesign so the binary runs without Gatekeeper quarantine on
       # first launch (no Apple Developer ID needed). The com.apple.quarantine
       # xattr is set on any curl-downloaded asset; without a valid signature,
@@ -109,6 +123,20 @@ jobs:
           ACTUAL=$(./dist/chiro-linux-x64 --version)
           if [[ "$ACTUAL" != "chiro ${EXPECTED}" ]]; then
             echo "::error::Binary reports '${ACTUAL}' but tag is '${GITHUB_REF_NAME}'"
+            exit 1
+          fi
+      # No sox on release runners (see the lfs/fixtures note above) — this
+      # only covers the worker-pool engine, but that's exactly the part that
+      # depends on the compiled binary's layout (/$bunfs/ asset resolution),
+      # so it's still worth running here.
+      - name: Smoke test — --self-test
+        run: |
+          set +e
+          OUTPUT=$(./dist/chiro-linux-x64 --self-test 2>&1)
+          STATUS=$?
+          echo "$OUTPUT"
+          if [[ $STATUS -ne 0 ]]; then
+            echo "::error::--self-test exited with status $STATUS"
             exit 1
           fi
       # Match the macOS asset shape (tarball) so the Homebrew formula and

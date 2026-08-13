@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
-import { render } from "ink";
+import { render, Text } from "ink";
 import { spawnSync } from "node:child_process";
 import { App } from "./app.js";
+import { runSelfTest } from "./lib/selftest/selfTest.js";
 import { resolveInstallDirEnv } from "./lib/runtime/installDir.js";
 import { isHomebrewInstall } from "./lib/runtime/isHomebrewInstall.js";
 import { INSTALL_SCRIPT_URL } from "./lib/update/constants.js";
@@ -27,6 +28,32 @@ if (args.includes("--version") || args.includes("-v")) {
 if (args.includes("--help") || args.includes("-h")) {
   process.stdout.write(HELP_TEXT);
   process.exit(0);
+}
+
+if (args.includes("--self-test")) {
+  // Hidden — deliberately absent from HELP_TEXT. Exercised only by CI
+  // (smoke-build, release) against the compiled binary, not by end users.
+  //
+  // The Ink render below proves yoga (inlined as base64 WASM) decodes and
+  // renders inside the `bun --compile` binary: Ink 7 supports a
+  // non-interactive, append-only render with no TTY attached, which is
+  // exactly the environment a CI runner provides.
+  const smokeInstance = render(<Text>chiro self-test</Text>);
+  smokeInstance.unmount();
+  await smokeInstance.waitUntilExit();
+
+  const result = await runSelfTest();
+
+  if (result.kind === "ok") {
+    for (const check of result.checks) {
+      process.stdout.write(`self-test: ${check}\n`);
+    }
+    process.exit(0);
+  }
+
+  process.stderr.write(`self-test: échec — ${result.check}\n`);
+  process.stderr.write(`self-test: ${result.detail}\n`);
+  process.exit(1);
 }
 
 if (args.length > 0) {

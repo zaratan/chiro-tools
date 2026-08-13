@@ -95,6 +95,8 @@ Auto-check au boot : `App.useEffect` mount → `checkForUpdate` (cache disque 6 
 
 `CHIRO_VERSION` est lu depuis `package.json` à la compilation. Le workflow `release.yml` **réécrit `package.json` au tag** (`${GITHUB_REF_NAME#v}`) avant le build, sinon le binaire ne reflète pas la version du release. Sanity check après build : `./dist/chiro-... --version` doit matcher le tag.
 
+`--self-test` est un flag caché (absent de `--help`) qui exerce le binaire compilé au-delà de `--version` : résolution du worker bundlé dans `/$bunfs/` (`splitWorkerPool.ts:resolveWorkerPath`), rendu ink/yoga non-interactif, et un vrai batch de découpage sur une fixture WAV déterministe — avec le fast-path sox et sa garantie de byte-identité si `sox` est détecté. Logique dans `src/lib/selftest/selfTest.ts` (aucun import ink/react — frontière eslint respectée). Appelé par `ci.yml` (job `smoke-build`, sox installé) et `release.yml` (pas de sox sur ces runners → pool seul).
+
 ## Tests manuels TUI
 
 `ink-testing-library` ne couvre que le parcours nominal. Pour les flux interactifs complexes (rename, update, Ctrl+C), tester à la main dans `/tmp/chiro-demo`. Ne JAMAIS prétendre qu'une UI marche sans l'avoir vue tourner — dire explicitement "non testé manuellement" si c'est le cas.
