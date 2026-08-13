@@ -123,6 +123,7 @@ const preCleanOrphanTmps = async (outDir: string): Promise<void> => {
 // flight), so waiting on them would burn the full timeout on every abort.
 const abortAndWaitWorkers = async (
   workerStates: WorkerState[],
+  abortTimeoutMs: number,
 ): Promise<void> => {
   const aliveStates = workerStates.filter((ws) => ws.alive);
   const busyStates = aliveStates.filter((ws) => !ws.idle);
@@ -144,7 +145,7 @@ const abortAndWaitWorkers = async (
 
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<void>((resolve) => {
-    timeoutHandle = setTimeout(resolve, ABORT_TIMEOUT_MS);
+    timeoutHandle = setTimeout(resolve, abortTimeoutMs);
   });
 
   await Promise.race([Promise.all(abortedPromises), timeout]);
@@ -188,12 +189,17 @@ export const run = async (
     // Overrides the worker bundle path. Test-only escape hatch to exercise
     // worker crash handling without mocking node:worker_threads.
     workerPath?: string;
+    // Overrides the abort-ack timeout. Test-only: timing tests set it high
+    // so "the abort path did not burn the timeout" can be asserted without
+    // a load-sensitive wall-clock bound (flaky on slow CI runners).
+    abortTimeoutMs?: number;
   },
 ): Promise<ProcessOutcome> => {
   const start = performance.now();
   const signal = options?.signal;
   const isAborted = (): boolean => signal?.aborted === true;
   const maxInputBytes = options?.maxInputBytes ?? DEFAULT_MAX_INPUT_BYTES;
+  const abortTimeoutMs = options?.abortTimeoutMs ?? ABORT_TIMEOUT_MS;
   const outDir = buildOutDir(dir);
 
   const emit = options?.onProgress
@@ -502,7 +508,7 @@ export const run = async (
   if (batchDone) {
     // Abort path: send abort to workers and wait for them to finish in-flight
     // renames before terminating. This guarantees no orphan .tmp on disk.
-    await abortAndWaitWorkers(workerStates);
+    await abortAndWaitWorkers(workerStates, abortTimeoutMs);
   } else {
     await terminateWorkers(workerStates);
   }

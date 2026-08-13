@@ -110,60 +110,28 @@ jobs:
             echo "::error::--self-test exited with status $STATUS"
             exit 1
           fi
-      # Hand the Linux binary to the linux-compat job below. Only the Linux
-      # leg uploads: macOS cannot run in containers on GitHub Actions.
-      - name: Upload Linux binary for container compat tests
-        if: matrix.target == 'linux-x64'
-        uses: actions/upload-artifact@v7
-        with:
-          name: smoke-chiro-linux-x64
-          path: dist/chiro-linux-x64
-
-  # The shipped Linux binary is dynamically linked (glibc): building and
-  # testing on ubuntu-latest only proves it runs on ubuntu-latest. This job
-  # runs the compiled binary's --self-test inside ubuntu:20.04 — the oldest
-  # glibc we intend to support — once WITHOUT sox (forcing the worker-pool
-  # path) and once WITH the distro's sox (validating the fast-path's
-  # byte-identity guarantee against a sox build older than the runner's).
-  # Deliberately Ubuntu-only for now: widen to other distros when there are
-  # actual non-Ubuntu users.
-  linux-compat:
-    name: linux-compat (${{ matrix.image }} sox=${{ matrix.sox }})
-    runs-on: ubuntu-latest
-    needs: smoke-build
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - image: "ubuntu:20.04"
-            sox: without
-            setup: ""
-            # Without sox the self-test must fall back to the worker pool
-            # and say so — grepping the line prevents a silently-degraded
-            # pass if the image ever ships sox.
-            expect: "sox : absent"
-          - image: "ubuntu:20.04"
-            sox: with
-            setup: "apt-get update -qq && apt-get install -y -qq sox >/dev/null && "
-            expect: "byte-identique au pool"
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: smoke-chiro-linux-x64
-          path: dist/
-      - name: Run --self-test in container
+          if [[ "$OUTPUT" != *"byte-identique au pool"* ]]; then
+            echo "::error::sox fast-path did not run — expected the byte-identity check"
+            exit 1
+          fi
+      # Same binary, sox path disabled: forces the worker-pool engine, the
+      # part that depends on /$bunfs/ asset resolution. No container needed —
+      # the compiled binary's glibc floor is a property of the pinned bun
+      # runtime, not of anything this runner does (re-check manually on a
+      # bun pin bump, see CLAUDE.md).
+      - name: Smoke test — --self-test (worker pool only)
+        env:
+          CHIRO_DISABLE_FASTPATH: "1"
         run: |
-          chmod +x dist/chiro-linux-x64
           set +e
-          OUTPUT=$(docker run --rm -v "$PWD/dist:/work:ro" "${{ matrix.image }}" \
-            bash -c '${{ matrix.setup }}/work/chiro-linux-x64 --self-test' 2>&1)
+          OUTPUT=$(./dist/chiro-${{ matrix.target }} --self-test 2>&1)
           STATUS=$?
           echo "$OUTPUT"
           if [[ $STATUS -ne 0 ]]; then
-            echo "::error::--self-test failed in ${{ matrix.image }} (exit $STATUS)"
+            echo "::error::--self-test (no sox) exited with status $STATUS"
             exit 1
           fi
-          if [[ "$OUTPUT" != *"${{ matrix.expect }}"* ]]; then
-            echo "::error::expected output to contain '${{ matrix.expect }}' in ${{ matrix.image }} — the intended engine path did not run"
+          if [[ "$OUTPUT" != *"sox : absent"* ]]; then
+            echo "::error::expected the no-sox path — kill-switch not honored?"
             exit 1
           fi

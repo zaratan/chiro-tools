@@ -516,17 +516,22 @@ describe("splitWorkerPool", () => {
         }
       };
 
+      // Wall-clock bounds are load-sensitive (this failed at 931 ms on a
+      // busy CI runner with a 500 ms bound). Instead, raise the abort-ack
+      // timeout to 10 s: the buggy path (waiting on idle workers) burns the
+      // whole timeout, the fixed path returns as soon as busy workers ack —
+      // the 8 s bound discriminates by seconds, not milliseconds.
       const startedAt = performance.now();
       const outcome = await runPool(
         ["fast.wav", "slow.wav"],
         tmpDir,
         { mode: "preserve" },
-        { signal: controller.signal, onProgress },
+        { signal: controller.signal, onProgress, abortTimeoutMs: 10_000 },
       );
       const elapsed = performance.now() - startedAt;
 
       expect(outcome.interrupted).toBe(true);
-      expect(elapsed).toBeLessThan(500);
+      expect(elapsed).toBeLessThan(8000);
     } finally {
       if (originalEnv === undefined) {
         delete process.env.CHIRO_WORKER_COUNT;
@@ -534,7 +539,7 @@ describe("splitWorkerPool", () => {
         process.env.CHIRO_WORKER_COUNT = originalEnv;
       }
     }
-  }, 5000);
+  }, 15000);
 
   it("resolves quickly when abort races a worker's already-in-flight file-done (no full timeout wait)", async () => {
     // A single-chunk file makes the worker post "chunk-written" then
@@ -564,17 +569,19 @@ describe("splitWorkerPool", () => {
         }
       };
 
+      // Same discrimination scheme as the idle-workers test above: a high
+      // injected timeout instead of a load-sensitive wall-clock bound.
       const startedAt = performance.now();
       const outcome = await runPool(
         ["race.wav"],
         tmpDir,
         { mode: "preserve" },
-        { signal: controller.signal, onProgress },
+        { signal: controller.signal, onProgress, abortTimeoutMs: 10_000 },
       );
       const elapsed = performance.now() - startedAt;
 
       expect(outcome.interrupted).toBe(true);
-      expect(elapsed).toBeLessThan(500);
+      expect(elapsed).toBeLessThan(8000);
     } finally {
       if (originalEnv === undefined) {
         delete process.env.CHIRO_WORKER_COUNT;
@@ -582,7 +589,7 @@ describe("splitWorkerPool", () => {
         process.env.CHIRO_WORKER_COUNT = originalEnv;
       }
     }
-  }, 5000);
+  }, 15000);
 
   it("stress abort: queue of 15 files, abort after 3 done → no orphan tmps", async () => {
     const fileCount = 15;
