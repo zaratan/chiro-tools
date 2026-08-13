@@ -31,8 +31,9 @@ export type ProcessResult = ProcessOutcome & {
 };
 
 /**
- * Processes a list of WAV files: splits each into 5-second chunks
- * (in the OUTPUT timeline) and writes them to `<dir>/processed/`.
+ * Processes a list of WAV files: splits each into CHUNK_OUTPUT_SECONDS
+ * (50 s) chunks in the output timeline — 5 s of real time, both pipelines
+ * emitting TE×10 — and writes them to `<dir>/processed/`.
  *
  * Strictly non-destructive: source files are only read. All writes go to the
  * processed/ subfolder, via atomic .tmp + rename.

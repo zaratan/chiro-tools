@@ -4,7 +4,7 @@
 
 | Domaine            | Choix                                                                             | Notes                                                                                                                                                                                                                                                   |
 | ------------------ | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Package manager    | **pnpm** (≥ 10)                                                                   | Aligné sur les autres projets de l'auteur (cf. `~/Projects/arkham-proba`).                                                                                                                                                                              |
+| Package manager    | **pnpm** 11 (`packageManager` pin `pnpm@11.21.0`)                                 | Aligné sur les autres projets de l'auteur (cf. `~/Projects/arkham-proba`). pnpm 11 requiert Node ≥ 22.13 (`node:sqlite`).                                                                                                                               |
 | Runtime dev + exec | **Bun** (dernière stable)                                                         | Bun lance le TS directement, sert de bundler/compileur pour le binaire.                                                                                                                                                                                 |
 | Langage            | **TypeScript strict**                                                             | `target: ES2022`, `module: NodeNext`, `moduleResolution: NodeNext`, `strict: true`, `skipLibCheck: true`.                                                                                                                                               |
 | UI CLI             | **Ink 7** + **React 19**                                                          | TUI déclarative.                                                                                                                                                                                                                                        |
@@ -51,39 +51,51 @@ Le protocole Vigie-Chiro Point Fixe (documenté dans `test-data/Tutoriel Vigie C
 | Time expansion factor OUTPUT | 10                        | 10        |
 | Split to max duration (s)    | 5                         | 5         |
 
-Conséquence : Teensy enregistre **déjà** en TE×10 au record-time (38 400 Hz « audible » représentant un réel 384 000 Hz) — on ne touche pas au sample rate. AudioMoth enregistre full-spectrum à 250 000 Hz — on réécrit `fmt.sampleRate ← 25 000` (lossless, header-only). Dans les deux cas, on découpe en chunks de 5 s mesurés sur la **timeline de sortie**.
+Conséquence : Teensy enregistre **déjà** en TE×10 au record-time (38 400 Hz « audible » représentant un réel 384 000 Hz) — on ne touche pas au sample rate. AudioMoth enregistre full-spectrum à 250 000 Hz — on réécrit `fmt.sampleRate ← 25 000` (lossless, header-only). Dans les deux cas, on découpe en chunks de **50 s mesurés sur la timeline de sortie** — soit 5 s de temps réel une fois la TE×10 prise en compte (`CHUNK_OUTPUT_SECONDS = 50`, `CHUNK_REAL_SECONDS = 5` dans `src/lib/audio/constants.ts`). Avant la Phase 7, chiro coupait à 5 s de sortie (10× trop court en temps réel) ; corrigé depuis — cf. § Performance pipeline / Métadonnées GUANO + wamd plus bas.
 
 ## Structure du repo
 
 ```
 chiro-tools/
 ├── .github/
+│   ├── dependabot.yml            # actions (mensuel) + npm (hebdo, groupé)
 │   └── workflows/
-│       └── release.yml          # Phase 4 : build + sign + notarize + GH Release
+│       ├── ci.yml                # push + PR : job check (matrix Linux×2 sox + macOS) + smoke-build (--version/--help/--self-test)
+│       └── release.yml           # tag v*.*.* : pnpm check + build + ad-hoc codesign macOS + GH Release
 ├── .husky/
-│   └── pre-commit               # lint-staged
-├── docs/                        # CE DOSSIER — spec figée
+│   └── pre-commit                # lint-staged
+├── docs/                         # CE DOSSIER — spec figée
 ├── scripts/
-│   └── install.sh               # Téléchargement du bon binaire depuis GH Releases
+│   ├── install.sh                # téléchargement du bon binaire (tarball) depuis GH Releases
+│   ├── reset-demo.sh             # reset /tmp/chiro-demo à un dataset connu
+│   ├── generate-demo-fixtures.ts
+│   ├── trim-audiomoth-fixtures.ts
+│   └── poc-*.ts                  # PoC historiques sox/ffmpeg (cf. § Pourquoi sox et pas ffmpeg) — hors tsconfig/eslint
+├── test-data/                    # fixtures réelles Teensy/AudioMoth, versionnées en git-lfs
 ├── src/
-│   ├── index.tsx                # entry point — boot (TTY check, --version/--help) puis render <App />, post-Ink spawn install.sh si drapeau update
-│   ├── app.tsx                  # routeur d'écrans (state machine) + auto-check boot via checkForUpdate
-│   ├── version.ts               # CHIRO_VERSION lu depuis package.json (Bun inline à la compile)
+│   ├── index.tsx                 # entry point — boot (TTY check, --version/--help/--self-test) puis render <App />, post-Ink spawn install.sh si drapeau update
+│   ├── app.tsx                   # routeur d'écrans (state machine) + auto-check boot via checkForUpdate
+│   ├── version.ts                # CHIRO_VERSION lu depuis package.json (Bun inline à la compile)
+│   ├── types.ts                  # types partagés (FormInput, RenamePlan, ProcessInput, SessionEvent, …)
+│   ├── types/
+│   │   └── asset-imports.d.ts    # ambient declare module "*.bundled.mjs" pour l'asset worker
 │   ├── screens/
 │   │   ├── MenuScreen.tsx
 │   │   ├── UpdateScreen.tsx       # 4 états : checking / available / up-to-date / error
-│   │   ├── updateErrorMessages.ts # mapping FR pour les 6 codes d'erreur Update
+│   │   ├── updateErrorMessages.ts # mapping FR pour les codes d'erreur Update
 │   │   ├── vigie-chiro/           # flow "Préfixer" — 4 écrans
 │   │   │   ├── ConstatScreen.tsx
 │   │   │   ├── FormScreen.tsx     # focusedIndex + 4 <TextField> (numeric en mode managed)
 │   │   │   ├── ConfirmScreen.tsx
 │   │   │   ├── ResultScreen.tsx
 │   │   │   └── errorMessages.ts   # mapping FR pour codes d'erreur rename
-│   │   └── vigie-process/         # flow "Découper" — 4 écrans (Phase 5)
+│   │   └── vigie-process/         # flow "Découper" — 4 écrans (Phase 5) + progression (Phase 5.E)
 │   │       ├── ConstatScreen.tsx  # scan + perms + processed/ existant + statfs
 │   │       ├── FormScreen.tsx     # sélecteur Teensy/Autre inline (pas de RadioSelect)
-│   │       ├── ConfirmScreen.tsx  # preview durée + execution + logSession v2
+│   │       ├── ConfirmScreen.tsx  # preview durée + execution + progression + logSession v2
 │   │       ├── ResultScreen.tsx   # 4 variantes : success / interrupted / all-failed / partial
+│   │       ├── RunningView.tsx    # barre de progression + ETA pendant l'exécution
+│   │       ├── useProgressState.ts # hook throttle 100 ms + finalizeRender() synchrone
 │   │       └── errorMessages.ts   # mapping FR pour codes d'erreur process
 │   ├── components/
 │   │   ├── TextField.tsx          # label + ink-text-input (ou Text en mode managed) + aide/erreur
@@ -91,27 +103,40 @@ chiro-tools/
 │   ├── lib/
 │   │   ├── vigie-chiro/
 │   │   │   ├── prefix.ts          # buildPrefix({carre,annee,passage,point}) → "Car..."
-│   │   │   ├── prefix.test.ts
 │   │   │   ├── isAlreadyPrefixed.ts
-│   │   │   ├── isAlreadyPrefixed.test.ts
 │   │   │   └── validation.ts      # validators purs par champ
 │   │   ├── fs/
 │   │   │   ├── scanWavFiles.ts    # lit cwd, filtre .wav, ignore dotfiles/dirs/symlinks
-│   │   │   ├── scanWavFiles.test.ts
 │   │   │   ├── safeFsOps.ts       # renameWithFallback (EXDEV) + writeFileAtomic (.tmp + rename)
-│   │   │   ├── safeFsOps.test.ts
 │   │   │   ├── planRenames.ts     # produit la liste {from, to, skipReason?}
-│   │   │   ├── planRenames.test.ts
-│   │   │   ├── applyRenames.ts    # consume renameWithFallback, séquentiel, gestion SIGINT
-│   │   │   └── applyRenames.test.ts
-│   │   ├── audio/                 # lib audio Phase 5 — split + TE×10 lossless
+│   │   │   └── applyRenames.ts    # consume renameWithFallback, séquentiel, gestion SIGINT
+│   │   ├── audio/                 # lib audio Phase 5-7 — split + TE×10 lossless + perf + métadonnées
+│   │   │   ├── constants.ts       # CHUNK_OUTPUT_SECONDS=50, CHUNK_REAL_SECONDS=5, TIME_EXPANSION_FACTOR=10
 │   │   │   ├── splitWavFile.ts    # Generator<chunk|abort|error> ; pas d'I/O
-│   │   │   ├── processWavFiles.ts # orchestrateur I/O — fstat cap 500 MB, filtre _NNN.wav$, pre-clean .tmp
-│   │   │   └── __tests__/
-│   │   │       ├── fixtures.ts                       # makeRampWav, makeSineWav, readSamplesPerChannel
-│   │   │       ├── splitWavFile.test.ts
-│   │   │       ├── processWavFiles.test.ts
-│   │   │       └── processWavFiles.integration.test.ts  # SUR FICHIERS RÉELS test-data/ via git-lfs
+│   │   │   ├── processWavFiles.ts # orchestrateur — route vers soxFastPath ou splitWorkerPool, gère le fallback
+│   │   │   ├── splitWorkerPool.ts # Pipeline A — pool de node:worker_threads, dispatch, abort, dead-worker handling
+│   │   │   ├── splitWorker.ts     # source TS du worker (pré-bundlé en splitWorker.bundled.mjs, gitignored)
+│   │   │   ├── soxFastPath.ts     # Pipeline B — spawn sox concurrent, spot-check, cleanPartialOutput
+│   │   │   ├── wavHeader.ts       # rewriteHeaderToStandardPcm — header canonique unique A/B
+│   │   │   ├── finalizeChunk.ts   # wrappe wavHeader + appendAncillaryChunks (GUANO/wamd)
+│   │   │   ├── estimateChunks.ts  # estimation pré-run pour dimensionner la barre de progression
+│   │   │   ├── etaTracker.ts      # ETA byte-weighted, moyenne glissante 5 fichiers
+│   │   │   ├── metadata/
+│   │   │   │   ├── guano.ts       # chunk `guan` GUANO 1.0
+│   │   │   │   ├── wamd.ts        # chunk `wamd` Wildlife Acoustics
+│   │   │   │   └── chunkMetadata.ts # orchestrateur per-chunk (guano, wamd)
+│   │   │   └── __tests__/         # fixtures.ts + tests unitaires/intégration/golden — cf. § Tests
+│   │   ├── files/
+│   │   │   └── parseTimestamp.ts  # parse `_YYYYMMDD_HHMMSS` depuis le nom de fichier source
+│   │   ├── errors/
+│   │   │   └── describeError.ts   # mapping code d'erreur → message FR bienveillant
+│   │   ├── runtime/
+│   │   │   ├── isHomebrewInstall.ts # détecte un install Homebrew via realpathSync(process.execPath)
+│   │   │   └── installDir.ts      # CHIRO_INSTALL_DIR override pour que le self-update cible le binaire réellement lancé
+│   │   ├── selftest/
+│   │   │   └── selfTest.ts        # --self-test : exercice binaire compilé de bout en bout
+│   │   ├── format/
+│   │   │   └── duration.ts        # formatDuration(seconds) → texte FR ("X secondes" / "X minutes" / "X h MM")
 │   │   ├── update/
 │   │   │   ├── constants.ts       # GITHUB_REPO, RELEASES_API_URL, INSTALL_SCRIPT_URL, TTL, cache path
 │   │   │   ├── parseVersion.ts    # semver-light parser
@@ -120,19 +145,20 @@ chiro-tools/
 │   │   │   ├── cache.ts           # ~/.chiro/update-check.json : read/write atomique + isCacheFresh
 │   │   │   └── checkForUpdate.ts  # orchestrateur cache → fetch → compare, silent fail
 │   │   ├── logging/
-│   │   │   ├── log.ts             # append JSONL dans ~/.chiro/sessions.jsonl
-│   │   │   └── log.test.ts        # snapshot byte-stable v1 (vigie-prefix) + v2 (vigie-process)
+│   │   │   └── log.ts             # append JSONL dans ~/.chiro/sessions.jsonl
 │   │   └── e2e.test.ts            # round-trip complet sur dossier mkdtemp
-│   └── types.ts                   # types partagés (FormInput, RenamePlan, …)
-├── .eslintrc.cjs (ou eslint.config.js)
+├── .gitattributes                 # LFS pour test-data/
 ├── .gitignore
 ├── .prettierignore
 ├── .prettierrc
-├── package.json                   # bin: { chiro: "src/index.tsx" } (en dev), version inj. à la compile
+├── eslint.config.js
+├── package.json                   # pas de champ "bin" — pnpm dev = build:worker && `bun src/index.tsx` ; version injectée à la compile via version.ts
 ├── tsconfig.json
 ├── vitest.config.ts
 └── README.md                      # racine — utilisateur final (install + usage rapide)
 ```
+
+Convention tests : la plupart des fichiers `*.test.ts(x)` sont colocalisés à côté du code qu'ils testent (ex. `prefix.ts` / `prefix.test.ts`, `MenuScreen.tsx` / `MenuScreen.test.tsx`). Certains dossiers regroupent leurs tests (et fixtures partagées) dans un sous-dossier `__tests__/` — convention adoptée en Phase 5 : `src/lib/audio/`, `src/lib/audio/metadata/`, `src/lib/files/`, `src/lib/format/`, `src/screens/vigie-chiro/`, `src/screens/vigie-process/`. Non listés fichier par fichier ci-dessus.
 
 ### Principes de séparation
 
@@ -246,9 +272,15 @@ Bun embarque le runtime (~50 MB par binaire). Aucune dépendance utilisateur.
 
 ## Signature macOS
 
-L'auteur dispose d'un **compte Apple Developer**. Le binaire macOS est signé Developer ID + notarisé avant publication.
+**État actuel** : `release.yml` (job `build-macos`) applique une signature **ad-hoc** (pas de compte Developer ID, pas de notarisation) :
 
-Étapes (Phase 4, dans la CI ou en local) :
+```bash
+codesign --sign - --force --timestamp=none dist/chiro-darwin-arm64
+```
+
+Un binaire téléchargé via `curl` ne reçoit pas l'attribut `com.apple.quarantine` (l'attribut est posé par les applications qui optent pour `LSFileQuarantineEnabled` — les navigateurs — pas par `curl`), donc le blocage Gatekeeper « app non notarisée » du premier lancement ne s'applique pas à ce chemin d'installation. La signature ad-hoc reste nécessaire pour une autre raison : macOS sur Apple Silicon refuse d'exécuter tout binaire natif dépourvu d'au moins une signature (ad-hoc comprise), et le `codesign --force` post-build garantit une signature valide sur le binaire final. Hypothèse quarantine posée en Phase 4, jamais invalidée depuis par un test sur machine vierge.
+
+L'auteur dispose d'un **compte Apple Developer** actif — une signature Developer ID + notarisation reste une option, réservée à la Phase 4.5 **conditionnelle**, à activer uniquement si un futur test sur machine vierge révèle un blocage Gatekeeper. Étapes prévues si cette phase s'active un jour :
 
 ```bash
 # 1. Signer
@@ -271,41 +303,17 @@ xcrun notarytool submit dist/chiro-darwin-arm64.zip \
 # Si on empaquetait dans un .app ou .dmg : xcrun stapler staple
 ```
 
-L'identifiant exact du certificat et le team ID seront demandés au moment de mettre en place la Phase 4. **Ne pas hardcoder** ces valeurs dans le repo — utiliser GitHub Secrets.
+L'identifiant exact du certificat et le team ID seront demandés au moment d'activer la Phase 4.5. **Ne pas hardcoder** ces valeurs dans le repo — utiliser GitHub Secrets.
 
 ## Distribution
 
 ### MVP (Phase 4)
 
-- **GitHub Releases** héberge les 2 binaires (`chiro-darwin-arm64`, `chiro-linux-x64`).
-- **`scripts/install.sh`** dans le repo :
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-OS="$(uname -s)"
-ARCH="$(uname -m)"
-VERSION="${1:-latest}"
-
-case "$OS-$ARCH" in
-  Darwin-arm64)     ASSET="chiro-darwin-arm64" ;;
-  Linux-x86_64)     ASSET="chiro-linux-x64" ;;
-  *)                echo "Plateforme non supportée : $OS $ARCH" >&2 ; exit 1 ;;
-esac
-
-URL="https://github.com/<owner>/chiro-tools/releases/${VERSION}/download/${ASSET}"
-DEST="${HOME}/.local/bin/chiro"
-mkdir -p "$(dirname "$DEST")"
-curl -fL "$URL" -o "$DEST"
-chmod +x "$DEST"
-echo "chiro installé dans $DEST"
-echo "Assurez-vous que $(dirname "$DEST") est dans votre PATH."
-```
-
+- **GitHub Releases** héberge les 2 assets, empaquetés en **tarball** (`chiro-darwin-arm64.tar.gz`, `chiro-linux-x64.tar.gz` — `brew audit --new --strict` exige un asset stable versionné en archive, pas un binaire nu).
+- **`scripts/install.sh`** (réel, dans le repo) : détecte `$OS-$ARCH`, télécharge le tarball de la version voulue (`CHIRO_VERSION`, défaut `latest`), l'extrait dans un fichier temporaire puis `mv` atomique vers `$CHIRO_INSTALL_DIR/chiro` (`CHIRO_INSTALL_DIR` défaut : `~/.local/bin`) — aucune écriture destructive avant ce `mv` final, invariant nécessaire puisque le script tourne aussi via `curl | bash` depuis le self-update intégré (cf. § Self-update ci-dessous). Warning best-effort si le dossier cible n'est pas dans `$PATH`.
 - L'utilisatrice (ou son conjoint dév) lance :
   ```bash
-  curl -fL https://raw.githubusercontent.com/<owner>/chiro-tools/main/scripts/install.sh | bash
+  curl -fL https://raw.githubusercontent.com/zaratan/chiro-tools/main/scripts/install.sh | bash
   ```
 - Une fois `~/.local/bin` dans `$PATH`, `chiro` est disponible globalement.
 
@@ -317,7 +325,7 @@ echo "Assurez-vous que $(dirname "$DEST") est dans votre PATH."
 
 ## Logging
 
-- Fichier : `~/.chiro/sessions.jsonl` (créer `~/.chiro/` au boot s'il n'existe pas).
+- Fichier : `~/.chiro/sessions.jsonl` (`~/.chiro/` est créé paresseusement au premier `logSession`).
 - Format : **JSONL** (un objet JSON par ligne, `\n` séparateur).
 - Mode : **append** (`fs.appendFile`). Jamais tronqué au MVP.
 - Schéma : cf. `spec.md` § "Logging local".
@@ -426,7 +434,7 @@ Le découpage est CPU-bound : `wavefile.toBuffer()` ré-encode header + samples 
 
 ### Pipeline A — Worker pool wavefile
 
-`src/lib/audio/splitWorkerPool.ts` orchestre N workers `node:worker_threads` qui exécutent chacun `splitWavFile` sur un fichier dédié. Le pool fait la queue files-as-tasks, dispatche au prochain worker idle, agrège les `ProgressEvent` avec throttle 100 Hz. Gain attendu 3–6× selon la machine.
+`src/lib/audio/splitWorkerPool.ts` orchestre N workers `node:worker_threads` qui exécutent chacun `splitWavFile` sur un fichier dédié. Le pool fait la queue files-as-tasks, dispatche au prochain worker idle, agrège les `ProgressEvent` avec un throttle de 100 ms (10 Hz). Gain attendu 3–6× selon la machine.
 
 `N` calculé dynamiquement au mount :
 
@@ -476,31 +484,52 @@ Le kill-switch `CHIRO_DISABLE_METADATA=1` est lu dans `ConfirmScreen.tsx` au dé
 `processWavFiles.ts` route selon `options.sox` (passé par `App.tsx` après `detectSox`) :
 
 ```ts
-if (sox) {
-  const r = await soxFastPath.runSoxBatch(
-    sox.binPath,
+if (options?.sox) {
+  const soxResult = await runSoxBatch(
+    options.sox.binPath,
     files,
     dir,
     input,
-    options,
+    poolOptions,
   );
-  if (r.kind === "fallback") {
-    logSessionFallback(r.reason);
-    return splitWorkerPool.run(files, dir, input, options);
+  if (soxResult.kind === "completed") {
+    return {
+      ...soxResult.outcome,
+      engine: "sox",
+      engine_fallback_count: 0,
+      metadata: metadataLabel,
+    };
   }
-  return r.outcome;
+  // Fallback: run the full batch via worker pool
+  const poolOutcome = await runPool(files, dir, input, poolOptions);
+  return {
+    ...poolOutcome,
+    engine: "wavefile",
+    engine_fallback_count: 1,
+    metadata: metadataLabel,
+  };
 }
-return splitWorkerPool.run(files, dir, input, options);
+const outcome = await runPool(files, dir, input, poolOptions);
+return {
+  ...outcome,
+  engine: "wavefile",
+  engine_fallback_count: 0,
+  metadata: metadataLabel,
+};
 ```
+
+Il n'y a pas de fonction `logSessionFallback` : le pipeline réellement utilisé et le compte de fallback sont simplement portés sur le `ProcessResult` retourné (`engine`, `engine_fallback_count`), et c'est l'appelant (`ConfirmScreen.tsx`) qui les transmet à `logSession` au moment de construire le `SessionEvent` v2.
 
 **Politique per-batch first-error** : si sox crashe OU si spot-check échoue sur le 1er fichier, **tout le batch** retraite via le worker pool (pas de mix per-file). Un seul invariant à vérifier, pas de drift inter-pipeline au sein d'un batch. Si sox foire seulement à partir du fichier #3 (le 1er a validé), c'est probablement un fichier corrompu — log warning, ajoute à `errored`, continue le batch. `SessionEvent.result.engine` et `engine_fallback_count` enregistrent le pipeline réellement utilisé.
 
 ### Safety nets (priorité données scientifiques)
 
 1. **Header canonique unique A/B** (cf. ci-dessus) — invariant testable.
-2. **Spot-check stratifié** sur le 1er fichier sox : 3 chunks (1er, milieu, dernier) décodés via wavefile, comparaison de 100 samples à la formule attendue. Mismatch → fallback immédiat du batch.
-3. **Golden CI test** (`__tests__/golden.test.ts`) sur 2 fixtures (AudioMoth-class + 24-bit stéréo) avec SHA256 hardcodés. CI matrix `sox: [with, without]` couvre les deux pipelines.
+2. **Spot-check stratifié** sur le 1er fichier sox : 3 chunks (1er, milieu, dernier), 100 samples au milieu de chaque chunk comparés à la référence produite par le pipeline wavefile (A-vs-B en une seule traversée du générateur — pas de formule analytique). Mismatch → fallback immédiat du batch.
+3. **Golden CI test** (`__tests__/golden.test.ts`) sur 3 fixtures synthétiques (rampes déterministes) : déterminisme du pool (run₁ = run₂) puis byte-identité pool ↔ sox (`describe.skipIf(!soxAvailable)`). Pas de SHA hardcodés — comparaison A/B. CI matrix `sox: [with, without]` couvre les deux pipelines.
 4. **Env opt-out** `CHIRO_DISABLE_FASTPATH=1` : force le worker pool même si sox détecté. Utile pour debug et reproductibilité.
+5. **Résilience worker pool (passe de durcissement, août 2026)** : chaque worker est écouté sur `"error"` **et** `"exit"` (un `process.exit(0)` en cours de fichier ne déclenche que `"exit"`, jamais `"error"` — sans ce second listener, un tel crash laisserait le batch pendre indéfiniment). Un flag `alive` par worker évite le double traitement quand les deux events se déclenchent pour la même mort. Un worker mort marque son fichier en cours comme `errored` (raison dédiée) et libère le reste du batch ; si tous les workers meurent, la queue restante est basculée en erreur proprement plutôt que de pendre.
+6. **No-throw côté sox** : `processOneFile` (dans `soxFastPath.ts`) encapsule tout le traitement d'un fichier dans un `try/catch/finally` — toute erreur (spawn, header, écriture) retombe sur `failWithCleanup`, qui appelle `cleanPartialOutput` pour garantir qu'aucun chunk partiel du fichier en échec ne survit dans `processed/`, et le `finally` nettoie systématiquement le sous-dossier temporaire `.sox-tmp-<baseName>`.
 
 ### Auto-update — kill-switch en install gérée externalement
 
@@ -516,7 +545,7 @@ Edge case maintainer : si `bun` lui-même est brew-installé (`brew install oven
 
 ### Asset embedding pour les workers (`bun --compile`)
 
-`splitWorker.ts` (source TS strict) est pré-bundlé via `bun build` (`pnpm build:worker`, hooked en `predev`/`pretest`/`prebuild`/`precheck`) en `splitWorker.bundled.mjs`. Ce bundle est embarqué dans le binary compilé via :
+`splitWorker.ts` (source TS strict) est pré-bundlé via `bun build` (`pnpm build:worker`, chaîné explicitement en `&&` en tête des scripts dev/test/build/check — pas de hooks `pre*`) en `splitWorker.bundled.mjs`. Ce bundle est embarqué dans le binary compilé via :
 
 ```ts
 import workerBundleAsset from "./splitWorker.bundled.mjs" with { type: "file" };
@@ -549,14 +578,19 @@ Pas de configuration utilisateur au MVP. En V2, `~/.config/chiro/last-session.js
 
 ## CI
 
-Deux workflows GitHub Actions :
+Deux workflows GitHub Actions, plus `dependabot.yml` (deux écosystèmes : GitHub Actions en mensuel, npm en hebdo avec groupes `dev-tooling`/`runtime`/`react-major` et un `ignore` sur typescript ≥ 6.1 tant que le peer range de typescript-eslint bloque) :
 
-- **`ci.yml`** : déclenché sur push et pull_request.
-  - Job `check` : `pnpm check` sur **Linux uniquement**. `src/lib/` est pur TS/Node, pas de code platform-specific — dupliquer sur macOS gaspille ~30 s + 450 MB de LFS bandwidth par PR. Tests d'intégration sur fichiers réels `test-data/` → requiert `actions/checkout@v6` avec **`lfs: true`**.
-  - Job `smoke-build` (matrix macOS arm64 + Linux x64) : compile et exécute `--version` + `--help`. Valide que `bun --compile` bundle proprement les 2 cibles. Pas de LFS.
-- **`release.yml`** : déclenché sur tag `v*.*.*`. Build les 2 binaires, (optionnel) signe+notarise le macOS, crée la GitHub Release avec les 2 assets. Pas besoin de LFS — ne lance pas `pnpm test`.
+- **`ci.yml`** : déclenché sur push (branche `main`) et pull_request.
+  - Job `check` : `pnpm check`, matrice de 3 runs — `ubuntu-latest` sans sox, `ubuntu-latest` avec sox, `macos-latest` avec sox. `src/lib/` est pur TS/Node donc la variante **sans** sox ne tourne que sur Linux (le runner le moins cher) ; la variante **avec** sox tourne sur les deux OS car les versions de sox diffèrent entre apt et Homebrew et la cible utilisatrice est principalement macOS — une divergence sur le fast-path sox doit être détectée sur l'OS cible. Tests d'intégration sur fichiers réels `test-data/` → requiert `actions/checkout@v6` avec **`lfs: true`**. `bun` est pinné (`oven-sh/setup-bun@v2`, version `1.3.13`) pour rester aligné avec le bun qui construit les binaires de release.
+  - Job `smoke-build` (matrix macOS arm64 + Linux x64, dépend de `check`) : compile le binaire puis exécute trois vérifications non-interactives :
+    - `--version` : la sortie doit commencer par `chiro`.
+    - `--help` : la sortie ne doit pas être vide.
+    - `--self-test` : exécuté deux fois — une fois avec sox installé (doit produire la mention « byte-identique au pool », preuve que les deux pipelines produisent des chunks identiques), une fois avec `CHIRO_DISABLE_FASTPATH=1` (doit produire « sox : absent », forçant le chemin worker pool — celui qui dépend de la résolution d'asset `/$bunfs/` dans le binaire compilé). Cf. `src/lib/selftest/selfTest.ts`.
+- **`release.yml`** : déclenché sur tag `v[0-9]+.[0-9]+.[0-9]+` (ou suffixe `-...`). 3 jobs :
+  - `build-macos` / `build-linux` : réécrit `package.json` version depuis le tag → `pnpm install` → `pnpm check` complet (lint + typecheck + format + tests unitaires — **pas** de `lfs: true`, donc pas de sox ni de fixtures réelles ; gate plus faible que `ci.yml`, compensé par le fait que `check` doit déjà être passé sur la branche avant le tag) → build le binaire → vérifie que `--version` matche le tag → `--self-test` (variante worker pool uniquement, pas de sox sur les runners de release) → (macOS seulement) codesign ad-hoc → empaquette en tarball `.tar.gz` → upload artifact.
+  - `release` : télécharge les deux artifacts, `gh release create` avec les deux tarballs ; passe `--prerelease` si le tag contient un `-` (ex. `v0.2.0-rc.1`), pour ne jamais promouvoir un tag de pré-release en "latest" (l'update check en dépend).
 
-Note : le smoke test post-build TUI complet (golden path interactif) nécessiterait un PTY simulé (`script -q /dev/null`, `unbuffer`) — différé en V2. Aujourd'hui le smoke test se limite aux commandes non-interactives `--version` et `--help` qui suffisent à valider que le binaire `bun --compile` charge proprement (incluant le bundle wavefile).
+Note : le smoke test post-build TUI complet (golden path interactif) nécessiterait un PTY simulé (`script -q /dev/null`, `unbuffer`) — différé en V2. `--self-test` couvre la partie non-interactive critique (bundle wavefile, worker asset, byte-identité sox↔pool) sans nécessiter de PTY.
 
 ## Tests — stratégie
 

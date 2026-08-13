@@ -25,7 +25,7 @@ jobs:
         with:
           node-version: 24
       # version is read from the `packageManager` field of package.json
-      # (pnpm@11.0.9 requires Node ≥ 22.13). Don't pin here to avoid
+      # (pnpm 11 requires Node ≥ 22.13). Don't pin here to avoid
       # "Multiple versions" errors.
       - uses: pnpm/action-setup@v6
       # Pinned: bun is compiled INTO the shipped binary — a floating version
@@ -69,11 +69,13 @@ jobs:
             echo "::error::--self-test exited with status $STATUS"
             exit 1
           fi
-      # Ad-hoc codesign so the binary runs without Gatekeeper quarantine on
-      # first launch (no Apple Developer ID needed). The com.apple.quarantine
-      # xattr is set on any curl-downloaded asset; without a valid signature,
-      # Gatekeeper blocks the first run. `--sign -` produces an ad-hoc
-      # signature accepted locally. Pattern used by gh, bun, deno.
+      # Ad-hoc codesign (no Apple Developer ID needed): macOS on Apple
+      # Silicon refuses to execute a native binary without at least an
+      # ad-hoc signature; --force guarantees the final binary carries a
+      # valid one. Note: curl does NOT set the com.apple.quarantine xattr
+      # (browsers do), so the Gatekeeper first-launch notarization prompt
+      # does not apply to the curl|bash install path anyway. See
+      # docs/architecture.md § Distribution.
       - name: Ad-hoc codesign (macOS)
         run: codesign --sign - --force --timestamp=none dist/chiro-darwin-arm64
       # Package as versioned tarball. `brew audit --new --strict` rejects URLs
@@ -100,7 +102,7 @@ jobs:
         with:
           node-version: 24
       # version is read from the `packageManager` field of package.json
-      # (pnpm@11.0.9 requires Node ≥ 22.13). Don't pin here to avoid
+      # (pnpm 11 requires Node ≥ 22.13). Don't pin here to avoid
       # "Multiple versions" errors.
       - uses: pnpm/action-setup@v6
       # Pinned: bun is compiled INTO the shipped binary — a floating version

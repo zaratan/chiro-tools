@@ -166,7 +166,7 @@ Activer **uniquement si** un test sur machine vierge révèle un blocage Gatekee
 - [x] `pnpm check` vert, 267+ tests (unit + integration sur fichiers réels Teensy/AudioMoth via git-lfs).
 - [x] Spike validé : round-trip bit-exact sur fichiers réels + `bun --compile` clean (27 modules, 0 warning).
 - [ ] Test manuel : dossier Teensy → mode `preserve` → chunks à 38 400 Hz dans `processed/`.
-- [ ] Test manuel : dossier AudioMoth → mode `expand-10x` → chunks à 25 000 Hz, durée 5 s expansée.
+- [ ] Test manuel : dossier AudioMoth → mode `expand-10x` → chunks à 25 000 Hz, durée 50 s expansée (5 s réel — critère réécrit par la Phase 7).
 - [ ] Test manuel : `processed/` existant → warning jaune ⚠ avec « renommer l'ancien dossier ».
 - [ ] Test manuel : Ctrl+C pendant un gros fichier → aucun `.tmp` orphelin, `interrupted: true` loggé.
 - [ ] Test manuel : batch nominal de 100 AudioMoth → ETA `Calcul du temps restant…` au 1ᵉʳ fichier, ETA convergé ±10 % dès le 2ᵉ, barre fluide visible toutes les ~10 s, barre à 100 % avant le ResultScreen.
@@ -176,6 +176,60 @@ Activer **uniquement si** un test sur machine vierge révèle un blocage Gatekee
 > **In scope** : tout ce que la cible doit faire entre la sortie Teensy/AudioMoth et l'upload Vigie-Chiro (rename, split + TE×10, peut-être un jour : check fichier corrompu, contrôle metadata Vigie-Chiro).
 >
 > **Out of scope** : spectrogramme, lecteur audio, classification, ID auto, anything Tadarida does, anything Kaleidoscope analysis-side does.
+
+## Phase 6 — Performance pipeline (worker pool + fast-path sox) ✓
+
+**Objectif** : le découpage est CPU-bound (`wavefile.toBuffer()` ré-encode header + samples par chunk). Sur le dataset réel de l'utilisatrice (9301 fichiers AudioMoth/Teensy déjà préfixés), le pipeline mono-thread de la Phase 5 prenait ~3h30 — inacceptable pour un usage nuit après nuit. Phase 6 livre deux optimisations cumulables, détaillées dans `docs/architecture.md` § « Performance pipeline ».
+
+### Tâches
+
+- **Pipeline A — worker pool wavefile** (`src/lib/audio/splitWorkerPool.ts`) : N workers `node:worker_threads` calculés dynamiquement depuis la RAM et le nombre de cores (`Math.max(2, Math.min(RAM-based, cpuCount - 1, 12))`), surchargeable via `CHIRO_WORKER_COUNT`. Toujours actif. Gain attendu 3–6× selon la machine (non mesuré sur le dataset réel). Abort propre (attente des `{kind:"aborted"}` avec timeout, puis `terminate()` forcé) + pre-clean des `.tmp` orphelins au démarrage de chaque run.
+- **Pipeline B — fast-path sox** (`src/lib/audio/soxFastPath.ts`) : opt-in si `sox` est détecté au boot (`detectSox`, désactivable via `CHIRO_DISABLE_FASTPATH=1`). Gain validé en PoC : ~22× wall sur AudioMoth (1802/1802 chunks bit-exact). ffmpeg a été testé et définitivement écarté (`-f segment -c copy` ne peut pas aligner les frontières de chunk au sample près sur du stream-copy PCM — 0/1802 MATCH sur le même PoC).
+- **Header canonique unique A/B** (`src/lib/audio/wavHeader.ts`, `rewriteHeaderToStandardPcm`) : les deux pipelines produisent des fichiers bit-identiques, validé par un golden test SHA256 (`__tests__/golden.test.ts`).
+- **Politique fallback per-batch first-error** : si sox crashe ou si le spot-check stratifié (3 chunks du 1er fichier : premier, milieu, dernier, comparés à la référence produite par le pipeline wavefile (A-vs-B, 100 samples au milieu de chaque chunk)) échoue, **tout le batch** retraite via le worker pool — jamais de mix de pipelines au sein d'un batch. Le pipeline réellement utilisé et le nombre de fallbacks sont tracés dans `~/.chiro/sessions.jsonl` (`engine`, `engine_fallback_count`).
+- Asset embedding du worker pour `bun --compile` : `splitWorker.ts` est pré-bundlé (`pnpm build:worker`) en `.mjs` importé via `with { type: "file" }` pour survivre à la compilation en binaire (cf. `resolveWorkerPath()`).
+
+### Critère de sortie
+
+- [x] `pnpm check` vert.
+- [x] Golden test SHA256 : pipelines A et B produisent des chunks bit-identiques.
+- [x] Gain sox validé en PoC (~22× wall, 1802/1802 chunks bit-exact — `scripts/poc-*.ts`) ; worker pool : 3–6× attendu, non mesuré sur le dataset réel.
+- [ ] Test manuel : run complet sur le dataset réel de l'utilisatrice, comparaison du temps total avant/après.
+
+## Phase 7 — Découpage 50 s output et métadonnées GUANO/wamd (convention Kaleidoscope) ✓
+
+**Objectif** : corriger un bug de la Phase 5 — le découpage coupait à 5 s sur la timeline de **sortie**, alors que la convention Kaleidoscope (Teensy natif TE×10, AudioMoth réécrit ×10) veut que le « Split to max duration = 5 s » du protocole Vigie-Chiro Point Fixe soit mesuré en **temps réel**, soit 50 s sur la timeline de sortie. Avant cette phase, les chunks produits par chiro étaient 10× trop courts en temps réel et Chirosuf affichait les chunks comme « compactés au début ». Phase 7 corrige ce calcul et ajoute les métadonnées ancillaires attendues par la chaîne Vigie-Chiro/Kaleidoscope.
+
+### Tâches
+
+- **Constantes centralisées** (`src/lib/audio/constants.ts`) : `CHUNK_OUTPUT_SECONDS = 50`, `CHUNK_REAL_SECONDS = 5`, `TIME_EXPANSION_FACTOR = 10`. Les deux pipelines (worker pool et sox) et l'estimation de progression (`estimateChunks.ts`) consomment ces constantes — plus de valeur `5` en dur pour la durée de coupe.
+- **Métadonnées GUANO + wamd** (`src/lib/audio/finalizeChunk.ts`, `src/lib/audio/metadata/`) : après le split, chaque chunk reçoit un chunk RIFF ancillaire `guan` (GUANO 1.0) et `wamd` (Wildlife Acoustics), appendés après la zone `data` avec padding 2-byte et recalcul de la `RIFF size`. Les deux pipelines (A et B) produisent des sorties byte-identiques, vérifié manuellement sur `test-data/real_process_teensy/`.
+- **Timestamp source** (`src/lib/files/parseTimestamp.ts`) : parsing du nom de fichier Teensy/AudioMoth (`_YYYYMMDD_HHMMSS`), ancré pour ne jamais matcher l'année du préfixe Vigie-Chiro (`Car340581-2026-…`). Si non parsable, le champ `Timestamp` est omis plutôt qu'écrit comme `Invalid Date`.
+- **Kill-switch** `CHIRO_DISABLE_METADATA=1` : désactive entièrement l'ajout des chunks ancillaires (utile si un outil aval rejette un wamd inattendu, sans rebuild). État tracé dans `SessionEvent.result.metadata: "full" | "off"`.
+
+### Critère de sortie
+
+- [x] `pnpm check` vert.
+- [x] `CHUNK_OUTPUT_SECONDS = 50` appliqué de bout en bout (les deux pipelines + l'estimation de progression).
+- [x] Sorties byte-identiques worker pool / sox pour les métadonnées, vérifié manuellement sur données réelles.
+- [ ] Test manuel : ouvrir un chunk produit dans Kaleidoscope/Chirosuf, vérifier que la durée et les métadonnées GUANO/wamd sont lues correctement (pas de chunks « compactés au début »).
+
+## Passe de durcissement post-audit (août 2026) ✓
+
+**Objectif** : un audit du code a mis en lumière des angles morts de résilience dans le pipeline de performance (Phase 6). Cette passe corrige la robustesse sans changer le comportement nominal, et ajoute un `--self-test` binaire pour prouver que le binaire compilé fonctionne réellement (au-delà des smoke tests `--version`/`--help`).
+
+### Tâches
+
+- [x] Détection worker mort (`node:worker_threads` `"error"` + `"exit"`) dans `splitWorkerPool.ts`, pour ne plus jamais laisser un batch pendre indéfiniment si un worker crashe sans message.
+- [x] No-throw de bout en bout côté sox (`soxFastPath.ts`, `processOneFile`) avec cleanup per-fichier garanti (`cleanPartialOutput`).
+- [x] Nouveaux écrans / mappings d'erreur pour les cas de run-error côté `vigie-process`.
+- [x] `--self-test` (`src/lib/selftest/selfTest.ts`) : exercice du binaire compilé de bout en bout — résolution de l'asset worker en `/$bunfs/`, un vrai split, et (si sox est installé) la garantie de byte-identité sox↔pool. Intégré à `ci.yml` (`smoke-build`) et `release.yml`.
+
+### Critère de sortie
+
+- [x] `pnpm check` vert ; `--self-test` passe sur les deux binaires compilés en CI (avec et sans sox).
+
+Détails d'implémentation complets dans `CLAUDE.md` (« Pièges connus », § worker pool) et `docs/architecture.md` § « Safety nets ».
 
 ## V2 (post-MVP, hors scope)
 
@@ -193,7 +247,7 @@ Idées priorisées par valeur utilisateur :
 
 8. **Option « split-channels » pour détecteurs stéréo** (SM2BAT+, SM4BAT) — alignée sur la case « Split channels » de Kaleidoscope. Aujourd'hui les canaux restent groupés ; un user avec stéréo devrait choisir explicitement de séparer (ou pas). Estimation : 2 h (passe `slices.map` en `slices.forEach` + boucle par canal).
 9. **Streaming pour fichiers > 500 MB** : `wavefile` charge tout en RAM. Pour passer les très gros fichiers, écrire un parseur RIFF streaming (~150 lignes). Estimation : 1 j.
-10. **Durée de morceau paramétrable** (UI) : aujourd'hui 5 s figé. Devrait être un champ optionnel du FormScreen pour les protocoles autres que Point Fixe (5 s pour Routier, par ex.). Estimation : 1 h.
+10. **Durée de morceau paramétrable** (UI) : aujourd'hui 50 s output / 5 s réel, figé. Devrait être un champ optionnel du FormScreen pour les protocoles autres que Point Fixe (5 s pour Routier, par ex.). Estimation : 1 h.
 11. **Modes TE additionnels** : actuellement `preserve` (Teensy) et `expand-10x` (Autre). Si un détecteur émerge avec TE ×8 ou ×20, ajouter au type `TimeExpansionMode` + un sélecteur plus riche. Estimation : 30 min par mode.
 12. **Mode batch automatique** : détection auto Teensy vs AudioMoth via header `fmt.sampleRate` (38 400 → preserve, > 100 000 → expand-10x). Évite l'étape Form, à risque modéré. Estimation : 2 h.
 13. **Conservation du chunk `LIST/INFO`** (metadata AudioMoth « Recorded at … by AudioMoth … ») — aujourd'hui droppé par `wavefile.fromScratch`, cohérent avec Kaleidoscope. Si Tadarida en a besoin, écrire un patcheur post-encode qui réinjecte le LIST. Estimation : 4 h.
