@@ -2,7 +2,8 @@ import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import { Footer } from "../components/Footer.js";
 
-type MenuItem = "vigie-prefix" | "vigie-process" | "update" | "quit";
+type MenuItem =
+  "vigie-prefix" | "vigie-process" | "archive" | "update" | "quit";
 
 const ITEMS: { id: MenuItem; label: string }[] = [
   {
@@ -13,6 +14,10 @@ const ITEMS: { id: MenuItem; label: string }[] = [
     id: "vigie-process",
     label: "Découper les enregistrements (pour Tadarida)",
   },
+  {
+    id: "archive",
+    label: "Créer un zip des enregistrements découpés (pour l'envoi)",
+  },
   { id: "update", label: "Vérifier les mises à jour" },
   { id: "quit", label: "Quitter" },
 ];
@@ -20,6 +25,7 @@ const ITEMS: { id: MenuItem; label: string }[] = [
 export type MenuScreenProps = {
   onPickVigiePrefix: () => void;
   onPickVigieProcess: () => void;
+  onPickArchive: () => void;
   onPickUpdate: () => void;
   onQuit: () => void;
   availableVersion: string | null;
@@ -29,6 +35,7 @@ export type MenuScreenProps = {
 export const MenuScreen = ({
   onPickVigiePrefix,
   onPickVigieProcess,
+  onPickArchive,
   onPickUpdate,
   onQuit,
   availableVersion,
@@ -59,6 +66,7 @@ export const MenuScreen = ({
       if (item.id === "update") onPickUpdate();
       else if (item.id === "vigie-prefix") onPickVigiePrefix();
       else if (item.id === "vigie-process") onPickVigieProcess();
+      else if (item.id === "archive") onPickArchive();
       else onQuit();
     }
   });

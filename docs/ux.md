@@ -73,6 +73,7 @@ Que voulez-vous faire ?
 
   ▸ Préfixer des enregistrements pour Vigie-Chiro
     Découper les enregistrements (pour Tadarida)
+    Créer un zip des enregistrements découpés (pour l'envoi)
     Vérifier les mises à jour
     Quitter
 
@@ -90,6 +91,7 @@ Que voulez-vous faire ?
 
   ▸ Préfixer des enregistrements pour Vigie-Chiro
     Découper les enregistrements (pour Tadarida)
+    Créer un zip des enregistrements découpés (pour l'envoi)
     Vérifier les mises à jour
     Quitter
 
@@ -676,7 +678,7 @@ L'aide `dimColor` sous le sélecteur est volontairement **descriptive plutôt qu
 
 ### P-Confirmation (chargement : estimation)
 
-Avant que la durée et le nombre de morceaux estimés ne soient disponibles (le temps de `stat` chaque fichier — quasi instantané, mais un état transitoire existe) :
+Avant que la durée et le nombre de fichiers estimés ne soient disponibles (le temps de `stat` chaque fichier — quasi instantané, mais un état transitoire existe) :
 
 ```
 Estimation…
@@ -692,7 +694,7 @@ Estimation…
 📁 /Users/.../Vigie-2026-pointA1
 
 On va découper 12 enregistrements (environ 2 h 30 d'audio une fois étendu)
-en morceaux de 5 secondes.
+en fichiers de 5 secondes.
 
 Type d'enregistreur choisi : Autre détecteur (ralentissement 10×)
 Dossier de sortie :          ./processed/
@@ -706,13 +708,13 @@ Vos fichiers d'origine ne seront pas modifiés.
 
 ```
 On va découper 12 enregistrements (environ 30 minutes d'audio)
-en morceaux de 5 secondes.
+en fichiers de 5 secondes.
 ```
 
 **Wording-clé** :
 
-- **« morceaux »** (jamais `chunks`). C'est de l'anglais, jargon, et la non-tech ne le reconnaît pas.
-- **Durée en minutes/heures** plutôt qu'en compte de morceaux — c'est l'unité mentale qu'elle a.
+- **« enregistrements »** pour les fichiers qu'elle manipule, **« fichiers »** pour ceux que le découpage produit. Jamais `chunks` (anglais, jargon), et jamais « morceaux » : le mot évoque la musique alors qu'il s'agit d'enregistrements naturalistes.
+- **Durée en minutes/heures** plutôt qu'en compte de fichiers — c'est l'unité mentale qu'elle a.
 - **« une fois étendu »** uniquement en `expand-10x`. Évite de faire croire à l'utilisatrice qu'elle a enregistré 2 h 30 alors qu'elle a enregistré 15 min de full-spectrum. Aligne avec le wording du sélecteur (« ralentir 10× pour l'analyse »).
 - **Rappel non-destructif** en `dimColor`, parallèle au rappel du flow rename (« rien n'est perdu »).
 - **« Autre détecteur (ralentissement 10×) »** : reprend le wording de l'option choisie pour confirmer le bon choix.
@@ -729,7 +731,7 @@ Découpage en cours…
   Fichier 1 sur 100  •  20260507_210501T.WAV
 
   █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  2 %
-  3 morceaux • Temps écoulé 5 s • Calcul du temps restant…
+  3 fichiers • Temps écoulé 5 s • Calcul du temps restant…
 
   Vos fichiers d'origine ne sont pas modifiés.
   Dossier de sortie : ./processed/
@@ -745,7 +747,7 @@ Découpage en cours…
   Fichier 6 sur 100  •  20260507_212001T.WAV
 
   ████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  12 %
-  120 morceaux • Temps écoulé 1 min 30 s • Encore environ 5 min 40 s
+  120 fichiers • Temps écoulé 1 min 30 s • Encore environ 5 min 40 s
 
   Vos fichiers d'origine ne sont pas modifiés.
   Dossier de sortie : ./processed/
@@ -758,7 +760,7 @@ Les 2 dernières lignes en `dimColor`. **Barre de 40 caractères** : `█` pour 
 - `Calcul du temps restant…` (pas `Estimation en cours…`)
 - `Encore environ X` (pas `Restant ≈ X` — `≈` est trop technique)
 - `Temps écoulé X` (pas `Écoulé X` — elliptique)
-- `N morceaux` (pas `N morceaux créés` — redondant, on voit qu'on crée)
+- `N fichiers` (pas `N fichiers créés` — redondant, on voit qu'on crée)
 
 **Format court de durée** (pour `Temps écoulé` et `Encore environ`) :
 
@@ -766,7 +768,7 @@ Les 2 dernières lignes en `dimColor`. **Barre de 40 caractères** : `█` pour 
 - `< 1 h` → `1 min` ou `2 min 05 s`
 - `≥ 1 h` → `1 h 30 min`
 
-**Adaptive masking — petits batches** : si `filesTotal < 5`, la barre reste affichée mais la portion `• Encore environ X` (ou `• Calcul du temps restant…`) est **masquée** de la ligne stats. La ligne devient alors `N morceaux • Temps écoulé X`. Raison : sur un petit batch (< 25 s de run estimé), l'ETA n'apporte rien et la barre seule suffit.
+**Adaptive masking — petits batches** : si `filesTotal < 5`, la barre reste affichée mais la portion `• Encore environ X` (ou `• Calcul du temps restant…`) est **masquée** de la ligne stats. La ligne devient alors `N fichiers • Temps écoulé X`. Raison : sur un petit batch (< 25 s de run estimé), l'ETA n'apporte rien et la barre seule suffit.
 
 **Refresh** : throttle UI à ~10 Hz (100 ms entre setStates sur `chunk-written`). `file-start` et `file-done` forcent un setState. Un `finalizeRender()` synchrone est appelé avant `onComplete()` pour garantir la barre à 100 % juste avant l'unmount (jamais dans un cleanup `useEffect` — risque de setState post-unmount).
 
@@ -797,7 +799,7 @@ Même structure que P-Constat § espace disque insuffisant : titre bienveillant,
 ✓ Terminé !
 
   12 enregistrements découpés
-  720 morceaux créés dans ./processed/
+  720 fichiers créés dans ./processed/
   Temps écoulé : 12 minutes
 
   Vos fichiers d'origine sont intacts dans ce dossier.
@@ -807,11 +809,11 @@ Même structure que P-Constat § espace disque insuffisant : titre bienveillant,
 
 `Temps écoulé` est en `dimColor` (information secondaire). Le format suit `formatDuration` (cf. `src/lib/format/duration.ts`) : secondes sous 1 min, minutes sous 1 h, sinon `X h MM`.
 
-Si applicable, ajouter en `dimColor` après le compte de morceaux :
+Si applicable, ajouter en `dimColor` après le compte de fichiers :
 
 ```
   2 fichiers trop volumineux ignorés (> 500 Mo)
-  1 fichier ignoré (déjà au format morceau)
+  1 fichier ignoré (déjà découpé)
 ```
 
 ### P-Résultat (variante B : interruption Ctrl+C)
@@ -820,7 +822,7 @@ Si applicable, ajouter en `dimColor` après le compte de morceaux :
 ℹ Découpage arrêté à votre demande
 
   3 enregistrements découpés
-  180 morceaux créés dans ./processed/
+  180 fichiers créés dans ./processed/
   Temps écoulé : 5 minutes
 
   Vous pouvez relancer chiro plus tard — il faudra d'abord renommer
@@ -851,7 +853,7 @@ Pas de phrase de réassurance — la situation est anormale, l'utilisatrice doit
 ⚠ Découpage terminé avec 2 soucis
 
   10 enregistrements découpés
-  600 morceaux créés dans ./processed/
+  600 fichiers créés dans ./processed/
   Temps écoulé : 12 minutes
 
   2 enregistrements n'ont pas pu être découpés :
@@ -888,6 +890,168 @@ Groupage par message d'erreur (max 5 fichiers affichés par groupe, le reste ré
 | `skippedTooLarge` (compte)                                        | `fichier trop volumineux (> 500 Mo) — non géré pour l'instant`                                                       |
 | `skippedAlreadyChunked` (c)                                       | (skip silencieux — pas affiché comme une erreur)                                                                     |
 
+## Wordings — Flow « Créer un zip » (Phase 8)
+
+Zippe le contenu de `processed/` vers `archived/processed_YYYYMMDDHHMM.zip`. Non-destructif : `processed/` n'est jamais touché. Le zip est destiné au dépôt sur Vigie-Chiro.
+
+### A-Constat (nominal)
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+✓ 720 enregistrements trouvés dans ./processed/
+  Volume total : 1,4 Go
+
+Ce sont bien les enregistrements à mettre dans le zip ?
+
+  Entrée continuer   Échap retour au menu
+```
+
+### A-Constat (dégradé : pas de `processed/`)
+
+Ton informatif, pas d'alerte : la situation est normale, juste prématurée. Deux causes couvertes — le découpage pas encore fait, **et** le mauvais dossier (cause au moins aussi fréquente).
+
+```
+📁 /Users/.../Documents
+
+Aucun dossier « processed » trouvé dans ce dossier.
+
+Le zip se crée à partir des enregistrements découpés. Lancez d'abord
+« Découper les enregistrements », puis revenez ici.
+
+Si le découpage est déjà fait, vous n'êtes sans doute pas dans le
+bon dossier. Dans le Terminal, tapez `pwd` pour voir où vous êtes.
+
+  Échap retour au menu
+```
+
+### A-Constat (dégradé : `processed/` sans enregistrement)
+
+Jamais « le dossier est vide » : les `.tmp` et dot-entries sont exclus du zip mais visibles dans le Finder — annoncer « vide » contredirait ce qu'elle a sous les yeux.
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+Le dossier « processed » ne contient aucun enregistrement.
+
+Le découpage s'est peut-être arrêté en route. Relancez « Découper
+les enregistrements », puis revenez ici.
+
+  Échap retour au menu
+```
+
+### A-Constat (dégradé : dossier non writable / espace insuffisant / erreur de scan)
+
+Mêmes patterns que P-Constat. Deux spécificités :
+
+- non writable → « L'outil ne peut pas créer le sous-dossier « archived » ici. »
+- espace insuffisant → ajouter `Le zip est une copie de vos enregistrements : il peut occuper presque autant de place.` puis `Libérez de la place puis réessayez.` (le modèle mental « un zip compresse » ne prédit pas le besoin d'espace).
+
+### A-Confirmation
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+On va rassembler 720 enregistrements dans un fichier zip.
+
+Nom du fichier : processed_202608131544.zip
+Emplacement :    ./archived/
+Taille du zip :  au plus 1,4 Go — souvent moins, le zip compresse
+
+La date et l'heure de création sont dans le nom du fichier.
+Un zip existe déjà dans ./archived/ — celui-ci s'ajoutera à côté.
+Vos enregistrements restent dans ./processed/.
+Rien n'est déplacé ni supprimé.
+
+  Entrée créer le zip   Échap revenir au début
+```
+
+Nom du fichier en `cyan`. Les quatre dernières lignes du bloc en `dimColor` ; celle du zip existant est **conditionnelle** à la présence d'un `processed_*.zip` dans `archived/`. Aucun écran « un zip existe déjà, que faire ? » : le nom horodaté distingue les zips, et proposer « remplacer » violerait le principe non-destructif.
+
+### A-Confirmation (pendant la création)
+
+Footer **vide**. Barre pilotée par les octets lus en source (robuste malgré la compression variable).
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+Création du zip en cours…
+
+  Enregistrement 42 sur 720
+
+  ██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  15 %
+  Temps écoulé 12 s   Temps restant ~3 min
+
+Vos enregistrements ne sont pas modifiés.
+Fichier créé : ./archived/processed_202608131544.zip
+```
+
+### A-Confirmation (dégradé : erreur pendant la création)
+
+La deuxième ligne est l'information que l'utilisatrice cherche en premier — elle est garantie vraie par construction (aucun zip partiel ne subsiste jamais).
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+⚠ Une erreur est survenue pendant la création du zip.
+
+Aucun fichier zip n'a été créé — vos enregistrements sont intacts.
+
+Plus de place sur le disque — libérez de l'espace puis relancez.
+
+Détail technique : ENOSPC
+  (à transmettre si vous demandez de l'aide)
+
+  Échap revenir au début
+```
+
+### A-Résultat (succès)
+
+```
+✓ Terminé !
+
+  720 enregistrements rassemblés dans un fichier zip
+  ./archived/processed_202608131544.zip
+  Taille : 890 Mo
+  Temps écoulé : 6 minutes
+
+Vous pouvez maintenant déposer ce fichier sur Vigie-Chiro.
+
+Vos enregistrements sont toujours dans ./processed/.
+
+  Entrée retour au menu
+```
+
+Chemin affiché **relatif** (`./archived/…`), jamais absolu : un chemin utilisateur réel dépasse la largeur de 70 et serait coupé. `Temps écoulé` et la dernière ligne en `dimColor`.
+
+### A-Résultat (interruption Ctrl+C)
+
+```
+ℹ Création du zip arrêtée à votre demande
+
+Aucun fichier zip n'a été créé.
+
+Rien n'a été modifié : vos enregistrements sont intacts dans
+./processed/. Vous pouvez recommencer quand vous voudrez.
+
+  Entrée retour au menu
+```
+
+`ℹ` en `color="cyan"` (aligné sur le code existant de `vigie-process/ResultScreen.tsx`).
+
+### Codes d'erreur Archive → libellés FR
+
+Les codes système (`ENOSPC`, `EACCES`, `EPERM`, `EROFS`) sont mutualisés dans `src/screens/fsErrorMessages.ts` — un seul wording pour les trois flows.
+
+| Code interne          | Libellé FR                                                                                                                   |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `mkdir:<X>`           | `impossible de créer le sous-dossier « archived »`                                                                           |
+| `ENOENT`              | `un enregistrement a changé ou disparu pendant la création du zip — réessayez`                                               |
+| `file-changed`        | `un enregistrement a changé ou disparu pendant la création du zip — réessayez`                                               |
+| `verify-failed`       | `chiro n'a pas pu vérifier que le zip était complet — il n'a pas été conservé, vos enregistrements sont intacts ; réessayez` |
+| `entry-too-large`     | `un enregistrement est trop volumineux pour être mis dans le zip — transmettez le détail technique`                          |
+| `collision-exhausted` | `plusieurs zips ont déjà été créés dans la même minute — patientez une minute puis réessayez`                                |
+
 ## Choix UX validés (rappel)
 
 - **Composant FormScreen maison** (pas `ink-form`, pas `<Form>` générique réutilisable) : un seul formulaire dans le MVP, ~50 lignes avec `useState<number>(focusedIndex)` + 4 `<TextInput>` empilés. Refactor en composant générique uniquement à la 3ᵉ utilisation (Règle de Trois). De même pour le sélecteur Teensy/Autre de la Phase 5 : inline dans `vigie-process/FormScreen.tsx`, pas extrait en `RadioSelect`.
@@ -895,6 +1059,6 @@ Groupage par message d'erreur (max 5 fichiers affichés par groupe, le reste ré
 - **Pré-scan AVANT la saisie** (écran Constat) : économise 4 saisies si l'utilisatrice n'est pas dans le bon dossier.
 - **3 exemples sur l'écran de Confirmation**, pas 1 — montre un pattern cohérent.
 - **Confirmation explicite Entrée**, jamais une touche aléatoire pour déclencher l'action destructive.
-- **« morceaux » jamais « chunks »**, **durée en minutes** jamais en compte de morceaux côté Confirm, **réassurance non-destructive** systématique sur Confirm + Result du flow découper.
+- **« enregistrements » jamais « morceaux » ni « chunks »** (cf. Wording-clé P-Confirmation), **durée en minutes** jamais en compte de fichiers côté Confirm, **réassurance non-destructive** systématique sur Confirm + Result du flow découper.
 - **Moteur de découpage silencieux** (Phase 6). Le pipeline interne (worker pool wavefile vs fast-path sox) est invisible dans la TUI : aucun footer "Moteur : sox", aucun hint "Astuce : installez sox". La cible naturaliste n'a pas le modèle mental ; nommer un moteur invite une question sans réponse utile. L'ETA absorbe naturellement les écarts via la moyenne glissante. L'incitation à installer sox vit **uniquement** dans le README (lu par le binôme dev au setup initial). Le pipeline réellement utilisé est loggé dans `~/.chiro/sessions.jsonl` (`engine: "wavefile" | "sox"`, `engine_fallback_count`) pour diagnostic dev.
 - **`formatDuration` affiche la durée audio source**, pas le wall-clock estimé du traitement. Avec sox, le wall-clock devient bien inférieur à la durée audio — c'est attendu, la "durée annoncée" reste celle des enregistrements, jamais le temps de calcul.

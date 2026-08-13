@@ -39,6 +39,7 @@ describe("buildVigieProcessSessionEvent", () => {
     const input: ProcessInput = { mode: "expand-10x" };
 
     const event = buildVigieProcessSessionEvent(input, baseOutcome, "/tmp/x");
+    if (event.schema_version !== 2) throw new Error("type narrowing");
 
     expect(event.input).toEqual({ mode: "expand-10x" });
   });

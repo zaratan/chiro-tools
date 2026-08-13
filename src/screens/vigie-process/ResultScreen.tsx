@@ -64,8 +64,8 @@ const renderSummary = (outcome: ProcessOutcome): React.JSX.Element => {
         }`}
       </Text>
       <Text>
-        {`  ${chunksDone.toString()} morceau${
-          chunksDone > 1 ? "x créés" : " créé"
+        {`  ${chunksDone.toString()} fichier${
+          chunksDone > 1 ? "s créés" : " créé"
         } dans ${PROCESSED_DIR_DISPLAY}`}
       </Text>
       {outcome.skippedTooLarge.length > 0 ? (
@@ -81,7 +81,7 @@ const renderSummary = (outcome: ProcessOutcome): React.JSX.Element => {
         <Text dimColor>
           {`  ${outcome.skippedAlreadyChunked.length.toString()} fichier${
             outcome.skippedAlreadyChunked.length > 1 ? "s ignorés" : " ignoré"
-          } (déjà au format morceau)`}
+          } (déjà découpé)`}
         </Text>
       ) : null}
       <Text dimColor>

@@ -140,7 +140,7 @@ export const ConfirmScreen = ({
             input.mode === "expand-10x" ? " une fois étendu" : ""
           })`}
         </Text>
-        <Text>en morceaux de 5 secondes.</Text>
+        <Text>en fichiers de 5 secondes.</Text>
       </Box>
       <Box marginTop={1} flexDirection="column">
         <Text>

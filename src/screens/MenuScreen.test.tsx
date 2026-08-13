@@ -13,6 +13,7 @@ describe("MenuScreen", () => {
       <MenuScreen
         onPickVigiePrefix={noop}
         onPickVigieProcess={noop}
+        onPickArchive={noop}
         onPickUpdate={noop}
         onQuit={noop}
         availableVersion={null}
@@ -21,6 +22,7 @@ describe("MenuScreen", () => {
     const frame = lastFrame() ?? "";
     expect(frame).toContain("chiro — outils Vigie-Chiro");
     expect(frame).toContain("Préfixer des enregistrements pour Vigie-Chiro");
+    expect(frame).toContain("Créer un zip des enregistrements découpés");
     expect(frame).toContain("Vérifier les mises à jour");
     expect(frame).toContain("Quitter");
     expect(frame).toContain("↑↓ choisir");
@@ -28,11 +30,31 @@ describe("MenuScreen", () => {
     expect(frame).toContain("Échap quitter");
   });
 
+  it("lists the archive entry right after the splitting entry", () => {
+    const { lastFrame } = render(
+      <MenuScreen
+        onPickVigiePrefix={noop}
+        onPickVigieProcess={noop}
+        onPickArchive={noop}
+        onPickUpdate={noop}
+        onQuit={noop}
+        availableVersion={null}
+      />,
+    );
+    const frame = lastFrame() ?? "";
+    const processIndex = frame.indexOf("Découper les enregistrements");
+    const archiveIndex = frame.indexOf("Créer un zip");
+    const updateIndex = frame.indexOf("Vérifier les mises à jour");
+    expect(processIndex).toBeLessThan(archiveIndex);
+    expect(archiveIndex).toBeLessThan(updateIndex);
+  });
+
   it("focuses the first item by default (vigie-prefix)", () => {
     const { lastFrame } = render(
       <MenuScreen
         onPickVigiePrefix={noop}
         onPickVigieProcess={noop}
+        onPickArchive={noop}
         onPickUpdate={noop}
         onQuit={noop}
         availableVersion={null}
@@ -51,6 +73,7 @@ describe("MenuScreen", () => {
       <MenuScreen
         onPickVigiePrefix={onPick}
         onPickVigieProcess={noop}
+        onPickArchive={noop}
         onPickUpdate={noop}
         onQuit={noop}
         availableVersion={null}
@@ -67,6 +90,7 @@ describe("MenuScreen", () => {
       <MenuScreen
         onPickVigiePrefix={noop}
         onPickVigieProcess={onPickVigieProcess}
+        onPickArchive={noop}
         onPickUpdate={noop}
         onQuit={noop}
         availableVersion={null}
@@ -79,18 +103,44 @@ describe("MenuScreen", () => {
     expect(onPickVigieProcess).toHaveBeenCalledOnce();
   });
 
-  it("triggers onPickUpdate when Enter is pressed on the third item", async () => {
+  it("triggers onPickArchive when Enter is pressed on the third item", async () => {
+    const onPickArchive = vi.fn();
+    const onPickVigieProcess = vi.fn();
+    const { stdin } = render(
+      <MenuScreen
+        onPickVigiePrefix={noop}
+        onPickVigieProcess={onPickVigieProcess}
+        onPickArchive={onPickArchive}
+        onPickUpdate={noop}
+        onQuit={noop}
+        availableVersion={null}
+      />,
+    );
+    stdin.write("\x1b[B"); // → vigie-process
+    await settle();
+    stdin.write("\x1b[B"); // → archive
+    await settle();
+    stdin.write("\r");
+    await settle();
+    expect(onPickArchive).toHaveBeenCalledOnce();
+    expect(onPickVigieProcess).not.toHaveBeenCalled();
+  });
+
+  it("triggers onPickUpdate when Enter is pressed on the fourth item", async () => {
     const onPickUpdate = vi.fn();
     const { stdin } = render(
       <MenuScreen
         onPickVigiePrefix={noop}
         onPickVigieProcess={noop}
+        onPickArchive={noop}
         onPickUpdate={onPickUpdate}
         onQuit={noop}
         availableVersion={null}
       />,
     );
     stdin.write("\x1b[B"); // → vigie-process
+    await settle();
+    stdin.write("\x1b[B"); // → archive
     await settle();
     stdin.write("\x1b[B"); // → update
     await settle();
@@ -105,6 +155,7 @@ describe("MenuScreen", () => {
       <MenuScreen
         onPickVigiePrefix={noop}
         onPickVigieProcess={noop}
+        onPickArchive={noop}
         onPickUpdate={noop}
         onQuit={onQuit}
         availableVersion={null}
@@ -115,18 +166,21 @@ describe("MenuScreen", () => {
     expect(onQuit).toHaveBeenCalledOnce();
   });
 
-  it("moves focus down three times and selects Quitter with Enter", async () => {
+  it("moves focus down four times and selects Quitter with Enter", async () => {
     const onQuit = vi.fn();
     const { stdin } = render(
       <MenuScreen
         onPickVigiePrefix={noop}
         onPickVigieProcess={noop}
+        onPickArchive={noop}
         onPickUpdate={noop}
         onQuit={onQuit}
         availableVersion={null}
       />,
     );
     stdin.write("\x1b[B"); // → vigie-process
+    await settle();
+    stdin.write("\x1b[B"); // → archive
     await settle();
     stdin.write("\x1b[B"); // → update
     await settle();
@@ -142,6 +196,7 @@ describe("MenuScreen", () => {
       <MenuScreen
         onPickVigiePrefix={noop}
         onPickVigieProcess={noop}
+        onPickArchive={noop}
         onPickUpdate={noop}
         onQuit={noop}
         availableVersion="v0.2.0"
@@ -157,6 +212,7 @@ describe("MenuScreen", () => {
       <MenuScreen
         onPickVigiePrefix={noop}
         onPickVigieProcess={noop}
+        onPickArchive={noop}
         onPickUpdate={noop}
         onQuit={noop}
         availableVersion={null}
@@ -165,13 +221,14 @@ describe("MenuScreen", () => {
     expect(lastFrame() ?? "").not.toContain("Une mise à jour est disponible");
   });
 
-  it("hides update entry and jumps from Découper to Quitter when autoUpdateDisabled=true", async () => {
+  it("hides update entry and jumps from the archive entry to Quitter when autoUpdateDisabled=true", async () => {
     const onQuit = vi.fn();
-    const onPickVigieProcess = vi.fn();
+    const onPickArchive = vi.fn();
     const { stdin, lastFrame } = render(
       <MenuScreen
         onPickVigiePrefix={noop}
-        onPickVigieProcess={onPickVigieProcess}
+        onPickVigieProcess={noop}
+        onPickArchive={onPickArchive}
         onPickUpdate={noop}
         onQuit={onQuit}
         availableVersion={null}
@@ -181,7 +238,9 @@ describe("MenuScreen", () => {
 
     expect(lastFrame() ?? "").not.toContain("Vérifier les mises à jour");
 
-    // Down once → vigie-process, down again → quit (update entry absent)
+    // Down three times → quit directly after the archive entry (update absent)
+    stdin.write("\x1b[B");
+    await settle();
     stdin.write("\x1b[B");
     await settle();
     stdin.write("\x1b[B");
@@ -189,6 +248,6 @@ describe("MenuScreen", () => {
     stdin.write("\r");
     await settle();
     expect(onQuit).toHaveBeenCalledOnce();
-    expect(onPickVigieProcess).not.toHaveBeenCalled();
+    expect(onPickArchive).not.toHaveBeenCalled();
   });
 });

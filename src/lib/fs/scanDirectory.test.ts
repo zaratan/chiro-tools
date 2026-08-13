@@ -11,6 +11,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   checkProcessedDirConflict,
+  isVisibleNonTmpEntry,
   scanDirectory,
   sumFileSizes,
 } from "./scanDirectory.js";
@@ -182,6 +183,21 @@ describe("sumFileSizes", () => {
       controller.signal,
     );
     expect(result).toEqual({ kind: "aborted" });
+  });
+});
+
+describe("isVisibleNonTmpEntry", () => {
+  it("accepts a plain visible file name", () => {
+    expect(isVisibleNonTmpEntry("a_001.wav")).toBe(true);
+  });
+
+  it("rejects .tmp entries", () => {
+    expect(isVisibleNonTmpEntry("a_001.wav.tmp")).toBe(false);
+  });
+
+  it("rejects dot-entries", () => {
+    expect(isVisibleNonTmpEntry(".DS_Store")).toBe(false);
+    expect(isVisibleNonTmpEntry(".sox-tmp-a")).toBe(false);
   });
 });
 

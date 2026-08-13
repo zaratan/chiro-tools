@@ -12,8 +12,6 @@ export type FormInput = {
   pointCode: string;
 };
 
-export type Action = "vigie-prefix" | "vigie-process";
-
 export type TimeExpansionMode = "preserve" | "expand-10x";
 
 export type ProcessInput = {
@@ -138,6 +136,36 @@ export type ProcessInputSerialized = {
 };
 
 /**
+ * Aggregated result for a completed (or aborted/errored) `vigie-archive`
+ * (zip creation) session. Discriminated on `status` — `ok` carries the
+ * created zip's stats, `aborted` and `error` only the counters known before
+ * the run stopped. Field names use snake_case for the same JSON-interchange
+ * reason as `SessionResult`.
+ */
+export type ArchiveResultSerialized =
+  | {
+      status: "ok";
+      zip_name: string;
+      entry_count: number;
+      total_bytes: number;
+      zip_bytes: number;
+      duration_ms: number;
+    }
+  | {
+      status: "aborted";
+      entry_count: number;
+      total_bytes: number;
+      duration_ms: number;
+    }
+  | {
+      status: "error";
+      error_code: string;
+      entry_count: number;
+      total_bytes: number;
+      duration_ms: number;
+    };
+
+/**
  * A single JSONL entry written to `~/.chiro/sessions.jsonl` after each session.
  *
  * Discriminated on `schema_version` so older readers (which only know
@@ -145,7 +173,9 @@ export type ProcessInputSerialized = {
  * available as a secondary discriminant.
  *
  * v1 — `vigie-prefix` rename sessions. Wire format must remain byte-stable.
- * v2 — `vigie-process` split-and-expand sessions. New in this release.
+ * v2 — `vigie-process` split-and-expand sessions.
+ * v3 — `vigie-archive` zip-creation sessions. No `input` field — the run
+ * has nothing user-chosen to record (unlike v1/v2's form input).
  */
 export type SessionEvent =
   | {
@@ -165,4 +195,12 @@ export type SessionEvent =
       action: "vigie-process";
       input: ProcessInputSerialized;
       result: ProcessResultSerialized;
+    }
+  | {
+      schema_version: 3;
+      ts: string;
+      version: string;
+      cwd: string;
+      action: "vigie-archive";
+      result: ArchiveResultSerialized;
     };

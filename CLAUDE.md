@@ -124,6 +124,18 @@ Le découpage WAV est CPU-bound (`wavefile.toBuffer()` ré-encode header + sampl
 - **Kill-switch** `CHIRO_DISABLE_METADATA=1` : désactive entièrement l'append (utile si Chirosuf râle sur un format wamd inattendu, sans rebuild). Tracé dans `sessions.jsonl` (`metadata: "full" | "off"`).
 - **Timestamp parsing** : `src/lib/files/parseTimestamp.ts`. Regex ancré sur `_YYYYMMDD_HHMMSS` pour éviter de matcher l'année du préfixe Vigie-Chiro (`Car340581-2026-`). Si non parsable → `Timestamp` omis du GUANO/wamd plutôt qu'écrit comme `Invalid Date`.
 
+## Archive zip (Phase 8) — pièges à connaître
+
+Writer ZIP maison dans `src/lib/archive/` (zéro dépendance, ADR + détails complets dans `docs/architecture.md` § « Module `lib/archive` »). Zippe `processed/` vers `archived/processed_YYYYMMDDHHMM.zip` en **deflate niveau 6** (mesuré ≈ 36 % de la taille source sur du Teensy réel — l'usage est le dépôt en ligne, compresser paie). Non-destructif : aucun `unlink`/`write` sur un chemin sous `processed/`, invariant structurel du module.
+
+- **Un seul `FileHandle` ouvert en `"w"`, jamais `"a"`** : le CRC et les tailles sont patchés après coup par un pwrite de 12 octets à `localHeaderOffset + 14`, et `O_APPEND` fait ignorer le paramètre `position`. Pas de `createWriteStream` ni de `pipeline()` non plus — buffering + pwrite = corruption non déterministe.
+- **Ordre de finalisation `sync()` → verify → `close()` → `rename`**, jamais autrement : `ENOSPC` se manifeste au fsync (delayed allocation), et vérifier avant le `sync()` validerait le page cache. Tout échec unlink le `.tmp` → aucun zip partiel n'existe jamais, c'est ce que promet le wording d'erreur.
+- **Longueur des noms = `Buffer.from(name, "utf8").length`**, jamais `String.length` : un seul accent et l'archive est illisible. Date DOS clampée `[1980, 2107]` + fallback `NaN` (sinon `writeUInt16LE` throw = contrat no-throw violé).
+- **ZIP64 = chemin nominal** (zips de 10–20 Go), mais uniquement dans le central directory et l'EOCD, jamais dans les local headers ; saturation **par champ**. Seuils injectables (`zip64Thresholds`) pour tester en CI sans fixture de 4 Go.
+- **`--self-test` n'est volontairement pas étendu au zip** (ni asset bundlé ni worker → aucun piège de `bun --compile` à couvrir). Ne pas le « compléter » par réflexe de symétrie.
+- **Dettes assumées, documentées** : symlinks dans `processed/` silencieusement exclus (`isFile()`) ; deux instances de chiro dans le même cwd à la même minute → le rename final peut écraser ; pas de `fsync` du répertoire `archived/` — c'est une **précondition** de la future suppression de `processed/`, au même titre que `crcMode: "full"`.
+- **Vocabulaire** : « morceaux » est banni de toute l'app au profit d'« enregistrements » (et « fichiers » pour les sorties du découpage). Règle dans `docs/ux.md`.
+
 ## Pièges connus
 
 - **APFS case-insensitive** : `foo.wav` et `FOO.WAV` collisionnent sur macOS. `planRenames` pré-vérifie via `fs.access` avant chaque rename.

@@ -42,6 +42,8 @@ La state machine comporte **5 écrans wizard** (Menu/Constat/Saisie/Confirmation
 - Sous-titre : `Que voulez-vous faire ?`
 - Items :
   - `Préfixer des enregistrements pour Vigie-Chiro` (item sélectionné par défaut)
+  - `Découper les enregistrements (pour Tadarida)`
+  - `Créer un zip des enregistrements découpés (pour l'envoi)`
   - `Vérifier les mises à jour`
   - `Quitter`
 - **Auto-check au boot** : un `useEffect` lance `checkForUpdate` au mount (cache disque 6 h, silent fail). Si une version > `CHIRO_VERSION` est dispo, un hint jaune `⚠ Une mise à jour est disponible (vX.Y.Z).` apparaît entre la liste d'items et le footer. Sinon (à jour, erreur réseau, etc.), aucun hint.
@@ -179,7 +181,7 @@ Aide `dimColor` sous le sélecteur explique le pourquoi du ralentissement (full-
 Preview :
 
 - chemin absolu du cwd
-- `On va découper N enregistrements (environ X minutes d'audio) en morceaux de 5 secondes.`
+- `On va découper N enregistrements (environ X minutes d'audio) en fichiers de 5 secondes.`
 - type d'enregistreur choisi (libellé du mode)
 - dossier de sortie : `./processed/`
 - **réassurance non-destructive** : `Vos fichiers d'origine ne seront pas modifiés.`
@@ -229,8 +231,8 @@ Quatre variantes, mêmes principes UX que le rename :
 
 - `✓ Terminé !`
 - `N enregistrements découpés`
-- `M morceaux créés dans ./processed/`
-- (si applicable) skipped trop volumineux / déjà au format morceau en `dimColor`
+- `M fichiers créés dans ./processed/`
+- (si applicable) skipped trop volumineux / déjà découpé en `dimColor`
 - réassurance `Vos fichiers d'origine sont intacts dans ce dossier.`
 
 **Variante B — Interrompu (Ctrl+C)**
@@ -263,7 +265,7 @@ Quatre variantes, mêmes principes UX que le rename :
 
 **Dernier chunk < 5 s temps réel** : conservé tel quel (lossless). Tadarida peut l'analyser avec une confiance moindre. Pas de padding silence, pas de drop. La métadonnée GUANO `Length` reflète la durée réelle de ce tail chunk.
 
-**Filtre `_NNN.wav$`** : tout fichier source dont le nom matche `_\d{3}\.wav$` (case-insensitive ext) est **skippé silencieusement** et reporté dans `skippedAlreadyChunked`. Évite de re-splitter par accident des morceaux déjà produits qui auraient été déplacés à la racine.
+**Filtre `_NNN.wav$`** : tout fichier source dont le nom matche `_\d{3}\.wav$` (case-insensitive ext) est **skippé silencieusement** et reporté dans `skippedAlreadyChunked`. Évite de re-splitter par accident des fichiers déjà découpés qui auraient été déplacés à la racine.
 
 **Hard cap 500 MB** par fichier source. Au-delà, le fichier est skippé (`skippedTooLarge`) sans tentative de lecture. Évite l'OOM sur les workstations 8 GB (`wavefile` charge tout en RAM).
 
@@ -317,6 +319,87 @@ Accessible depuis l'item de menu **"Vérifier les mises à jour"**. Indépendant
 Tous les codes mappent en messages français lisibles (cf. `ux.md` → "Codes d'erreur Update → libellés FR").
 
 **Échec d'`install.sh`** : sur une somme de contrôle invalide (fichier corrompu/tronqué), le script affiche lui-même un message français bienveillant plutôt qu'une erreur brute (cf. `ux.md` § Self-update). Une coupure réseau en plein `curl` du tarball reste, elle, visible en `stderr` brut de curl (limite connue, acceptable) — mais dans tous les cas d'échec, `index.tsx` affiche en plus, après coup, un message pointant vers une commande de secours (`FALLBACK_INSTALL_SCRIPT_URL`, resté sur `main`), pour que l'utilisatrice ait toujours une action claire à faire même quand le message technique qui précède ne l'est pas.
+
+## Wizard "Créer un zip des enregistrements découpés" — 3 écrans (Phase 8)
+
+```
+[Menu] → [A-Constat] → [A-Confirmation] → [A-Résultat] → (retour Menu)
+```
+
+Rassemble le contenu de `processed/` (sortie du flow Découper) dans une archive zip destinée au dépôt sur Vigie-Chiro. Pas d'écran de saisie : il n'y a rien à choisir, tout est déduit du dossier courant. **Non-destructif** : `processed/` n'est ni déplacé, ni modifié, ni supprimé — le zip est une copie.
+
+### Source, destination, nommage
+
+- **Source** : `<cwd>/processed/`, niveau 1 uniquement (pas de récursion).
+- **Destination** : `<cwd>/archived/`, créé au besoin (`mkdir -p`).
+- **Nom** : `processed_YYYYMMDDHHMM.zip` — horodatage **local** au moment de l'entrée dans l'écran de Confirmation (`buildArchiveName`, pur). La minute suffit à distinguer deux zips d'une même session.
+- **Collision** : si le nom existe déjà, suffixes `-2` … `-99` insérés avant l'extension (`processed_202608131544-2.zip`). Au-delà → code `collision-exhausted` (inatteignable en pratique : il faudrait 99 zips dans la même minute). Le nom est résolu **deux fois** — une fois pour l'affichage en Confirmation, une seconde juste avant le run, pour réduire la fenêtre entre l'aperçu et la validation. Aucun écran « un zip existe déjà, que faire ? » : le nom horodaté distingue les zips, proposer « remplacer » violerait le principe non-destructif.
+
+### Contenu et exclusions
+
+Entrées **à plat, à la racine du zip** (pas de dossier `processed/` intermédiaire) : c'est ce qu'attend le dépôt Vigie-Chiro.
+
+| Entrée dans `processed/`                | Incluse ? |
+| --------------------------------------- | --------- |
+| Fichier régulier visible                | oui       |
+| Sous-dossier                            | non       |
+| Symlink (même vers un fichier régulier) | non       |
+| Dot-entry (`.DS_Store`, `.sox-tmp-*`)   | non       |
+| Fichier `*.tmp`                         | non       |
+
+Le filtre dot/`.tmp` est le prédicat partagé `isVisibleNonTmpEntry` (`src/lib/fs/scanDirectory.ts`), le même que celui qui détecte un `processed/` déjà peuplé au flow Découper. Ordre alphabétique. Le timestamp DOS de chaque entrée est le `mtime` du fichier source.
+
+Conséquence assumée sur le wording : le Constat ne dit jamais « le dossier est vide » mais « ne contient aucun enregistrement » — les exclus restent visibles dans le Finder (cf. `ux.md`).
+
+### Écran A-Constat
+
+Scan de `processed/` + vérifications, puis question de confirmation (`N enregistrements trouvés dans ./processed/` + `Volume total`).
+
+Cas bloquants, dans l'ordre où ils sont évalués :
+
+| Cas                 | Détection                                                           |
+| ------------------- | ------------------------------------------------------------------- |
+| `no-processed`      | `ENOENT` sur le `readdir` de `processed/`                           |
+| `empty-processed`   | dossier présent, zéro entrée retenue par le filtre                  |
+| `scan-error`        | toute autre erreur de `readdir`/`stat` (code brut affiché)          |
+| `not-writable`      | `access(cwd, W_OK)` échoue — le `archived/` ne pourra pas être créé |
+| `insufficient-disk` | `statfs(cwd)` : `bavail × bsize < Σ tailles + N × 200 o + 1 Mio`    |
+
+`no-processed` et `empty-processed` sont deux états distincts parce que la guidance diffère (mauvais dossier vs découpage interrompu). Le pré-check disque prend la **borne supérieure** (deflate ≤ stored + ε), pas un facteur de sécurité arbitraire ; un `statfs` en échec ne bloque pas — `ENOSPC` sera de toute façon remonté à l'écriture.
+
+### Écran A-Confirmation
+
+Aperçu (nom du fichier, emplacement, taille maximale) puis exécution en place — pas d'écran intermédiaire, la vue de progression remplace l'aperçu dans le même écran (même posture que P-Confirmation).
+
+**Progression** : barre pilotée par les **octets lus en source** (`bytesRead / totalBytes`), pas par le nombre d'entrées ni par les octets écrits — la compression varie d'une entrée à l'autre et rendrait une barre en octets écrits non monotone en apparence. `Enregistrement X sur N` + temps écoulé + temps restant, ce dernier via `etaTracker` alimenté à chaque entrée terminée (byte-weighted, cf. § Calcul de l'ETA). Throttle 100 ms, `finalizeRender()` synchrone pour forcer 100 % avant démontage.
+
+**Ctrl+C pendant le run** : géré par le `useInput` de l'écran (le handler global d'`app.tsx` s'efface tant que `runningRef` est vrai) → abort → le `.tmp` en cours est supprimé → A-Résultat variante « interrompu ». Aucun zip partiel ne subsiste.
+
+**Erreur pendant le run** : reste sur A-Confirmation en variante `run-error` (message mappé + détail technique), `Échap` revient au Constat.
+
+### Écran A-Résultat
+
+Deux variantes seulement — une erreur n'atteint jamais cet écran (elle reste sur A-Confirmation) :
+
+**Variante A — Succès** : `✓ Terminé !`, nombre d'entrées, chemin relatif du zip, taille réelle, temps écoulé, invitation au dépôt sur Vigie-Chiro, rappel que `processed/` est intact.
+
+**Variante B — Interruption** : `ℹ Création du zip arrêtée à votre demande`, `Aucun fichier zip n'a été créé.`, rappel non-destructif.
+
+### États d'erreur — codes
+
+Codes bruts produits par la lib, traduits en français par `src/screens/archive/errorMessages.ts` (les codes système passent par `src/screens/fsErrorMessages.ts`, partagé par les trois flows). Table des libellés dans [`ux.md`](./ux.md) § « Codes d'erreur Archive → libellés FR ».
+
+| Code                                    | Cause                                                                                              |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `mkdir:<code>`                          | Création de `archived/` impossible                                                                 |
+| `ENOSPC` / `EACCES` / `EPERM` / `EROFS` | Codes système remontés tels quels par l'écriture, le `sync()` ou le `close()`                      |
+| `ENOENT`                                | Un fichier source a disparu entre le scan et son ouverture                                         |
+| `file-changed`                          | Taille du fichier source différente entre le scan et le re-`stat`, ou octets lus ≠ taille attendue |
+| `entry-too-large`                       | Une entrée ≥ 4 Gio (garde ; les fichiers découpés font quelques Mo)                                |
+| `verify-failed`                         | La vérification post-écriture a échoué — le zip est supprimé, rien n'apparaît dans `archived/`     |
+| `collision-exhausted`                   | 99 zips déjà créés dans la même minute                                                             |
+
+Dans **tous** les cas d'échec, y compris interruption, aucun fichier n'apparaît dans `archived/` : l'écriture se fait dans un `.tmp` renommé en tout dernier (cf. `architecture.md` § « Module `lib/archive` »).
 
 ## Règles métier
 
@@ -433,6 +516,33 @@ Pour les sessions de découpage, `schema_version: 2`. Format aligné avec v1 (ti
 
 **v1 reste byte-stable** : tout reader jq existant qui filtre sur `.action == "vigie-prefix"` ou `.schema_version == 1` continue à fonctionner. Un snapshot test (`src/lib/logging/log.test.ts`) asserte caractère par caractère le format v1 pour empêcher toute dérive silencieuse.
 
+### Schéma v3 — sessions `vigie-archive` (Phase 8)
+
+`schema_version: 3`, `action: "vigie-archive"`. **Pas de champ `input`** : le flow zip n'a rien que l'utilisatrice choisisse. `result` est une **union discriminée sur `status`** — `ok` seul porte le nom et la taille du zip produit, mais les trois variantes portent les compteurs connus avant le run, pour qu'un échec reste diagnosticable :
+
+```json
+{
+  "schema_version": 3,
+  "ts": "2026-08-13T15:44:12.004Z",
+  "version": "0.4.0",
+  "cwd": "/Users/.../Vigie-2026-A1",
+  "action": "vigie-archive",
+  "result": {
+    "status": "ok",
+    "zip_name": "processed_202608131544.zip",
+    "entry_count": 720,
+    "total_bytes": 1503238553,
+    "zip_bytes": 541165879,
+    "duration_ms": 54120
+  }
+}
+```
+
+- `status: "aborted"` → `entry_count`, `total_bytes`, `duration_ms`.
+- `status: "error"` → idem + `error_code` (le code brut, pas le libellé français).
+
+`duration_ms` mesure la **tentative complète** côté orchestrateur (`useArchiveRun`), pas le seul temps passé dans `createZipArchive` — c'est la seule façon d'avoir une durée pour les runs interrompus ou en échec.
+
 ## Versioning
 
 - `chiro --version` lit la version dans `package.json` (bundled au moment du `bun build --compile`).
@@ -441,24 +551,34 @@ Pour les sessions de découpage, `schema_version: 2`. Format aligné avec v1 (ti
 
 ## Cas dégradés — checklist exhaustive
 
-| Cas                                                       | Comportement attendu                                                                                                                       | Écran                   |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- |
-| Pas de TTY                                                | Message stderr + quit code 1                                                                                                               | Avant Ink               |
-| `--version`                                               | Affiche version + quit code 0                                                                                                              | Avant Ink               |
-| `--help`                                                  | Affiche help + quit code 0                                                                                                                 | Avant Ink               |
-| Dossier vide                                              | "Aucun fichier .wav trouvé" + chemin affiché                                                                                               | Constat                 |
-| Aucun `.wav` (mais d'autres fichiers)                     | Idem                                                                                                                                       | Constat                 |
-| Tous les `.wav` déjà préfixés                             | Constat passe normalement → Saisie → Confirmation affiche 0 renommage prévu → l'utilisatrice peut quand même valider → Résultat variante B | Tous les écrans         |
-| Dossier non lisible (`R_OK` KO)                           | Message + quit                                                                                                                             | Constat                 |
-| Dossier non writable (`W_OK` KO)                          | Message + bouton retour                                                                                                                    | Constat                 |
-| Erreur inattendue au scan FS                              | Écran Constat affiche le code brut + invite à fermer apps concurrentes                                                                     | Constat                 |
-| `.WAV` majuscule                                          | Normalisé en `.wav` dans le nom cible                                                                                                      | Renommage               |
-| Collision avec fichier existant                           | Affichage Confirmation + skip Renommage                                                                                                    | Confirmation + Résultat |
-| `EXDEV` cross-device                                      | Fallback `copyFile + unlink` transparent                                                                                                   | Renommage               |
-| `EACCES` / `EPERM` sur un fichier                         | Consigner, continuer                                                                                                                       | Renommage               |
-| `ENOENT` (fichier supprimé entre scan et rename)          | Consigner, continuer                                                                                                                       | Renommage               |
-| Caractères exotiques (accents, espaces, emojis) dans noms | Aucun traitement spécial, Node gère                                                                                                        | Toujours                |
-| Symlinks dans le dossier                                  | Ignorés au scan                                                                                                                            | Constat                 |
-| Ctrl+C pendant la saisie                                  | Quit immédiat code 130                                                                                                                     | Toutes                  |
-| Ctrl+C pendant le renommage                               | Stop propre, Résultat variante D                                                                                                           | Renommage → Résultat    |
-| Terminal redimensionné en cours                           | Ink gère ; aucun traitement spécial requis                                                                                                 | Toutes                  |
+| Cas                                                       | Comportement attendu                                                                                                                       | Écran                       |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------- |
+| Pas de TTY                                                | Message stderr + quit code 1                                                                                                               | Avant Ink                   |
+| `--version`                                               | Affiche version + quit code 0                                                                                                              | Avant Ink                   |
+| `--help`                                                  | Affiche help + quit code 0                                                                                                                 | Avant Ink                   |
+| Dossier vide                                              | "Aucun fichier .wav trouvé" + chemin affiché                                                                                               | Constat                     |
+| Aucun `.wav` (mais d'autres fichiers)                     | Idem                                                                                                                                       | Constat                     |
+| Tous les `.wav` déjà préfixés                             | Constat passe normalement → Saisie → Confirmation affiche 0 renommage prévu → l'utilisatrice peut quand même valider → Résultat variante B | Tous les écrans             |
+| Dossier non lisible (`R_OK` KO)                           | Message + quit                                                                                                                             | Constat                     |
+| Dossier non writable (`W_OK` KO)                          | Message + bouton retour                                                                                                                    | Constat                     |
+| Erreur inattendue au scan FS                              | Écran Constat affiche le code brut + invite à fermer apps concurrentes                                                                     | Constat                     |
+| `.WAV` majuscule                                          | Normalisé en `.wav` dans le nom cible                                                                                                      | Renommage                   |
+| Collision avec fichier existant                           | Affichage Confirmation + skip Renommage                                                                                                    | Confirmation + Résultat     |
+| `EXDEV` cross-device                                      | Fallback `copyFile + unlink` transparent                                                                                                   | Renommage                   |
+| `EACCES` / `EPERM` sur un fichier                         | Consigner, continuer                                                                                                                       | Renommage                   |
+| `ENOENT` (fichier supprimé entre scan et rename)          | Consigner, continuer                                                                                                                       | Renommage                   |
+| Caractères exotiques (accents, espaces, emojis) dans noms | Aucun traitement spécial, Node gère                                                                                                        | Toujours                    |
+| Symlinks dans le dossier                                  | Ignorés au scan                                                                                                                            | Constat                     |
+| Ctrl+C pendant la saisie                                  | Quit immédiat code 130                                                                                                                     | Toutes                      |
+| Ctrl+C pendant le renommage                               | Stop propre, Résultat variante D                                                                                                           | Renommage → Résultat        |
+| Terminal redimensionné en cours                           | Ink gère ; aucun traitement spécial requis                                                                                                 | Toutes                      |
+| Pas de `processed/` au flow zip                           | Message informatif + deux causes (découpage pas fait / mauvais dossier)                                                                    | A-Constat                   |
+| `processed/` sans fichier archivable                      | « ne contient aucun enregistrement » + guidance découpage interrompu                                                                       | A-Constat                   |
+| `cwd` non writable au flow zip                            | Message « impossible de créer le sous-dossier archived »                                                                                   | A-Constat                   |
+| Espace disque insuffisant pour le zip                     | Chiffres requis/dispo + rappel qu'un zip est une copie                                                                                     | A-Constat                   |
+| Zip du même horodatage déjà présent                       | Suffixe `-2`…`-99`, aucun écrasement                                                                                                       | A-Confirmation              |
+| Fichier source modifié / supprimé pendant le zip          | `file-changed` → `.tmp` supprimé, aucun zip produit                                                                                        | A-Confirmation              |
+| Disque plein pendant le zip                               | `ENOSPC` (souvent au `sync()`) → `.tmp` supprimé, aucun zip produit                                                                        | A-Confirmation              |
+| Zip écrit mais vérification en échec                      | `verify-failed` → `.tmp` supprimé, rien dans `archived/`                                                                                   | A-Confirmation              |
+| Ctrl+C pendant la création du zip                         | Abort, `.tmp` supprimé, Résultat variante interruption                                                                                     | A-Confirmation → A-Résultat |
+| `.tmp` orphelins d'un run précédent tué                   | Nettoyés au run suivant si le PID embarqué ne tourne plus                                                                                  | A-Confirmation              |

@@ -113,7 +113,7 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["**/vigie-process/**"],
+              group: ["**/vigie-process/**", "**/screens/archive/**"],
               message: "No cross-flow imports between screen directories.",
             },
           ],
@@ -133,7 +133,27 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["**/vigie-chiro/**"],
+              group: ["**/vigie-chiro/**", "**/screens/archive/**"],
+              message: "No cross-flow imports between screen directories.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/screens/archive/**/*.{ts,tsx}"],
+    ignores: [
+      "src/screens/archive/**/*.test.{ts,tsx}",
+      "src/screens/archive/**/__tests__/**",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/vigie-chiro/**", "**/vigie-process/**"],
               message: "No cross-flow imports between screen directories.",
             },
           ],

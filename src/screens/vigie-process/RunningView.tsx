@@ -2,42 +2,13 @@ import { Box, Text } from "ink";
 import { useEffect, useRef } from "react";
 import { Footer } from "../../components/Footer.js";
 import { PROCESSED_DIR_DISPLAY } from "../../lib/audio/batchPlan.js";
+import {
+  buildRemainingLabel,
+  formatShortDuration,
+  renderBar,
+} from "../../lib/format/progress.js";
 import type { ProgressEvent } from "../../types.js";
 import { useProgressState } from "./useProgressState.js";
-
-const BAR_WIDTH = 40;
-const ADAPTIVE_MASK_THRESHOLD = 5;
-
-const renderBar = (percent: number): string => {
-  const filled = Math.round((percent / 100) * BAR_WIDTH);
-  return "█".repeat(filled) + "░".repeat(BAR_WIDTH - filled);
-};
-
-export const formatShortDuration = (ms: number): string => {
-  const totalSeconds = Math.round(ms / 1000);
-  if (totalSeconds < 60) return `${totalSeconds.toString()} s`;
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) {
-    return `${hours.toString()} h ${minutes.toString().padStart(2, "0")} min`;
-  }
-  if (seconds === 0) return `${minutes.toString()} min`;
-  return `${minutes.toString()} min ${seconds.toString().padStart(2, "0")} s`;
-};
-
-export const buildRemainingLabel = (
-  remainingMs: number | null,
-  filesTotal: number,
-): string | null => {
-  // Adaptive masking: hide ETA for small batches (< 5 files) where the
-  // estimate would be too coarse to be meaningful. The whole segment is
-  // dropped from the stats line — leaving a stale "calcul en cours" message
-  // that never resolves would be worse than silence.
-  if (filesTotal < ADAPTIVE_MASK_THRESHOLD) return null;
-  if (remainingMs === null) return "Calcul du temps restant…";
-  return `Encore environ ${formatShortDuration(remainingMs)}`;
-};
 
 export const buildStatsLine = (
   chunksWritten: number,
@@ -46,7 +17,7 @@ export const buildStatsLine = (
   filesTotal: number,
 ): string => {
   const elapsedLabel = formatShortDuration(elapsedMs);
-  const base = `${chunksWritten.toString()} morceaux • Temps écoulé ${elapsedLabel}`;
+  const base = `${chunksWritten.toString()} fichiers • Temps écoulé ${elapsedLabel}`;
   const remainingLabel = buildRemainingLabel(remainingMs, filesTotal);
   return remainingLabel === null ? base : `${base} • ${remainingLabel}`;
 };

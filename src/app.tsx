@@ -5,6 +5,8 @@ import {
   type SoxContext,
 } from "./lib/audio/processWavFiles.js";
 import { detectSox, type SoxAvailability } from "./lib/audio/soxFastPath.js";
+import { createZipArchive as defaultCreateZipArchive } from "./lib/archive/createZipArchive.js";
+import type { ArchiveEntryStat } from "./lib/archive/planArchive.js";
 import { applyRenames as defaultApplyRenames } from "./lib/fs/applyRenames.js";
 import { checkForUpdate } from "./lib/update/checkForUpdate.js";
 import type { UpdateChecker } from "./screens/UpdateScreen.js";
@@ -22,6 +24,13 @@ import {
   type ProcessWavFilesFn,
 } from "./screens/vigie-process/ConfirmScreen.js";
 import { ConstatScreen as ProcessConstatScreen } from "./screens/vigie-process/ConstatScreen.js";
+import {
+  ConfirmScreen as ArchiveConfirmScreen,
+  type CreateZipArchiveFn,
+} from "./screens/archive/ConfirmScreen.js";
+import { ConstatScreen as ArchiveConstatScreen } from "./screens/archive/ConstatScreen.js";
+import { ResultScreen as ArchiveResultScreen } from "./screens/archive/ResultScreen.js";
+import type { ArchiveRunOutcome } from "./screens/archive/useArchiveRun.js";
 import { FormScreen as ProcessFormScreen } from "./screens/vigie-process/FormScreen.js";
 import { ResultScreen as ProcessResultScreen } from "./screens/vigie-process/ResultScreen.js";
 import type {
@@ -63,7 +72,14 @@ type Screen =
       kind: "process:result";
       input: ProcessInput;
       outcome: ProcessResult;
-    };
+    }
+  | { kind: "archive:constat" }
+  | {
+      kind: "archive:confirm";
+      entries: ArchiveEntryStat[];
+      totalBytes: number;
+    }
+  | { kind: "archive:result"; outcome: ArchiveRunOutcome };
 
 type BootChecker = (opts: {
   currentVersion: string;
@@ -76,6 +92,8 @@ export type AppProps = {
   applyRenames?: ApplyRenamesFn;
   /** Override for tests. Defaults to the real implementation. */
   processWavFiles?: ProcessWavFilesFn;
+  /** Override for tests. Defaults to the real implementation. */
+  createZipArchive?: CreateZipArchiveFn;
   /** Called when the user confirms an update install; must be synchronous. */
   onRequestUpdate: () => void;
   /** Test seam for the boot auto-check. Defaults to real checkForUpdate. */
@@ -103,6 +121,7 @@ export const App = ({
   cwd,
   applyRenames = defaultApplyRenames,
   processWavFiles: processWavFilesProp = defaultProcessWavFiles,
+  createZipArchive = defaultCreateZipArchive,
   onRequestUpdate,
   bootChecker,
   updateChecker,
@@ -194,6 +213,9 @@ export const App = ({
         }}
         onPickVigieProcess={() => {
           setScreen({ kind: "process:constat" });
+        }}
+        onPickArchive={() => {
+          setScreen({ kind: "archive:constat" });
         }}
         onPickUpdate={() => {
           setScreen({ kind: "update" });
@@ -335,9 +357,52 @@ export const App = ({
     );
   }
 
-  // screen.kind === "process:result"
+  if (screen.kind === "process:result") {
+    return (
+      <ProcessResultScreen
+        outcome={screen.outcome}
+        onBackToMenu={() => {
+          setScreen({ kind: "menu" });
+        }}
+      />
+    );
+  }
+
+  if (screen.kind === "archive:constat") {
+    return (
+      <ArchiveConstatScreen
+        cwd={cwd}
+        onContinue={(entries, totalBytes) => {
+          setScreen({ kind: "archive:confirm", entries, totalBytes });
+        }}
+        onBack={() => {
+          setScreen({ kind: "menu" });
+        }}
+      />
+    );
+  }
+
+  if (screen.kind === "archive:confirm") {
+    return (
+      <ArchiveConfirmScreen
+        cwd={cwd}
+        entries={screen.entries}
+        totalBytes={screen.totalBytes}
+        runningRef={runningRef}
+        createZipArchive={createZipArchive}
+        onComplete={(outcome) => {
+          setScreen({ kind: "archive:result", outcome });
+        }}
+        onBack={() => {
+          setScreen({ kind: "archive:constat" });
+        }}
+      />
+    );
+  }
+
+  // screen.kind === "archive:result"
   return (
-    <ProcessResultScreen
+    <ArchiveResultScreen
       outcome={screen.outcome}
       onBackToMenu={() => {
         setScreen({ kind: "menu" });

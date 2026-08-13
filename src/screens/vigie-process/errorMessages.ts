@@ -1,3 +1,5 @@
+import { mapKnownFsErrorCode } from "../fsErrorMessages.js";
+
 /**
  * Maps a raw process error code (as returned by `processWavFiles`) to a
  * user-facing French message. UI layer translation — the lib keeps raw codes.
@@ -14,6 +16,8 @@ export const mapKnownProcessErrorCode = (code: string): string | null => {
   if (code.startsWith("sox-") || code.startsWith("non-aligned-data-size")) {
     return "chiro n'a pas réussi à traiter cet enregistrement — réessayez, et si ça recommence transmettez le détail technique";
   }
+  const fsMessage = mapKnownFsErrorCode(code);
+  if (fsMessage !== null) return fsMessage;
   switch (code) {
     case "invalid-header":
       return "fichier illisible — peut-être corrompu pendant le transfert";
@@ -25,13 +29,6 @@ export const mapKnownProcessErrorCode = (code: string): string | null => {
       return "fichier sans contenu audio";
     case "ENOENT":
       return "le fichier a disparu pendant l'opération";
-    case "EACCES":
-    case "EPERM":
-      return "permission refusée par le système";
-    case "ENOSPC":
-      return "plus de place sur le disque — libérez de l'espace puis relancez";
-    case "EROFS":
-      return "ce disque est protégé en écriture — copiez les fichiers ailleurs puis relancez";
     case "EXDEV":
       return "impossible de déplacer le fichier d'un disque à un autre (carte SD, disque externe…)";
     case "worker-died":

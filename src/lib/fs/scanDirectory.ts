@@ -94,25 +94,32 @@ export const sumFileSizes = async (
 export type ProcessedDirState = { exists: boolean; nonTmpCount: number };
 
 /**
+ * Shared predicate for "counts as real content" across scans of an output
+ * directory: excludes dot-entries (both the sox fast-path's hidden
+ * `.sox-tmp-*` scratch dirs, which can survive a SIGKILL mid-batch, and
+ * system litter like `.DS_Store`) and `.tmp` scratch files. Exported so
+ * every consumer (conflict detection, archive scan) applies the exact same
+ * rule — divergence here would be structurally impossible to catch in review.
+ */
+export const isVisibleNonTmpEntry = (name: string): boolean =>
+  !name.endsWith(".tmp") && !name.startsWith(".");
+
+/**
  * Checks whether `processedDir` already exists and, if so, how many
  * non-`.tmp` entries it holds — used to detect a leftover output folder from
  * a previous run before starting a new one.
  *
- * Dot-entries are excluded from the count alongside `.tmp` ones: they cover
- * both the sox fast-path's hidden `.sox-tmp-*` scratch dirs (which can
- * survive a SIGKILL mid-batch) and system litter like `.DS_Store`. Without
- * this, a leftover `.sox-tmp-*` alone would trip the "processed already
- * exists" screen on a folder that looks empty in the Finder — an
- * unexplainable state for the target user.
+ * Dot-entries are excluded from the count alongside `.tmp` ones — see
+ * `isVisibleNonTmpEntry`. Without this, a leftover `.sox-tmp-*` alone would
+ * trip the "processed already exists" screen on a folder that looks empty in
+ * the Finder — an unexplainable state for the target user.
  */
 export const checkProcessedDirConflict = async (
   processedDir: string,
 ): Promise<ProcessedDirState> => {
   try {
     const entries = await readdir(processedDir);
-    const nonTmpCount = entries.filter(
-      (e) => !e.endsWith(".tmp") && !e.startsWith("."),
-    ).length;
+    const nonTmpCount = entries.filter(isVisibleNonTmpEntry).length;
     return { exists: true, nonTmpCount };
   } catch {
     return { exists: false, nonTmpCount: 0 };

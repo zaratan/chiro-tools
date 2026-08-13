@@ -46,3 +46,8 @@ src/lib/audio/splitWorker.bundled.mjs
 # regenerated via `bun scripts/trim-audiomoth-fixtures.ts`). The committed
 # LFS versions in `test-data/Audiomoth/Audiomoth brut/` are trimmed to ~5 MB.
 test-data/Audiomoth/Audiomoth full/
+
+# Zip archives produced by manual runs of the archive flow. Multi-GB output,
+# never a fixture — `test-data/**/processed/` stays tracked, `archived/` never is.
+test-data/**/archived/
+test-data/Real*

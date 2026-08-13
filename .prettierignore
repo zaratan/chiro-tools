@@ -6,3 +6,6 @@ pnpm-lock.yaml
 .claude/settings.local.json
 scripts/
 src/lib/audio/splitWorker.bundled.mjs
+# Binary fixtures and manual-run outputs only — no formattable source lives here,
+# and a multi-GB zip left by a manual archive run made `format:check` fail hard.
+test-data/

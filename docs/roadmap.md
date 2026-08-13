@@ -151,7 +151,7 @@ Activer **uniquement si** un test sur machine vierge révèle un blocage Gatekee
 
 ## Phase 5 — Découper les enregistrements (split + TE ×10) ✓
 
-**Objectif** : internaliser dans `chiro` les étapes Kaleidoscope du protocole Vigie-Chiro Point Fixe (expansion temporelle ×10 pour les détecteurs full-spectrum, puis découpe en morceaux de 5 secondes) — non-destructivement, dans un sous-dossier `processed/`. Référence canonique : `test-data/Tutoriel Vigie Chiro - Perso.pdf` (page 7).
+**Objectif** : internaliser dans `chiro` les étapes Kaleidoscope du protocole Vigie-Chiro Point Fixe (expansion temporelle ×10 pour les détecteurs full-spectrum, puis découpe en fichiers de 5 secondes) — non-destructivement, dans un sous-dossier `processed/`. Référence canonique : `test-data/Tutoriel Vigie Chiro - Perso.pdf` (page 7).
 
 ### Tâches (réalisées en 5.A / 5.B / 5.C / 5.D)
 
@@ -231,6 +231,29 @@ Activer **uniquement si** un test sur machine vierge révèle un blocage Gatekee
 
 Détails d'implémentation complets dans `CLAUDE.md` (« Pièges connus », § worker pool) et `docs/architecture.md` § « Safety nets ».
 
+## Phase 8 — Créer un zip des enregistrements découpés ✓
+
+**Objectif** : fermer la boucle du protocole. Une fois le découpage fait, l'utilisatrice doit déposer ses fichiers sur Vigie-Chiro — ce qui suppose de zipper `processed/` à la main dans le Finder, sur des dossiers de milliers de fichiers et des dizaines de Go. Phase 8 internalise cette étape : `processed/` → `archived/processed_YYYYMMDDHHMM.zip`, **non-destructif**. Détails complets dans `docs/architecture.md` § « Module `lib/archive` ».
+
+### Tâches (réalisées en 8.A / 8.B / 8.C / 8.D)
+
+- **Writer ZIP maison** (`src/lib/archive/`) : `crc32.ts`, builders binaires purs (`zipFormat.ts`), plan et nommage (`planArchive.ts`), orchestration streaming (`createZipArchive.ts`), vérification post-écriture (`verifyZipArchive.ts`). Zéro dépendance ajoutée — ADR dans `architecture.md` (npm type yazl, `spawn zip` et tar/tar.gz écartés, ce dernier parce que le format zip est imposé par le portail).
+- **Deflate niveau 6** via `node:zlib` plutôt que `stored` : mesuré ≈ 36 % de la taille source sur du contenu Teensy réel, ≈ 28 Mio/s bout en bout. L'usage étant le dépôt en ligne, compresser fait gagner du temps d'upload.
+- **ZIP64 conditionnel** (central directory + EOCD seulement, jamais les local headers ; saturation par champ) avec **seuils injectables**, ce qui permet d'exercer tout le chemin en CI sans fixture de 4 Go.
+- **Vérification avant publication** : complétude contre le plan (égalité d'ensembles), structure (dont relecture des octets patchés de chaque local header et contiguïté), CRC en mode `spot`. Ordre `sync()` → verify → `close()` → `rename` — `ENOSPC` se manifeste au fsync, pas au write.
+- **3 écrans** (`src/screens/archive/`) sans écran de saisie, progression pilotée par les octets lus en source + ETA byte-weighted réutilisé du flow Découper. Ctrl+C câblé localement pendant le run.
+- **Extractions à leur 2ᵉ usage** : `src/lib/format/{bytes,progress}.ts`, `isVisibleNonTmpEntry` partagé entre le flow Découper et le flow zip, `src/screens/fsErrorMessages.ts` (règle de trois atteinte).
+- **`SessionEvent` v3** (`action: "vigie-archive"`, sans `input`, `result` discriminé sur `status`) + frontière eslint pour le 3ᵉ flow d'écrans.
+
+### Critère de sortie
+
+- [x] `pnpm check` vert.
+- [x] Archives validées par trois extracteurs indépendants (`unzip -t`, `python3 -m zipfile -t`, `bsdtar -tf`) — échec dur si un outil manque en CI.
+- [x] Chemin ZIP64 couvert de bout en bout en CI via des seuils injectés.
+- [x] Non-destructivité : `processed/` intact après succès, abort et échec ; aucun zip partiel dans `archived/` dans les trois cas.
+- [ ] Test manuel : parcours complet dans un dossier réel, zip ouvert avec Archive Utility, dépôt accepté par Vigie-Chiro comme un zip manuel.
+- [ ] Test manuel : run sur un dossier > 4 Gio (confirmation du chemin ZIP64 déjà couvert en CI).
+
 ## V2 (post-MVP, hors scope)
 
 Idées priorisées par valeur utilisateur :
@@ -243,11 +266,16 @@ Idées priorisées par valeur utilisateur :
 6. **Linux arm64**, **macOS Intel x64**. Estimation : 1 h (juste 2 targets de build à ajouter).
 7. **Internationalisation** (EN) si l'usage déborde le réseau Vigie-Chiro français.
 
+### Follow-ups Phase 8 (zip) — différés
+
+14. **Upload direct vers Glacier Scaleway** depuis chiro, une fois le zip créé et vérifié : l'archivage long terme des enregistrements bruts est aujourd'hui manuel. Suppose de gérer des credentials (à ne pas stocker en clair), l'upload multipart d'un objet de 10–20 Go et la reprise sur coupure réseau. Estimation : 2 j.
+15. **Suppression de `processed/` après zip vérifié** — le vrai gain d'espace disque pour l'utilisatrice. Trois préconditions, non négociables : (1) `verifyZipArchive` appelé en **`crcMode: "full"`** et non `"spot"` (un mot à changer, le mode existe déjà) ; (2) **`fsync` du répertoire `archived/`** après le rename, sinon on supprime les sources en se fiant à une entrée de répertoire non durable ; (3) écran de confirmation explicite, distinct du flow non-destructif actuel — la réassurance « rien n'est supprimé » disparaît, tout le wording est à revoir. Estimation : 1 j.
+
 ### Follow-ups Phase 5 (split / TE) — différés
 
 8. **Option « split-channels » pour détecteurs stéréo** (SM2BAT+, SM4BAT) — alignée sur la case « Split channels » de Kaleidoscope. Aujourd'hui les canaux restent groupés ; un user avec stéréo devrait choisir explicitement de séparer (ou pas). Estimation : 2 h (passe `slices.map` en `slices.forEach` + boucle par canal).
 9. **Streaming pour fichiers > 500 MB** : `wavefile` charge tout en RAM. Pour passer les très gros fichiers, écrire un parseur RIFF streaming (~150 lignes). Estimation : 1 j.
-10. **Durée de morceau paramétrable** (UI) : aujourd'hui 50 s output / 5 s réel, figé. Devrait être un champ optionnel du FormScreen pour les protocoles autres que Point Fixe (5 s pour Routier, par ex.). Estimation : 1 h.
+10. **Durée de découpe paramétrable** (UI) : aujourd'hui 50 s output / 5 s réel, figé. Devrait être un champ optionnel du FormScreen pour les protocoles autres que Point Fixe (5 s pour Routier, par ex.). Estimation : 1 h.
 11. **Modes TE additionnels** : actuellement `preserve` (Teensy) et `expand-10x` (Autre). Si un détecteur émerge avec TE ×8 ou ×20, ajouter au type `TimeExpansionMode` + un sélecteur plus riche. Estimation : 30 min par mode.
 12. **Mode batch automatique** : détection auto Teensy vs AudioMoth via header `fmt.sampleRate` (38 400 → preserve, > 100 000 → expand-10x). Évite l'étape Form, à risque modéré. Estimation : 2 h.
 13. **Conservation du chunk `LIST/INFO`** (metadata AudioMoth « Recorded at … by AudioMoth … ») — aujourd'hui droppé par `wavefile.fromScratch`, cohérent avec Kaleidoscope. Si Tadarida en a besoin, écrire un patcheur post-encode qui réinjecte le LIST. Estimation : 4 h.
