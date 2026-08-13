@@ -34,6 +34,13 @@ jobs:
           # Required for the integration tests that read real Teensy/
           # AudioMoth WAV fixtures from test-data/ (committed via LFS).
           lfs: true
+      # scripts/ is out-of-tsconfig/out-of-eslint (see CLAUDE.md), so this is
+      # the only check that ever runs against install.sh on `main` — load-
+      # bearing now that the self-update path pins to each release's own tag
+      # (Chantier D): a syntax error merged to main would otherwise go
+      # unnoticed until the next tagged release's smoke test.
+      - name: Syntax-check install.sh
+        run: bash -n scripts/install.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 24

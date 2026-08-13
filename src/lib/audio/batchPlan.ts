@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ProcessError, ProgressEvent } from "../../types.js";
+import { extractErrorCode } from "../fs/safeFsOps.js";
 
 // Matches sox/worker-pool output (baseName_NNN.wav) so a batch never
 // re-splits its own previous output.
@@ -111,11 +112,7 @@ export const buildQueue = async (
       const stats = await stat(absSource);
       size = stats.size;
     } catch (err) {
-      const code =
-        err instanceof Error && "code" in err
-          ? String((err as { code: unknown }).code)
-          : "UNKNOWN";
-      result.errored.push({ file, reason: code });
+      result.errored.push({ file, reason: extractErrorCode(err) });
       continue;
     }
 

@@ -230,14 +230,16 @@ L'`App` tient le state via `useState<Screen>` et passe des callbacks aux écrans
 
 ### Contrat `install.sh`
 
-`UpdateScreen` invoque `install.sh` depuis `main` via `INSTALL_SCRIPT_URL`. Tant que ce contrat tient, l'update fonctionne :
+`UpdateScreen` invoque `install.sh` via `INSTALL_SCRIPT_URL`, **épinglé sur le tag de la version courante** (`v${CHIRO_VERSION}`, depuis le Chantier D) — plus `main`. Un binaire donné se met donc toujours à jour avec LE script publié avec sa propre release, jamais avec un `main` potentiellement cassé entre deux releases. Le `curl | bash` documenté dans le README pour la toute première installation, lui, reste pointé sur `main` (pas de version locale à épingler à ce stade) : c'est `FALLBACK_INSTALL_SCRIPT_URL` (même fichier `src/lib/update/constants.ts`), utilisé uniquement dans le message affiché si le script épinglé échoue (`exitCode !== 0` dans `index.tsx`). Tant que ce contrat tient, l'update fonctionne :
 
-- **URL stable** : `https://raw.githubusercontent.com/zaratan/chiro-tools/main/scripts/install.sh` ne doit jamais bouger.
+- **URL versionnée, jamais rétroactivement cassée** : `https://raw.githubusercontent.com/zaratan/chiro-tools/v<version>/scripts/install.sh` — le contenu d'un tag Git ne change jamais après coup, donc chaque binaire utilise pour toujours exactement le script publié avec sa release. Contrepartie assumée : un bug bloquant dans le `install.sh` d'une release passée reste bloquant pour le self-update de cette version-là (d'où le message de fallback ci-dessus). `bash -n scripts/install.sh` tourne en CI (`ci.yml`) pour au moins garantir que `main` reste syntaxiquement valide — `scripts/` est hors tsconfig/eslint, donc rien d'autre ne le vérifie en continu. Note maintainer : seul `release.yml` réécrit `package.json` sur le tag au build ; un run local (`bun src/index.tsx`) pin donc sur le tag correspondant à la version _committée_, pas un 404 — ce tag existe forcément (c'est une ancienne release), le script exécuté est simplement potentiellement périmé.
+- **Contrat gelé, additif seulement** : les noms d'assets (`chiro-<os>-<arch>.tar.gz`) et le schéma d'URL de release (`releases/{latest/download,download/<tag>}/<asset>`) sont maintenant consommés par un `install.sh` figé dans chaque tag déjà publié. Les renommer casserait le self-update de toutes les versions déjà installées — toute évolution doit être additive (nouvel asset, pas de renommage d'un existant).
 - **Pas d'interactivité** : le script ne lit jamais stdin (pas de `read -p`, pas de prompt sudo).
 - **Cible fixe** : place le binaire dans `~/.local/bin/chiro` (ou respecte `$CHIRO_INSTALL_DIR` si fourni).
 - **Idempotent** : ré-exécuter le script doit produire le même état final.
-- **Exit code 0 = succès, autre = échec** : `chiro` propage ce code via `process.exit(proc.status ?? 0)`.
+- **Exit code 0 = succès, autre = échec** : `chiro` propage ce code via `process.exit(proc.status ?? (proc.signal !== null ? 130 : 1))`, et affiche un message pointant vers `FALLBACK_INSTALL_SCRIPT_URL` en cas d'échec (`exitCode !== 0`).
 - **Pas de quarantine attribute** : assumé OK car `curl | bash` ne pose pas l'attribut com.apple.quarantine.
+- **Intégrité** : `install.sh` télécharge `SHA256SUMS` (publié par `release.yml`, à côté des deux tarballs) et vérifie la somme du tarball avant extraction. Fail-open (warning, install continue) si `SHA256SUMS` est absent — releases antérieures au Chantier D — si aucun outil de hash (`sha256sum`/`shasum -a 256`) n'est dispo, ou si le fichier ne liste pas l'asset courant (release cassée) ; échec dur uniquement sur un mismatch avéré. La menace couverte est la corruption/troncature réseau — sums et tarball viennent de la même release GitHub, ce n'est pas une protection contre une origine compromise.
 
 Toute PR touchant `install.sh` doit re-cocher ce contrat manuellement.
 
@@ -316,7 +318,7 @@ L'identifiant exact du certificat et le team ID seront demandés au moment d'act
 ### MVP (Phase 4)
 
 - **GitHub Releases** héberge les 2 assets, empaquetés en **tarball** (`chiro-darwin-arm64.tar.gz`, `chiro-linux-x64.tar.gz` — `brew audit --new --strict` exige un asset stable versionné en archive, pas un binaire nu).
-- **`scripts/install.sh`** (réel, dans le repo) : détecte `$OS-$ARCH`, télécharge le tarball de la version voulue (`CHIRO_VERSION`, défaut `latest`), l'extrait dans un fichier temporaire puis `mv` atomique vers `$CHIRO_INSTALL_DIR/chiro` (`CHIRO_INSTALL_DIR` défaut : `~/.local/bin`) — aucune écriture destructive avant ce `mv` final, invariant nécessaire puisque le script tourne aussi via `curl | bash` depuis le self-update intégré (cf. § Self-update ci-dessous). Warning best-effort si le dossier cible n'est pas dans `$PATH`.
+- **`scripts/install.sh`** (réel, dans le repo) : détecte `$OS-$ARCH`, télécharge le tarball de la version voulue (`CHIRO_VERSION`, défaut `latest`), vérifie sa somme SHA256 contre `SHA256SUMS` (publié par `release.yml` à côté des tarballs — fail-open si absent ou si aucun outil de hash n'est dispo sur la machine, échec dur si mismatch, cf. § Self-update ci-dessous), puis l'extrait dans un fichier temporaire et `mv` atomique vers `$CHIRO_INSTALL_DIR/chiro` (`CHIRO_INSTALL_DIR` défaut : `~/.local/bin`) — aucune écriture destructive avant ce `mv` final, invariant nécessaire puisque le script tourne aussi via `curl | bash` depuis le self-update intégré. Warning best-effort si le dossier cible n'est pas dans `$PATH`.
 - L'utilisatrice (ou son conjoint dév) lance :
   ```bash
   curl -fL https://raw.githubusercontent.com/zaratan/chiro-tools/main/scripts/install.sh | bash

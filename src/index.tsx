@@ -5,7 +5,10 @@ import { App } from "./app.js";
 import { runSelfTest } from "./lib/selftest/selfTest.js";
 import { resolveInstallDirEnv } from "./lib/runtime/installDir.js";
 import { isHomebrewInstall } from "./lib/runtime/isHomebrewInstall.js";
-import { INSTALL_SCRIPT_URL } from "./lib/update/constants.js";
+import {
+  FALLBACK_INSTALL_SCRIPT_URL,
+  INSTALL_SCRIPT_URL,
+} from "./lib/update/constants.js";
 import { CHIRO_VERSION } from "./version.js";
 
 const args = process.argv.slice(2);
@@ -109,5 +112,19 @@ if (state.installAfterExit) {
   );
   // Propagate a meaningful exit code: real status if present, 130 on signal
   // (Ctrl+C convention), 1 otherwise so a silent crash is not reported as success.
-  process.exit(proc.status ?? (proc.signal !== null ? 130 : 1));
+  const exitCode = proc.status ?? (proc.signal !== null ? 130 : 1);
+
+  if (exitCode !== 0) {
+    // The pinned INSTALL_SCRIPT_URL can 404 (deleted tag, dev build with no
+    // matching release) — a raw curl error is illegible for a non-technical
+    // user, so point her at the unpinned fallback for a manual reinstall.
+    process.stderr.write(
+      "\nLa mise à jour automatique n'a pas pu aboutir.\n" +
+        "Vous pouvez réessayer plus tard, ou installer manuellement en copiant" +
+        " cette commande dans un terminal :\n\n" +
+        `  curl -fL ${FALLBACK_INSTALL_SCRIPT_URL} | bash\n\n`,
+    );
+  }
+
+  process.exit(exitCode);
 }

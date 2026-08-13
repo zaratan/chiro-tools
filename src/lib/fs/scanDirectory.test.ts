@@ -230,4 +230,25 @@ describe("checkProcessedDirConflict", () => {
     const result = await checkProcessedDirConflict(filePath);
     expect(result).toEqual({ exists: false, nonTmpCount: 0 });
   });
+
+  it("does not count a leftover .sox-tmp-* dir or .DS_Store as a conflict", async () => {
+    const processedDir = path.join(tmpDir, "processed");
+    await mkdir(processedDir);
+    await mkdir(path.join(processedDir, ".sox-tmp-a"));
+    await writeFile(path.join(processedDir, ".DS_Store"), "");
+
+    const result = await checkProcessedDirConflict(processedDir);
+    expect(result).toEqual({ exists: true, nonTmpCount: 0 });
+  });
+
+  it("still counts a real .wav file alongside hidden tmp residue as a conflict", async () => {
+    const processedDir = path.join(tmpDir, "processed");
+    await mkdir(processedDir);
+    await mkdir(path.join(processedDir, ".sox-tmp-a"));
+    await writeFile(path.join(processedDir, ".DS_Store"), "");
+    await writeFile(path.join(processedDir, "a_001.wav"), "");
+
+    const result = await checkProcessedDirConflict(processedDir);
+    expect(result).toEqual({ exists: true, nonTmpCount: 1 });
+  });
 });

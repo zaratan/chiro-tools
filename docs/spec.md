@@ -301,7 +301,7 @@ Accessible depuis l'item de menu **"Vérifier les mises à jour"**. Indépendant
    - **Erreur réseau / parse / rate-limit** : affiche un message d'erreur lisible avec mapping FR (cf. table ci-dessous).
 3. Sur **Entrée** en état "available" : pose un drapeau via `onRequestInstall()` (qui remonte jusqu'à `index.tsx`), puis `useApp().exit()`. Pas d'écran intermédiaire — `install.sh` produit son propre feedback "Téléchargement…" en sortie de Ink.
 
-**Exécution post-Ink** : après `render().waitUntilExit()`, si le drapeau est posé, `index.tsx` lance `spawnSync("bash", ["-c", "curl -fL .../install.sh | bash"], { stdio: "inherit" })` puis `process.exit(proc.status ?? 0)`. Stdout/stderr/stdin sont hérités — l'utilisatrice voit la progression curl + le `chiro installé dans ~/.local/bin/chiro` final.
+**Exécution post-Ink** : après `render().waitUntilExit()`, si le drapeau est posé, `index.tsx` lance `spawnSync("bash", ["-c", "curl -fL .../install.sh | bash"], { stdio: "inherit" })` puis `process.exit(proc.status ?? (proc.signal !== null ? 130 : 1))`. Stdout/stderr/stdin sont hérités — l'utilisatrice voit la progression curl + le `chiro installé dans ~/.local/bin/chiro` final. L'URL du script est épinglée sur le tag de la version courante depuis le Chantier D (cf. `architecture.md` § Contrat `install.sh`), pas `main`.
 
 **Codes d'erreur Update** :
 
@@ -316,7 +316,7 @@ Accessible depuis l'item de menu **"Vérifier les mises à jour"**. Indépendant
 
 Tous les codes mappent en messages français lisibles (cf. `ux.md` → "Codes d'erreur Update → libellés FR").
 
-**Limite connue** : en cas d'échec d'`install.sh` (réseau coupé en plein download), l'utilisatrice voit le `stderr` de curl, pas un message chiro-friendly. Acceptable pour le MVP.
+**Échec d'`install.sh`** : sur une somme de contrôle invalide (fichier corrompu/tronqué), le script affiche lui-même un message français bienveillant plutôt qu'une erreur brute (cf. `ux.md` § Self-update). Une coupure réseau en plein `curl` du tarball reste, elle, visible en `stderr` brut de curl (limite connue, acceptable) — mais dans tous les cas d'échec, `index.tsx` affiche en plus, après coup, un message pointant vers une commande de secours (`FALLBACK_INSTALL_SCRIPT_URL`, resté sur `main`), pour que l'utilisatrice ait toujours une action claire à faire même quand le message technique qui précède ne l'est pas.
 
 ## Règles métier
 

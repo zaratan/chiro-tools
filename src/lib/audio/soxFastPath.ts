@@ -519,10 +519,7 @@ export const runSoxBatch = async (
   try {
     await mkdir(outDir, { recursive: true });
   } catch (err) {
-    const code =
-      err instanceof Error && "code" in err
-        ? String((err as { code: unknown }).code)
-        : "UNKNOWN";
+    const code = extractErrorCode(err);
     for (const f of files) {
       state.errored.push({ file: f, reason: `mkdir:${code}` });
     }
@@ -560,10 +557,7 @@ export const runSoxBatch = async (
   try {
     firstSourceBuffer = await readFile(firstSrcPath);
   } catch (err) {
-    const code =
-      err instanceof Error && "code" in err
-        ? String((err as { code: unknown }).code)
-        : "UNKNOWN";
+    const code = extractErrorCode(err);
     state.errored.push({ file: firstFile, reason: code });
     return {
       kind: "fallback",

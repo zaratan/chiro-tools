@@ -551,6 +551,57 @@ dans un dossier d'enregistrements .wav.
 
 → stderr, quit code 0 (on ne traite pas ça comme une erreur dure).
 
+### Self-update — `install.sh`, vérification d'intégrité
+
+`install.sh` s'exécute hors Ink (premier install via `curl | bash`, ou self-update après fermeture de la TUI) : simples `echo`, mêmes symboles `✓`/`⚠` que le reste de l'app pour rester dans le même registre malgré l'absence de composants Ink.
+
+Succès (une ligne, juste avant l'extraction) :
+
+```
+✓ Fichier téléchargé vérifié
+```
+
+Avertissement non-bloquant — fichier de contrôle absent (releases publiées avant le Chantier D), aucun outil `sha256sum`/`shasum` sur la machine, ou fichier présent mais ne couvrant pas cet asset (release cassée) :
+
+```
+⚠ Impossible de vérifier que le téléchargement est complet
+  (cette version ne fournit pas de fichier de contrôle).
+  L'installation continue normalement.
+```
+
+→ stdout, l'installation se poursuit. Seul le texte entre parenthèses change selon la cause exacte — le reste ne bouge jamais : l'utilisatrice n'a rien à distinguer entre ces cas, ils se résolvent tous en « rien à faire, ça continue ».
+
+Échec dur — la somme ne correspond pas (fichier corrompu ou tronqué) :
+
+```
+⚠ Le fichier téléchargé est incomplet ou abîmé.
+
+Rien n'a été installé : votre version actuelle de chiro
+n'a pas été touchée.
+
+C'est presque toujours une coupure de connexion passagère.
+Il suffit de recommencer l'installation (ou la mise à jour
+depuis chiro) pour réessayer.
+
+Détail technique : somme de contrôle SHA256 différente de
+  celle attendue (à transmettre si vous demandez de l'aide)
+```
+
+→ stderr, quit code 1. Même structure que les écrans d'erreur Ink : titre bienveillant → rassurance (rien n'est cassé) → action (réessayer) → détail technique en dernier.
+
+### Self-update — échec du script épinglé (fallback)
+
+Depuis le Chantier D, le self-update embarqué télécharge `install.sh` depuis le tag de la version courante plutôt que `main` (cf. `architecture.md` § Contrat `install.sh`). Si l'installation échoue au global (tag introuvable, mismatch, coupure réseau…), `index.tsx` affiche en plus, après le message d'`install.sh` :
+
+```
+La mise à jour automatique n'a pas pu aboutir.
+Vous pouvez réessayer plus tard, ou installer manuellement en copiant cette commande dans un terminal :
+
+  curl -fL https://raw.githubusercontent.com/zaratan/chiro-tools/main/scripts/install.sh | bash
+```
+
+→ stderr, uniquement quand le code de sortie final est non-nul — toujours une action de secours concrète, même quand le message technique qui précède ne l'est pas pour une non-tech.
+
 ## Wordings — Flow « Découper les enregistrements » (Phase 5)
 
 ### P-Constat (nominal)

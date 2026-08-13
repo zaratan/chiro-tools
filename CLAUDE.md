@@ -93,6 +93,10 @@ Patterns à respecter (sinon code review rouge) :
 
 Ne pas spawner pendant qu'Ink dessine — stdout serait contesté.
 
+`INSTALL_SCRIPT_URL` est épinglé sur le tag de la version courante (`v${CHIRO_VERSION}`, pas `main`) depuis le Chantier D — le self-update utilise toujours LE script testé avec sa propre release. `FALLBACK_INSTALL_SCRIPT_URL` (même fichier) reste sur `main` et n'est utilisé que pour le message affiché si le script épinglé échoue (tag supprimé). Le `curl | bash` du README pour la première install pointe lui aussi `main`, indépendamment.
+
+`install.sh` télécharge aussi `SHA256SUMS` (publié par `release.yml`) et vérifie la somme du tarball avant extraction — fail-open (warning, install continue) si le fichier est absent ou si aucun outil de hash n'est dispo, échec dur si mismatch.
+
 Auto-check au boot : `App.useEffect` mount → `checkForUpdate` (cache disque 6 h à `~/.chiro/update-check.json`). Silent fail total au boot — pas d'erreur visible. Hint jaune dans le menu si une version est dispo.
 
 `CHIRO_VERSION` est lu depuis `package.json` à la compilation. Le workflow `release.yml` **réécrit `package.json` au tag** (`${GITHUB_REF_NAME#v}`) avant le build, sinon le binaire ne reflète pas la version du release. Sanity check après build : `./dist/chiro-... --version` doit matcher le tag.

@@ -1,7 +1,8 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_MAX_INPUT_BYTES } from "../batchPlan.js";
 import {
   CHUNK_OUTPUT_SECONDS,
   EXPAND_MODE_OUTPUT_RATE as AUDIOMOTH_OUTPUT_RATE,
@@ -123,5 +124,40 @@ describe("estimateChunkCount", () => {
       totalDurationSec: 0,
       totalBytes: 0,
     });
+  });
+
+  it("excludes already-chunked _NNN.wav files from the estimate, mirroring buildQueue's admission policy", async () => {
+    const perChunk = samplesPerChunk(TEENSY_RATE);
+    await writeFileOfSamples("real.wav", perChunk);
+    await writeFileOfSamples("real_001.wav", perChunk);
+
+    const estimate = await estimateChunkCount(
+      ["real.wav", "real_001.wav"],
+      tmpDir,
+      "preserve",
+    );
+
+    expect(estimate.totalChunks).toBe(1);
+    expect(estimate.totalBytes).toBe(perChunk * BYTES_PER_SAMPLE);
+  });
+
+  it("excludes files over the admission size cap (DEFAULT_MAX_INPUT_BYTES) from the estimate", async () => {
+    const perChunk = samplesPerChunk(TEENSY_RATE);
+    await writeFileOfSamples("real.wav", perChunk);
+    // A file the run would skip as too-large must not inflate the preview —
+    // otherwise the bar never reaches 100 % once the run actually skips it.
+    // Sparse-truncated rather than actually written, so the test stays fast.
+    const hugeFile = path.join(tmpDir, "huge.wav");
+    await writeFile(hugeFile, Buffer.alloc(0));
+    await truncate(hugeFile, DEFAULT_MAX_INPUT_BYTES + 1);
+
+    const estimate = await estimateChunkCount(
+      ["real.wav", "huge.wav"],
+      tmpDir,
+      "preserve",
+    );
+
+    expect(estimate.totalChunks).toBe(1);
+    expect(estimate.totalBytes).toBe(perChunk * BYTES_PER_SAMPLE);
   });
 });

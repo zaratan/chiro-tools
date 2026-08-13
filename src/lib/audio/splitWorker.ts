@@ -15,6 +15,7 @@ import { TIME_EXPANSION_FACTOR } from "./constants.js";
 import { buildChunkMeta } from "./metadata/chunkMetadata.js";
 import { buildGuanoChunk } from "./metadata/guano.js";
 import { buildWamdChunk } from "./metadata/wamd.js";
+import { extractErrorCode } from "../fs/safeFsOps.js";
 import type { TimeExpansionMode } from "../../types.js";
 
 export type WorkerMetaConfig =
@@ -117,14 +118,10 @@ const processFile = async (
     buffer = await readFile(filePath);
     fileSizeBytes = buffer.byteLength;
   } catch (err) {
-    const reason =
-      err instanceof Error && "code" in err
-        ? String((err as { code: unknown }).code)
-        : "UNKNOWN";
     post({
       kind: "file-error",
       fileIndex,
-      reason,
+      reason: extractErrorCode(err),
     } satisfies WorkerOutMessage);
     return;
   }
@@ -169,14 +166,10 @@ const processFile = async (
     try {
       await writeTmpAndRename(outDir, chunkName, chunk.buffer, ancillaries);
     } catch (err) {
-      const reason =
-        err instanceof Error && "code" in err
-          ? String((err as { code: unknown }).code)
-          : "UNKNOWN";
       post({
         kind: "file-error",
         fileIndex,
-        reason,
+        reason: extractErrorCode(err),
       } satisfies WorkerOutMessage);
       return;
     }

@@ -165,6 +165,14 @@ jobs:
         with:
           name: chiro-linux-x64
           path: dist/
+      # Consumed by install.sh (Chantier D) to verify the tarball before
+      # extraction. `cd dist` first so the file lists bare asset names
+      # (chiro-darwin-arm64.tar.gz), not dist/chiro-darwin-arm64.tar.gz —
+      # install.sh matches on the bare name it already builds from OS/ARCH.
+      - name: Generate SHA256SUMS
+        run: |
+          cd dist
+          sha256sum chiro-darwin-arm64.tar.gz chiro-linux-x64.tar.gz > SHA256SUMS
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -181,4 +189,5 @@ jobs:
             --generate-notes \
             "${FLAGS[@]}" \
             dist/chiro-darwin-arm64.tar.gz \
-            dist/chiro-linux-x64.tar.gz
+            dist/chiro-linux-x64.tar.gz \
+            dist/SHA256SUMS

@@ -10,6 +10,7 @@ import type {
 } from "./splitWorker.js";
 import { CHUNK_OUTPUT_SECONDS } from "./constants.js";
 import { parseSourceTimestamp } from "../files/parseTimestamp.js";
+import { extractErrorCode } from "../fs/safeFsOps.js";
 import {
   buildOutDir,
   buildQueue,
@@ -173,10 +174,7 @@ export const run = async (
   try {
     await mkdir(outDir, { recursive: true });
   } catch (err) {
-    const code =
-      err instanceof Error && "code" in err
-        ? String((err as { code: unknown }).code)
-        : "UNKNOWN";
+    const code = extractErrorCode(err);
     for (const f of files) {
       state.errored.push({ file: f, reason: `mkdir:${code}` });
     }
