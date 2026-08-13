@@ -27,7 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 bun "$SCRIPT_DIR/generate-demo-fixtures.ts" "$DEMO_DIR"
 
 # Recorder log file that ships next to the .wavs — must be ignored by
-# `scanWavFiles` (.txt extension, not .wav).
+# `scanDirectory` (.txt extension, not .wav).
 touch "$DEMO_DIR/LogPR1925645.txt"
 
 echo "✓ Demo dataset reset in $DEMO_DIR"

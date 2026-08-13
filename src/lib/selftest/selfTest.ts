@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { WaveFile } from "wavefile";
+import { buildChunkName, buildOutDir } from "../audio/batchPlan.js";
 import { processWavFiles } from "../audio/processWavFiles.js";
 import { detectSox } from "../audio/soxFastPath.js";
 import { CHIRO_VERSION } from "../../version.js";
@@ -55,8 +56,7 @@ const chunkPathFor = (
   outDir: string,
   baseName: string,
   chunkIndex: number,
-): string =>
-  path.join(outDir, `${baseName}_${String(chunkIndex).padStart(3, "0")}.wav`);
+): string => path.join(outDir, buildChunkName(baseName, chunkIndex));
 
 type ChunkVerification =
   { kind: "ok"; hashes: string[] } | { kind: "error"; detail: string };
@@ -234,7 +234,7 @@ const runChecks = async (dir: string): Promise<SelfTestResult> => {
     `fixture : WAV ${String(FIXTURE_DURATION_SECONDS)} s généré (rampe déterministe)`,
   );
 
-  const outDir = path.join(dir, "processed");
+  const outDir = buildOutDir(dir);
   const baseName = path.parse(FIXTURE_FILENAME).name;
 
   const poolResult = await runPoolStep(dir, outDir, baseName);

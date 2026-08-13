@@ -1,15 +1,9 @@
-import { describeError } from "../../lib/errors/describeError.js";
 import { Box, Text, useInput } from "ink";
-import { constants as fsConstants } from "node:fs";
-import { access, readdir } from "node:fs/promises";
 import { useEffect, useState } from "react";
 import { Footer } from "../../components/Footer.js";
-import { isAlreadyPrefixed } from "../../lib/vigie-chiro/isAlreadyPrefixed.js";
+import { scanDirectory } from "../../lib/fs/scanDirectory.js";
+import { buildConstatCounts } from "../../lib/vigie-chiro/buildConstatCounts.js";
 import type { ConstatCounts } from "../../types.js";
-
-const isWavFile = (name: string): boolean =>
-  name.toLowerCase().endsWith(".wav");
-const isUpperCaseWavFile = (name: string): boolean => name.endsWith(".WAV");
 
 type ScanState =
   | { kind: "loading" }
@@ -17,60 +11,6 @@ type ScanState =
   | { kind: "not-writable" }
   | { kind: "scan-error"; rawCode: string }
   | { kind: "ready"; counts: ConstatCounts; wavFiles: string[] };
-
-const scanDirectory = async (cwd: string): Promise<ScanState> => {
-  try {
-    await access(cwd, fsConstants.R_OK);
-  } catch {
-    return { kind: "not-readable" };
-  }
-  try {
-    await access(cwd, fsConstants.W_OK);
-  } catch {
-    return { kind: "not-writable" };
-  }
-
-  let entries;
-  try {
-    entries = await readdir(cwd, { withFileTypes: true });
-  } catch (err) {
-    return { kind: "scan-error", rawCode: describeError(err) };
-  }
-
-  const wavFiles: string[] = [];
-  let alreadyPrefixed = 0;
-  let upperCaseWav = 0;
-  let otherIgnored = 0;
-
-  for (const dirent of entries) {
-    if (!dirent.isFile()) continue;
-    if (dirent.name.startsWith(".")) continue;
-    if (!isWavFile(dirent.name)) {
-      otherIgnored += 1;
-      continue;
-    }
-    wavFiles.push(dirent.name);
-    if (isAlreadyPrefixed(dirent.name)) {
-      alreadyPrefixed += 1;
-    }
-    if (isUpperCaseWavFile(dirent.name)) {
-      upperCaseWav += 1;
-    }
-  }
-
-  wavFiles.sort();
-
-  return {
-    kind: "ready",
-    wavFiles,
-    counts: {
-      totalWav: wavFiles.length,
-      alreadyPrefixed,
-      upperCaseWav,
-      otherIgnored,
-    },
-  };
-};
 
 export type ConstatScreenProps = {
   cwd: string;
@@ -89,7 +29,15 @@ export const ConstatScreen = ({
     let cancelled = false;
     void scanDirectory(cwd).then((result) => {
       if (cancelled) return;
-      setState(result);
+      if (result.kind !== "ok") {
+        setState(result);
+        return;
+      }
+      setState({
+        kind: "ready",
+        wavFiles: result.wavFiles,
+        counts: buildConstatCounts(result.wavFiles, result.ignoredFileCount),
+      });
     });
     return () => {
       cancelled = true;

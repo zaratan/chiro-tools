@@ -43,7 +43,9 @@ cd /tmp/chiro-demo && bun /Users/zaratan/Projects/chiro-tools/src/index.tsx
 | `src/components/` | `ink`, `react`                                  | `lib/`, `screens/`      | best-effort |
 | `src/types.ts`    | (aucun import — pure types)                     | tout                    | n/a         |
 
-**Si une logique métier dépasse 5 lignes dans un screen, elle migre dans `lib/`.** C'est non-négociable.
+Les hooks `use*.ts` colocalisés dans `screens/<flow>/` sont la couche d'orchestration : cycle de vie du run, AbortController, `runningRef`, logging — zéro JSX, zéro métier (délégué à `lib/`). Pattern de référence : `useVigieProcessRun.ts`.
+
+**Si une logique métier dépasse 5 lignes dans un screen, elle migre dans `lib/`.** C'est non-négociable. **Aucun `process.env` dans `screens/`** : tout kill-switch passe par une fonction `lib/` nommée (`metadataEnabled`, `detectSox`…) — pas de `lib/runtime/env.ts` centralisateur pour autant, une fonction par flag là où il est consommé.
 
 Patterns à respecter (sinon code review rouge) :
 

@@ -61,6 +61,21 @@ const triggerRunError = async (
   return () => lastFrame() ?? "";
 };
 
+describe("ProcessConfirmScreen — preview (rendered output)", () => {
+  it("shows the './processed/' output folder once the estimate resolves", async () => {
+    const runningRef = { current: false };
+    const neverCalled: ProcessWavFilesFn = () => {
+      throw new Error("processWavFiles must not be called before Entrée");
+    };
+
+    const { lastFrame } = renderConfirmScreen(neverCalled, runningRef);
+    await waitUntil(() => !(lastFrame() ?? "").includes("Estimation…"));
+
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("./processed/");
+  });
+});
+
 describe("ProcessConfirmScreen — run-error (degraded)", () => {
   it("shows the cwd, the full raw code, and the French label, and clears runningRef, when processWavFiles rejects", async () => {
     const runningRef = { current: false };

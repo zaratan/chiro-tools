@@ -156,19 +156,6 @@ describe("runSoxBatch", () => {
     expect(result.outcome.processed).toEqual([]);
   });
 
-  it("skips files matching _NNN.wav pattern without calling sox", async () => {
-    const result = await runSoxBatch(
-      fakeSoxFail,
-      ["source_000.wav", "source_001.wav"],
-      tmpDir,
-      { mode: "preserve" },
-    );
-
-    expect(result.kind).toBe("completed");
-    if (result.kind !== "completed") throw new Error("type narrowing");
-    expect(result.outcome.skippedAlreadyChunked).toHaveLength(2);
-  });
-
   it("skips files exceeding maxInputBytes and records them as skippedTooLarge", async () => {
     await writeWav("big.wav", { durationSeconds: 1 });
 

@@ -1,5 +1,4 @@
-import os from "node:os";
-import { mkdir, readdir, stat, unlink } from "node:fs/promises";
+import { mkdir, readdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
@@ -11,6 +10,13 @@ import type {
 } from "./splitWorker.js";
 import { CHUNK_OUTPUT_SECONDS } from "./constants.js";
 import { parseSourceTimestamp } from "../files/parseTimestamp.js";
+import {
+  buildOutDir,
+  buildQueue,
+  computeConcurrency,
+  DEFAULT_MAX_INPUT_BYTES,
+  makeEmit,
+} from "./batchPlan.js";
 import type {
   MetadataConfig,
   ProcessInput,
@@ -31,10 +37,6 @@ const resolveWorkerPath = (): string => {
 };
 
 const ABORT_TIMEOUT_MS = 2000;
-const MEMORY_PER_WORKER_MB = 400;
-const MEMORY_USABLE_FRACTION = 0.7;
-const HARD_CAP = 12;
-const MIN_WORKERS = 2;
 // Stable error codes surfaced to the UI as `ProcessError.reason`. Any new
 // value added here must also be added to
 // `src/screens/vigie-process/errorMessages.ts`, its EMITTED_CODES test, and
@@ -42,25 +44,6 @@ const MIN_WORKERS = 2;
 const WORKER_SPAWN_FAILED_REASON = "worker-spawn-failed";
 const NO_WORKERS_AVAILABLE_REASON = "no-workers-available";
 const WORKER_DIED_REASON = "worker-died";
-
-export const clampWorkerCount = (cpuCount: number, totalMB: number): number => {
-  const usableMB = totalMB * MEMORY_USABLE_FRACTION;
-  const maxByMemory = Math.floor(usableMB / MEMORY_PER_WORKER_MB);
-  const maxByCpu = cpuCount - 1;
-  return Math.max(MIN_WORKERS, Math.min(maxByMemory, maxByCpu, HARD_CAP));
-};
-
-const computeWorkerCount = (): number => {
-  const envOverride = process.env.CHIRO_WORKER_COUNT;
-  if (envOverride !== undefined && envOverride !== "") {
-    const parsed = parseInt(envOverride, 10);
-    if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  }
-
-  const cpuCount = os.cpus().length;
-  const totalMB = os.totalmem() / (1024 * 1024);
-  return clampWorkerCount(cpuCount, totalMB);
-};
 
 type WorkerState = {
   worker: Worker;
@@ -70,37 +53,12 @@ type WorkerState = {
   abortedResolve: (() => void) | null;
 };
 
-type QueuedFile = {
-  filePath: string;
-  fileIndex: number;
-  baseName: string;
-  fileSizeBytes: number;
-};
-
 type BatchState = {
   processed: ProcessedFile[];
   errored: ProcessError[];
   skippedTooLarge: string[];
   skippedAlreadyChunked: string[];
   interrupted: boolean;
-};
-
-const ALREADY_CHUNKED_REGEX = /_\d{3}\.wav$/i;
-const DEFAULT_MAX_INPUT_BYTES = 500 * 1024 * 1024;
-const PROCESSED_DIRNAME = "processed";
-
-const buildOutDir = (dir: string): string => path.join(dir, PROCESSED_DIRNAME);
-
-const makeEmit = (
-  onProgress: (event: ProgressEvent) => void,
-): ((event: ProgressEvent) => void) => {
-  return (event: ProgressEvent): void => {
-    try {
-      onProgress(event);
-    } catch {
-      // swallow — a buggy callback must not crash the pool
-    }
-  };
 };
 
 const preCleanOrphanTmps = async (outDir: string): Promise<void> => {
@@ -202,9 +160,7 @@ export const run = async (
   const abortTimeoutMs = options?.abortTimeoutMs ?? ABORT_TIMEOUT_MS;
   const outDir = buildOutDir(dir);
 
-  const emit = options?.onProgress
-    ? makeEmit(options.onProgress)
-    : (_event: ProgressEvent): void => undefined;
+  const emit = makeEmit(options?.onProgress);
 
   const state: BatchState = {
     processed: [],
@@ -229,51 +185,18 @@ export const run = async (
 
   await preCleanOrphanTmps(outDir);
 
-  const queue: QueuedFile[] = [];
-  let globalFileIndex = 0;
-
-  for (const file of files) {
-    const fileIndex = globalFileIndex;
-    globalFileIndex += 1;
-
-    if (ALREADY_CHUNKED_REGEX.test(file)) {
-      state.skippedAlreadyChunked.push(file);
-      continue;
-    }
-
-    const absSource = path.join(dir, file);
-    let size: number;
-    try {
-      const stats = await stat(absSource);
-      size = stats.size;
-    } catch (err) {
-      const code =
-        err instanceof Error && "code" in err
-          ? String((err as { code: unknown }).code)
-          : "UNKNOWN";
-      state.errored.push({ file, reason: code });
-      continue;
-    }
-
-    if (size > maxInputBytes) {
-      state.skippedTooLarge.push(file);
-      continue;
-    }
-
-    queue.push({
-      filePath: absSource,
-      fileIndex,
-      baseName: path.parse(file).name,
-      fileSizeBytes: size,
-    });
-  }
+  const { queue, skippedTooLarge, skippedAlreadyChunked, errored } =
+    await buildQueue(files, dir, maxInputBytes);
+  state.skippedTooLarge = skippedTooLarge;
+  state.skippedAlreadyChunked = skippedAlreadyChunked;
+  state.errored = errored;
 
   if (queue.length === 0 || isAborted()) {
     if (isAborted()) state.interrupted = true;
     return { ...state, durationMs: performance.now() - start };
   }
 
-  const workerCount = Math.min(computeWorkerCount(), queue.length);
+  const workerCount = Math.min(computeConcurrency(), queue.length);
   const fileSizeMap = new Map<number, number>();
   for (const q of queue) {
     fileSizeMap.set(q.fileIndex, q.fileSizeBytes);
@@ -333,20 +256,20 @@ export const run = async (
       emit({
         kind: "file-start",
         fileIndex: item.fileIndex,
-        fileName: path.basename(item.filePath),
+        fileName: item.file,
         fileSizeBytes: item.fileSizeBytes,
         totalFiles: files.length,
       });
 
       const msg: WorkerInMessage = {
         kind: "process-file",
-        path: item.filePath,
+        path: item.absSource,
         mode: input.mode,
         chunkSeconds: CHUNK_OUTPUT_SECONDS,
         outDir,
         fileIndex: item.fileIndex,
         baseName: item.baseName,
-        meta: buildWorkerMeta(path.basename(item.filePath), options?.metadata),
+        meta: buildWorkerMeta(item.file, options?.metadata),
       };
       ws.worker.postMessage(msg);
     };

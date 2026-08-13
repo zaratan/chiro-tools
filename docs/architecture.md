@@ -90,12 +90,13 @@ chiro-tools/
 │   │   │   ├── ResultScreen.tsx
 │   │   │   └── errorMessages.ts   # mapping FR pour codes d'erreur rename
 │   │   └── vigie-process/         # flow "Découper" — 4 écrans (Phase 5) + progression (Phase 5.E)
-│   │       ├── ConstatScreen.tsx  # scan + perms + processed/ existant + statfs
+│   │       ├── ConstatScreen.tsx  # constat — scan via lib/fs/scanDirectory + checks processed/ et espace disque
 │   │       ├── FormScreen.tsx     # sélecteur Teensy/Autre inline (pas de RadioSelect)
-│   │       ├── ConfirmScreen.tsx  # preview durée + execution + progression + logSession v2
+│   │       ├── ConfirmScreen.tsx  # affichage + navigation seulement — l'orchestration vit dans useVigieProcessRun
 │   │       ├── ResultScreen.tsx   # 4 variantes : success / interrupted / all-failed / partial
 │   │       ├── RunningView.tsx    # barre de progression + ETA pendant l'exécution
 │   │       ├── useProgressState.ts # hook throttle 100 ms + finalizeRender() synchrone
+│   │       ├── useVigieProcessRun.ts # hook d'orchestration du run — estimate, abort, runningRef, logSession
 │   │       └── errorMessages.ts   # mapping FR pour codes d'erreur process
 │   ├── components/
 │   │   ├── TextField.tsx          # label + ink-text-input (ou Text en mode managed) + aide/erreur
@@ -104,13 +105,15 @@ chiro-tools/
 │   │   ├── vigie-chiro/
 │   │   │   ├── prefix.ts          # buildPrefix({carre,annee,passage,point}) → "Car..."
 │   │   │   ├── isAlreadyPrefixed.ts
+│   │   │   ├── buildConstatCounts.ts # compteurs du Constat (alreadyPrefixed/upperCaseWav/otherIgnored)
 │   │   │   └── validation.ts      # validators purs par champ
 │   │   ├── fs/
-│   │   │   ├── scanWavFiles.ts    # lit cwd, filtre .wav, ignore dotfiles/dirs/symlinks
+│   │   │   ├── scanDirectory.ts   # scan unique des 2 flows : scanDirectory + sumFileSizes + checkProcessedDirConflict
 │   │   │   ├── safeFsOps.ts       # renameWithFallback (EXDEV) + writeFileAtomic (.tmp + rename)
 │   │   │   ├── planRenames.ts     # produit la liste {from, to, skipReason?}
 │   │   │   └── applyRenames.ts    # consume renameWithFallback, séquentiel, gestion SIGINT
 │   │   ├── audio/                 # lib audio Phase 5-7 — split + TE×10 lossless + perf + métadonnées
+│   │   │   ├── batchPlan.ts       # politique commune A/B : admission (regex, cap 500 MB), processed/, concurrence, buildChunkName
 │   │   │   ├── constants.ts       # CHUNK_OUTPUT_SECONDS=50, CHUNK_REAL_SECONDS=5, TIME_EXPANSION_FACTOR=10
 │   │   │   ├── splitWavFile.ts    # Generator<chunk|abort|error> ; pas d'I/O
 │   │   │   ├── processWavFiles.ts # orchestrateur — route vers soxFastPath ou splitWorkerPool, gère le fallback
@@ -132,6 +135,7 @@ chiro-tools/
 │   │   │   └── describeError.ts   # mapping code d'erreur → message FR bienveillant
 │   │   ├── runtime/
 │   │   │   ├── isHomebrewInstall.ts # détecte un install Homebrew via realpathSync(process.execPath)
+│   │   │   ├── metadataEnabled.ts # kill-switch CHIRO_DISABLE_METADATA (les screens ne lisent jamais process.env)
 │   │   │   └── installDir.ts      # CHIRO_INSTALL_DIR override pour que le self-update cible le binaire réellement lancé
 │   │   ├── selftest/
 │   │   │   └── selfTest.ts        # --self-test : exercice binaire compilé de bout en bout
@@ -145,7 +149,8 @@ chiro-tools/
 │   │   │   ├── cache.ts           # ~/.chiro/update-check.json : read/write atomique + isCacheFresh
 │   │   │   └── checkForUpdate.ts  # orchestrateur cache → fetch → compare, silent fail
 │   │   ├── logging/
-│   │   │   └── log.ts             # append JSONL dans ~/.chiro/sessions.jsonl
+│   │   │   ├── log.ts             # append JSONL dans ~/.chiro/sessions.jsonl
+│   │   │   └── buildVigieProcessSessionEvent.ts # SessionEvent v2 depuis un ProcessResult
 │   │   └── e2e.test.ts            # round-trip complet sur dossier mkdtemp
 ├── .gitattributes                 # LFS pour test-data/
 ├── .gitignore
@@ -163,7 +168,8 @@ Convention tests : la plupart des fichiers `*.test.ts(x)` sont colocalisés à c
 ### Principes de séparation
 
 - **`src/lib/`** : 100% TypeScript pur, **aucun import** de `ink`, `react`, ni `ink-text-input`. Tout est testable en `vitest` sans rendu Ink. Cible : couverture 100%.
-- **`src/screens/`** : composants Ink qui orchestrent. Ils appellent `lib/`, jamais l'inverse. Pas de logique métier ici (si elle dépasse 5 lignes, elle migre dans `lib/`).
+- **`src/screens/`** : composants Ink qui orchestrent. Ils appellent `lib/`, jamais l'inverse. Pas de logique métier ici (si elle dépasse 5 lignes, elle migre dans `lib/`). Aucun `process.env` dans les screens : tout kill-switch passe par une fonction `lib/` nommée (`metadataEnabled`, `detectSox`…).
+- **Hooks `use*.ts` colocalisés dans `screens/<flow>/`** : orchestration de cycle de vie (état du run, AbortController, `runningRef`, logging) — zéro JSX, zéro logique métier (déléguée à `lib/`). Pattern de référence : `useVigieProcessRun`.
 - **`src/components/`** : composants Ink réutilisables (visuel). Pas de logique non plus.
 - **`src/types.ts`** : types partagés (entrées formulaire, plan de renommage, événement de log). Pas de comportement.
 
@@ -351,16 +357,11 @@ function* splitWavFile(buffer: Uint8Array, opts): Generator<
 
 Il prend un `Uint8Array` (= contenu lu d'un .wav) et yield un chunk encodé à la fois — la mémoire ne tient jamais plus d'un chunk décodé + un chunk encodé.
 
-`src/lib/audio/processWavFiles.ts` est l'**orchestrateur I/O** :
+Trois responsabilités, trois modules :
 
-1. `mkdir -p <cwd>/processed/`.
-2. Pre-clean `processed/*.tmp` orphelins d'un run interrompu (best-effort).
-3. Pour chaque fichier source :
-   - filtre regex `_\d{3}\.wav$` → `skippedAlreadyChunked` (évite de re-splitter des chunks déplacés à la racine)
-   - `fstat`, si `size > maxInputBytes (500 MB)` → `skippedTooLarge`
-   - `readFile`, puis `for (const yielded of splitWavFile(...))`
-   - chaque chunk passe par `writeFileAtomic` (`.tmp` puis `rename`, fallback `EXDEV`)
-4. Retourne `ProcessOutcome` avec processed / errored / skipped / interrupted / durationMs.
+- **`src/lib/audio/processWavFiles.ts`** — routeur (~50 lignes) : choisit le moteur (sox si `options.sox` fourni, worker pool sinon), applique la politique de fallback per-batch first-error, pose `engine` / `engine_fallback_count` / `metadata` sur le `ProcessResult`.
+- **`src/lib/audio/batchPlan.ts`** — politique d'admission commune aux deux moteurs : filtre regex `_\d{3}\.wav$` → `skippedAlreadyChunked`, `stat` + cap `maxInputBytes` (500 MB) → `skippedTooLarge`, constitution de la file (`buildQueue`), nom du dossier de sortie, heuristique de concurrence, `buildChunkName` (la convention `_NNN.wav` que la regex doit reconnaître).
+- **`splitWorkerPool.ts` / `soxFastPath.ts`** — exécution : lecture, split, écriture atomique (`.tmp` puis `rename`, fallback `EXDEV`), retour `ProcessOutcome` avec processed / errored / skipped / interrupted / durationMs.
 
 ### Non-destructivité — invariants garantis
 
@@ -424,19 +425,27 @@ Internement :
 
 `onProgress` et `finalizeRender` sont stables (`useCallback([])`), donc safe à passer dans les options de `processWavFiles` sans re-render.
 
-### Drift watch — `ConfirmScreen.tsx`
+### Pattern `useVigieProcessRun` (extraction réalisée — chantier C, août 2026)
 
-Le screen accumule maintenant : preview + run + progression + ETA + abort + log + state machine. Une prochaine modification non-triviale (ex : ajout d'une option de configuration, d'un step de validation supplémentaire) doit déclencher l'extraction d'un hook `useVigieProcessRun()` qui owne le controller d'abort, le `runningRef`, le `logSession`, et l'estimation. À la même occasion, migrer `estimateChunkCount` (logique audio domain actuellement inlinée dans le screen) vers `src/lib/audio/` — la layer rule de CLAUDE.md voudrait qu'elle y vive déjà, mais l'extraction est différée tant qu'elle a un seul consommateur. `ConfirmScreen` ne ferait alors plus que le rendu. Aujourd'hui le screen reste tolérable mais à la limite haute du raisonnable pour un screen unique.
+Le hook (`src/screens/vigie-process/useVigieProcessRun.ts`) possède : la machine d'état du run (estimate → preview → running → run-error), l'`AbortController`, le `runningRef` consulté par le Ctrl+C global, l'appel `logSession` (via `lib/logging/buildVigieProcessSessionEvent`). Le screen possède : le rendu et le mapping touches → actions (`abort()` exposé par le hook, câblé au Ctrl+C par le screen). Le métier est entièrement en `lib/` (`estimateChunkCount`, `processWavFiles`, `metadataEnabled`).
+
+C'est le pattern de référence pour les futurs écrans V2 (undo, batch). Deux mises en garde avant de le recopier : le handshake impératif `registerRunningViewHandles` (refs passées enfant → hook via `onMount`) fonctionne ici mais un second écran devrait plutôt faire posséder `useProgressState` directement par le hook ; et l'effet d'estimation dépend de la stabilité de `wavFiles` fournie par `app.tsx`.
 
 ## Performance pipeline (Phase 6)
 
 Le découpage est CPU-bound : `wavefile.toBuffer()` ré-encode header + samples par chunk (~30–50 ms × 5–6 chunks × N fichiers). Sur dataset réel (9301 fichiers AudioMoth/Teensy déjà préfixés), le pipeline mono-thread initial prend ~3h30. Phase 6 livre deux optimisations cumulables : worker pool wavefile (toujours actif) et fast-path sox (opt-in).
 
+### Politique de batch commune — `src/lib/audio/batchPlan.ts`
+
+Extraite des deux pipelines (chantier A, août 2026) pour rendre leur divergence structurellement impossible — une seule source pour : `ALREADY_CHUNKED_REGEX` (`_\d{3}\.wav$`, skip des chunks déjà produits), `DEFAULT_MAX_INPUT_BYTES` (500 MB), `PROCESSED_DIRNAME`/`buildOutDir`/`PROCESSED_DIR_DISPLAY`, `buildQueue` (la boucle d'admission complète), `makeEmit` (throttle de progression), `clampWorkerCount`/`computeConcurrency` (heuristique ci-dessous, partagée par les deux moteurs), et `buildChunkName` (production du nom `_NNN.wav` — partagée pour que la regex reconnaisse toujours sa propre sortie).
+
+**Invariants partagés A/B** : (1) admission → `batchPlan`, (2) header canonique → `wavHeader.rewriteHeaderToStandardPcm`, (3) nommage de sortie → `batchPlan.buildChunkName`. Tout nouvel invariant inter-pipelines doit vivre ici, pas être dupliqué.
+
 ### Pipeline A — Worker pool wavefile
 
 `src/lib/audio/splitWorkerPool.ts` orchestre N workers `node:worker_threads` qui exécutent chacun `splitWavFile` sur un fichier dédié. Le pool fait la queue files-as-tasks, dispatche au prochain worker idle, agrège les `ProgressEvent` avec un throttle de 100 ms (10 Hz). Gain attendu 3–6× selon la machine.
 
-`N` calculé dynamiquement au mount :
+`N` calculé dynamiquement au mount (`batchPlan.clampWorkerCount`) :
 
 ```ts
 const N = Math.max(
@@ -477,7 +486,7 @@ Les builders vivent dans `src/lib/audio/metadata/` :
 
 Pipeline worker pool (A) : `splitWorker.writeTmpAndRename` appelle `finalizeChunk(tmp, { expand10x: false, ancillaries: [wamd, guano] })`. Pipeline sox (B) : `processOneFile` appelle `rewriteHeaderToStandardPcm` puis lit `dataSize` du header canonique pour calculer `chunkSamples` avant `appendAncillaryChunks`. Les deux pipelines produisent des bytes identiques (validé par run manuel sur `test-data/real_process_teensy/`).
 
-Le kill-switch `CHIRO_DISABLE_METADATA=1` est lu dans `ConfirmScreen.tsx` au démarrage de la session ; il est propagé via `ProcessOptions.metadata.enabled = false`. État tracé dans `SessionEvent.result.metadata: "full" | "off"`. Le timestamp source est parsé depuis le filename (`src/lib/files/parseTimestamp.ts`) — pattern `_YYYYMMDD_HHMMSS` ancré pour éviter de matcher l'année du préfixe Vigie-Chiro (`Car…-2026-…`). Si non parsable, la ligne `Timestamp:` est omise du GUANO et le record `0x0005` est omis du wamd.
+Le kill-switch `CHIRO_DISABLE_METADATA=1` est lu par `lib/runtime/metadataEnabled.ts` (appelé par `useVigieProcessRun` — les screens ne lisent jamais `process.env`) ; il est propagé via `ProcessOptions.metadata.enabled = false`. État tracé dans `SessionEvent.result.metadata: "full" | "off"`. Le timestamp source est parsé depuis le filename (`src/lib/files/parseTimestamp.ts`) — pattern `_YYYYMMDD_HHMMSS` ancré pour éviter de matcher l'année du préfixe Vigie-Chiro (`Car…-2026-…`). Si non parsable, la ligne `Timestamp:` est omise du GUANO et le record `0x0005` est omis du wamd.
 
 ### Routage et politique fallback
 
@@ -518,7 +527,7 @@ return {
 };
 ```
 
-Il n'y a pas de fonction `logSessionFallback` : le pipeline réellement utilisé et le compte de fallback sont simplement portés sur le `ProcessResult` retourné (`engine`, `engine_fallback_count`), et c'est l'appelant (`ConfirmScreen.tsx`) qui les transmet à `logSession` au moment de construire le `SessionEvent` v2.
+Il n'y a pas de fonction `logSessionFallback` : le pipeline réellement utilisé et le compte de fallback sont simplement portés sur le `ProcessResult` retourné (`engine`, `engine_fallback_count`), et c'est `useVigieProcessRun` qui les transmet à `logSession` via `lib/logging/buildVigieProcessSessionEvent` au moment de construire le `SessionEvent` v2.
 
 **Politique per-batch first-error** : si sox crashe OU si spot-check échoue sur le 1er fichier, **tout le batch** retraite via le worker pool (pas de mix per-file). Un seul invariant à vérifier, pas de drift inter-pipeline au sein d'un batch. Si sox foire seulement à partir du fichier #3 (le 1er a validé), c'est probablement un fichier corrompu — log warning, ajoute à `errored`, continue le batch. `SessionEvent.result.engine` et `engine_fallback_count` enregistrent le pipeline réellement utilisé.
 
@@ -602,7 +611,7 @@ Note : le smoke test post-build TUI complet (golden path interactif) nécessiter
    - Point en minuscule normalisé (`a1` → `A1`)
    - Passage 1, 99, 100
 2. **`isAlreadyPrefixed.test.ts`** : matche/ne matche pas la regex de la spec.
-3. **`scanWavFiles.test.ts`** : avec un dossier temporaire (`fs.mkdtemp`), vérifier filtre `.wav`/`.WAV`/dotfiles/dirs/symlinks.
+3. **`scanDirectory.test.ts`** : avec un dossier temporaire (`fs.mkdtemp`), vérifier filtre `.wav`/`.WAV`/dotfiles/dirs/symlinks + conflit `processed/` + somme de tailles.
 4. **`planRenames.test.ts`** : idempotence, collisions sur disque, ordre alphabétique stable, casse `.WAV` → `.wav`.
 5. **`applyRenames.test.ts`** : succès, fallback EXDEV simulé (mock `fs.rename` qui throw `EXDEV` → vérifier copyFile+unlink appelés), erreur partielle (un fichier renommé puis EACCES sur le suivant → résultat partiel cohérent).
 6. **`e2e.test.ts`** : test round-trip complet — créer `mkdtemp` avec 10 fichiers variés (`.wav`, `.WAV`, déjà préfixé, accents, espaces, non-wav), invoquer le flux `scan → plan → apply`, asserter l'état final du disque.

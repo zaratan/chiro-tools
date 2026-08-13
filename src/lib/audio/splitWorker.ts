@@ -8,6 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { parentPort } from "node:worker_threads";
+import { buildChunkName } from "./batchPlan.js";
 import { finalizeChunk } from "./finalizeChunk.js";
 import { splitWavFile } from "./splitWavFile.js";
 import { TIME_EXPANSION_FACTOR } from "./constants.js";
@@ -56,8 +57,6 @@ const port = parentPort;
 const post = (msg: WorkerOutMessage): void => {
   if (port !== null) port.postMessage(msg);
 };
-
-const padIndex = (n: number): string => String(n).padStart(3, "0");
 
 let abortRequested = false;
 
@@ -159,7 +158,7 @@ const processFile = async (
     }
 
     const { chunk } = yielded;
-    const chunkName = `${baseName}_${padIndex(chunk.index)}.wav`;
+    const chunkName = buildChunkName(baseName, chunk.index);
     const ancillaries = buildAncillaries(
       meta,
       chunk.index,

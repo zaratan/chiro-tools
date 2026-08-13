@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import { useEffect, useRef } from "react";
 import { Footer } from "../../components/Footer.js";
+import { PROCESSED_DIR_DISPLAY } from "../../lib/audio/batchPlan.js";
 import type { ProgressEvent } from "../../types.js";
 import { useProgressState } from "./useProgressState.js";
 
@@ -124,7 +125,7 @@ export const RunningView = ({
       </Box>
       <Box marginTop={1} flexDirection="column">
         <Text dimColor>Vos fichiers d'origine ne sont pas modifiés.</Text>
-        <Text dimColor>Dossier de sortie : ./processed/</Text>
+        <Text dimColor>{`Dossier de sortie : ${PROCESSED_DIR_DISPLAY}`}</Text>
       </Box>
       <Footer hints={[]} />
     </Box>

@@ -6,10 +6,8 @@ import {
   readFile,
   rename,
   rm,
-  stat,
   unlink,
 } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { spawn as nodeSpawn, spawnSync } from "node:child_process";
 import { WaveFile } from "wavefile";
@@ -23,13 +21,20 @@ import type {
 import { splitWavFile } from "./splitWavFile.js";
 import { rewriteHeaderToStandardPcm } from "./wavHeader.js";
 import { appendAncillaryChunks } from "./finalizeChunk.js";
-import { clampWorkerCount } from "./splitWorkerPool.js";
 import { CHUNK_OUTPUT_SECONDS, TIME_EXPANSION_FACTOR } from "./constants.js";
 import { buildChunkMeta } from "./metadata/chunkMetadata.js";
 import { buildGuanoChunk } from "./metadata/guano.js";
 import { buildWamdChunk } from "./metadata/wamd.js";
 import { parseSourceTimestamp } from "../files/parseTimestamp.js";
 import { extractErrorCode } from "../fs/safeFsOps.js";
+import {
+  buildChunkName,
+  buildOutDir,
+  buildQueue,
+  computeConcurrency,
+  DEFAULT_MAX_INPUT_BYTES,
+  makeEmit,
+} from "./batchPlan.js";
 import type { MetadataConfig } from "../../types.js";
 
 export type SoxAvailability =
@@ -38,10 +43,6 @@ export type SoxAvailability =
 export type SoxBatchResult =
   | { kind: "completed"; outcome: ProcessOutcome }
   | { kind: "fallback"; reason: string };
-
-const ALREADY_CHUNKED_REGEX = /_\d{3}\.wav$/i;
-const DEFAULT_MAX_INPUT_BYTES = 500 * 1024 * 1024;
-const PROCESSED_DIRNAME = "processed";
 
 // Spot-check: compare this many samples from the middle of each verified chunk
 const SPOT_CHECK_SAMPLE_COUNT = 100;
@@ -86,19 +87,6 @@ export const detectSox = (): Promise<SoxAvailability> => {
 
   return Promise.resolve({ kind: "available", binPath });
 };
-
-const computeConcurrency = (): number => {
-  const envOverride = process.env.CHIRO_WORKER_COUNT;
-  if (envOverride !== undefined && envOverride !== "") {
-    const parsed = parseInt(envOverride, 10);
-    if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  }
-  const cpuCount = os.cpus().length;
-  const totalMB = os.totalmem() / (1024 * 1024);
-  return clampWorkerCount(cpuCount, totalMB);
-};
-
-const buildOutDir = (dir: string): string => path.join(dir, PROCESSED_DIRNAME);
 
 const decodeFirstChannelSamples = (
   buf: Buffer,
@@ -425,8 +413,7 @@ const processOneFile = async (
         ]);
       }
 
-      const paddedIndex = String(chunkIndex).padStart(3, "0");
-      const finalName = `${baseName}_${paddedIndex}.wav`;
+      const finalName = buildChunkName(baseName, chunkIndex);
       const finalPath = path.join(outDir, finalName);
       await rename(rawPath, finalPath);
 
@@ -482,8 +469,7 @@ const runSpotCheck = async (
   );
 
   for (const idx of checkIndices) {
-    const paddedIndex = String(idx).padStart(3, "0");
-    const chunkPath = path.join(outDir, `${baseName}_${paddedIndex}.wav`);
+    const chunkPath = path.join(outDir, buildChunkName(baseName, idx));
 
     const soxFingerprint = await fingerprintChunkMiddle(chunkPath);
     if (soxFingerprint === null) {
@@ -501,19 +487,6 @@ const runSpotCheck = async (
   }
 
   return null;
-};
-
-const makeEmit = (
-  onProgress?: (event: ProgressEvent) => void,
-): ((event: ProgressEvent) => void) => {
-  if (!onProgress) return (): void => undefined;
-  return (event: ProgressEvent): void => {
-    try {
-      onProgress(event);
-    } catch {
-      // swallow — a buggy callback must not crash the batch
-    }
-  };
 };
 
 export const runSoxBatch = async (
@@ -559,45 +532,11 @@ export const runSoxBatch = async (
     };
   }
 
-  type QueuedItem = {
-    file: string;
-    fileIndex: number;
-    fileSizeBytes: number;
-  };
-
-  const queue: QueuedItem[] = [];
-  let globalFileIndex = 0;
-
-  for (const file of files) {
-    const fileIndex = globalFileIndex;
-    globalFileIndex += 1;
-
-    if (ALREADY_CHUNKED_REGEX.test(file)) {
-      state.skippedAlreadyChunked.push(file);
-      continue;
-    }
-
-    const absSource = path.join(dir, file);
-    let size: number;
-    try {
-      const stats = await stat(absSource);
-      size = stats.size;
-    } catch (err) {
-      const code =
-        err instanceof Error && "code" in err
-          ? String((err as { code: unknown }).code)
-          : "UNKNOWN";
-      state.errored.push({ file, reason: code });
-      continue;
-    }
-
-    if (size > maxInputBytes) {
-      state.skippedTooLarge.push(file);
-      continue;
-    }
-
-    queue.push({ file, fileIndex, fileSizeBytes: size });
-  }
+  const { queue, skippedTooLarge, skippedAlreadyChunked, errored } =
+    await buildQueue(files, dir, maxInputBytes);
+  state.skippedTooLarge = skippedTooLarge;
+  state.skippedAlreadyChunked = skippedAlreadyChunked;
+  state.errored = errored;
 
   if (queue.length === 0 || isAborted()) {
     if (isAborted()) state.interrupted = true;
@@ -616,7 +555,7 @@ export const runSoxBatch = async (
   }
 
   const firstFile = firstItem.file;
-  const firstSrcPath = path.join(dir, firstFile);
+  const firstSrcPath = firstItem.absSource;
   let firstSourceBuffer: Buffer;
   try {
     firstSourceBuffer = await readFile(firstSrcPath);
@@ -673,7 +612,7 @@ export const runSoxBatch = async (
   const spotCheckReason = await runSpotCheck(
     firstSourceBuffer,
     outDir,
-    path.parse(firstFile).name,
+    firstItem.baseName,
     firstResult.chunkCount,
     input.mode,
   );
@@ -681,8 +620,7 @@ export const runSoxBatch = async (
   if (spotCheckReason !== null) {
     // Unlike a processOneFile error, this file succeeded — its chunks are
     // already in outDir and must be cleaned up explicitly here.
-    const baseName = path.parse(firstFile).name;
-    await cleanPartialOutput(outDir, baseName);
+    await cleanPartialOutput(outDir, firstItem.baseName);
     return {
       kind: "fallback",
       reason: spotCheckReason,

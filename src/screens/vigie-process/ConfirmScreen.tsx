@@ -1,53 +1,17 @@
 import { Box, Text, useInput } from "ink";
-import { useEffect, useRef, useState } from "react";
 import { Footer } from "../../components/Footer.js";
-import { estimateChunkCount } from "../../lib/audio/estimateChunks.js";
-import type {
-  ProcessOptions,
-  ProcessResult,
-  processWavFiles as ProcessWavFilesType,
-} from "../../lib/audio/processWavFiles.js";
-import { describeError } from "../../lib/errors/describeError.js";
+import { PROCESSED_DIR_DISPLAY } from "../../lib/audio/batchPlan.js";
+import type { ProcessResult } from "../../lib/audio/processWavFiles.js";
 import { formatDuration } from "../../lib/format/duration.js";
-import { logSession } from "../../lib/logging/log.js";
-import type { ProcessInput, SessionEvent } from "../../types.js";
-import { CHIRO_VERSION } from "../../version.js";
+import type { ProcessInput } from "../../types.js";
 import { mapKnownProcessErrorCode } from "./errorMessages.js";
-import { RunningView, type RunningViewHandles } from "./RunningView.js";
+import { RunningView } from "./RunningView.js";
+import {
+  useVigieProcessRun,
+  type ProcessWavFilesFn,
+} from "./useVigieProcessRun.js";
 
-export type ProcessWavFilesFn = typeof ProcessWavFilesType;
-
-const buildSessionEvent = (
-  input: ProcessInput,
-  outcome: ProcessResult,
-  cwd: string,
-): SessionEvent => ({
-  schema_version: 2,
-  ts: new Date().toISOString(),
-  version: CHIRO_VERSION,
-  cwd,
-  action: "vigie-process",
-  input: { mode: input.mode },
-  result: {
-    processed: outcome.processed.map((p) => ({
-      source_file: p.sourceFile,
-      chunk_count: p.chunkCount,
-      output_sample_rate: p.outputSampleRate,
-      channels: p.channels,
-    })),
-    errored: outcome.errored,
-    skipped_too_large: outcome.skippedTooLarge,
-    skipped_already_chunked: outcome.skippedAlreadyChunked,
-    interrupted: outcome.interrupted,
-    duration_ms: outcome.durationMs,
-    engine: outcome.engine,
-    engine_fallback_count: outcome.engine_fallback_count,
-    metadata: outcome.metadata,
-  },
-});
-
-const metadataEnabled = (): boolean =>
-  process.env.CHIRO_DISABLE_METADATA !== "1";
+export type { ProcessWavFilesFn };
 
 const modeLabel = (mode: ProcessInput["mode"]): string =>
   mode === "preserve"
@@ -66,21 +30,6 @@ const asSentence = (text: string): string => {
   if (first === undefined) return text;
   return `${first.toUpperCase()}${rest.join("")}.`;
 };
-
-type ConfirmState =
-  | { kind: "loading" }
-  | {
-      kind: "preview";
-      totalChunks: number;
-      totalDurationSec: number;
-      totalBytes: number;
-    }
-  | {
-      kind: "running";
-      totalChunks: number;
-      totalBytes: number;
-    }
-  | { kind: "run-error"; code: string };
 
 export type ProcessConfirmScreenProps = {
   cwd: string;
@@ -103,89 +52,20 @@ export const ConfirmScreen = ({
   onComplete,
   onBack,
 }: ProcessConfirmScreenProps): React.JSX.Element => {
-  const [state, setState] = useState<ConfirmState>({ kind: "loading" });
-  const controllerRef = useRef<AbortController | null>(null);
-
-  // Stable ref to RunningView handles — set once via onMount callback.
-  const runningHandlesRef = useRef<RunningViewHandles | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const controller = new AbortController();
-    void estimateChunkCount(wavFiles, cwd, input.mode, controller.signal).then(
-      (estimate) => {
-        if (cancelled) return;
-        setState({
-          kind: "preview",
-          totalChunks: estimate.totalChunks,
-          totalDurationSec: estimate.totalDurationSec,
-          totalBytes: estimate.totalBytes,
-        });
-      },
-    );
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [cwd, input.mode, wavFiles]);
-
-  useEffect(() => {
-    return () => {
-      if (controllerRef.current) {
-        controllerRef.current.abort();
-      }
-      runningRef.current = false;
-    };
-  }, [runningRef]);
-
-  const startProcess = async (): Promise<void> => {
-    if (state.kind !== "preview") return;
-    const { totalChunks, totalBytes } = state;
-
-    const controller = new AbortController();
-    controllerRef.current = controller;
-    runningRef.current = true;
-    setState({ kind: "running", totalChunks, totalBytes });
-
-    const options: ProcessOptions = {
-      signal: controller.signal,
-      onProgress: (event) => {
-        runningHandlesRef.current?.onProgress(event);
-      },
-      metadata: {
-        enabled: metadataEnabled(),
-        chiroVersion: CHIRO_VERSION,
-      },
-    };
-
-    let outcome: ProcessResult;
-    try {
-      outcome = await processWavFiles(wavFiles, cwd, input, options);
-    } catch (err) {
-      runningRef.current = false;
-      controllerRef.current = null;
-      setState({ kind: "run-error", code: describeError(err) });
-      return;
-    }
-
-    // Synchronous finalize — forces bar to 100 % before unmount.
-    runningHandlesRef.current?.finalizeRender();
-
-    try {
-      await logSession(buildSessionEvent(input, outcome, cwd));
-    } catch {
-      // Local log is best-effort — never block the UI on a write failure.
-    }
-
-    runningRef.current = false;
-    controllerRef.current = null;
-    onComplete(outcome);
-  };
+  const { state, startProcess, abort, registerRunningViewHandles } =
+    useVigieProcessRun({
+      cwd,
+      input,
+      wavFiles,
+      runningRef,
+      processWavFiles,
+      onComplete,
+    });
 
   useInput((input2, key) => {
     if (state.kind === "running") {
       if (key.ctrl && input2 === "c") {
-        controllerRef.current?.abort();
+        abort();
       }
       return;
     }
@@ -217,9 +97,7 @@ export const ConfirmScreen = ({
         totalFiles={wavFiles.length}
         totalChunksEstimate={state.totalChunks}
         totalBytes={state.totalBytes}
-        onMount={(handles) => {
-          runningHandlesRef.current = handles;
-        }}
+        onMount={registerRunningViewHandles}
       />
     );
   }
@@ -269,7 +147,7 @@ export const ConfirmScreen = ({
           {`Type d'enregistreur choisi : `}
           <Text color="cyan">{modeLabel(input.mode)}</Text>
         </Text>
-        <Text>{`Dossier de sortie :          ./processed/`}</Text>
+        <Text>{`Dossier de sortie :          ${PROCESSED_DIR_DISPLAY}`}</Text>
       </Box>
       <Box marginTop={1}>
         <Text dimColor>Vos fichiers d'origine ne seront pas modifiés.</Text>

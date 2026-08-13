@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { rewriteHeaderToStandardPcm } from "../wavHeader.js";
 import { splitWavFile } from "../splitWavFile.js";
-import { run as runPool, clampWorkerCount } from "../splitWorkerPool.js";
+import { run as runPool } from "../splitWorkerPool.js";
 import { CHUNK_OUTPUT_SECONDS } from "../constants.js";
 import { makeRampWav } from "./fixtures.js";
 
@@ -260,32 +260,6 @@ describe("splitWorkerPool", () => {
     expect(chunks.some((c) => c.startsWith("good_"))).toBe(true);
   });
 
-  it("skips already-chunked files (matching _NNN.wav)", async () => {
-    await writeWav("source_000.wav", { durationSeconds: 1 });
-    await writeWav("real.wav", { durationSeconds: 6 });
-
-    const outcome = await runPool(["source_000.wav", "real.wav"], tmpDir, {
-      mode: "preserve",
-    });
-
-    expect(outcome.skippedAlreadyChunked).toContain("source_000.wav");
-    expect(outcome.processed.length).toBe(1);
-  });
-
-  it("skips files exceeding maxInputBytes", async () => {
-    await writeWav("big.wav", { durationSeconds: 6 });
-
-    const outcome = await runPool(
-      ["big.wav"],
-      tmpDir,
-      { mode: "preserve" },
-      { maxInputBytes: 100 },
-    );
-
-    expect(outcome.skippedTooLarge).toContain("big.wav");
-    expect(outcome.processed).toEqual([]);
-  });
-
   it("handles empty file list", async () => {
     const outcome = await runPool([], tmpDir, { mode: "preserve" });
 
@@ -312,33 +286,6 @@ describe("splitWorkerPool", () => {
         process.env.CHIRO_WORKER_COUNT = originalEnv;
       }
     }
-  });
-
-  describe("clampWorkerCount heuristic", () => {
-    it("M1 16GB 8 cores → N=7 (CPU bound)", () => {
-      // usable=11468 MB, maxByMemory=28, maxByCpu=7, HARD_CAP=12 → 7
-      expect(clampWorkerCount(8, 16 * 1024)).toBe(7);
-    });
-
-    it("M1 Max 64GB 10 cores → N=9 (CPU bound)", () => {
-      // usable=45875 MB, maxByMemory=114, maxByCpu=9, HARD_CAP=12 → 9
-      expect(clampWorkerCount(10, 64 * 1024)).toBe(9);
-    });
-
-    it("Linux 32GB 16 cores → N=12 (HARD_CAP bound)", () => {
-      // usable=22937 MB, maxByMemory=57, maxByCpu=15, HARD_CAP=12 → 12
-      expect(clampWorkerCount(16, 32 * 1024)).toBe(12);
-    });
-
-    it("tiny machine: 2 cores, 4GB → N=2 (MIN_WORKERS floor)", () => {
-      // usable=2867 MB, maxByMemory=7, maxByCpu=1, MAX(2,MIN(7,1,12))=2
-      expect(clampWorkerCount(2, 4 * 1024)).toBe(2);
-    });
-
-    it("single-core: 1 core, 8GB → N=2 (MIN_WORKERS floor, maxByCpu=0)", () => {
-      // maxByCpu=0, MIN(14,0,12)=0, MAX(2,0)=2
-      expect(clampWorkerCount(1, 8 * 1024)).toBe(2);
-    });
   });
 
   it("returns interrupted=true if signal is already aborted before run", async () => {

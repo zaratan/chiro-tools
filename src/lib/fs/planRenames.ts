@@ -41,7 +41,7 @@ const fileExists = async (filePath: string): Promise<boolean> => {
  *
  * Operations are sorted alphabetically by `from`.
  *
- * @param files Plain filenames (NOT absolute paths). Typically the output of `scanWavFiles`.
+ * @param files Plain filenames (NOT absolute paths). Typically the `wavFiles` output of `scanDirectory`.
  * @param prefix The Vigie-Chiro prefix (e.g. "Car040962-2026-Pass3-A1-"), output of `buildPrefix`.
  * @param dir Absolute directory path — used to check on-disk collisions via `fs.access`.
  */

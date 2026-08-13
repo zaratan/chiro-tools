@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import { Footer } from "../../components/Footer.js";
+import { PROCESSED_DIR_DISPLAY } from "../../lib/audio/batchPlan.js";
 import { formatDuration } from "../../lib/format/duration.js";
 import type { ProcessError, ProcessOutcome } from "../../types.js";
 import { mapProcessErrorCodeToMessage } from "./errorMessages.js";
@@ -65,7 +66,7 @@ const renderSummary = (outcome: ProcessOutcome): React.JSX.Element => {
       <Text>
         {`  ${chunksDone.toString()} morceau${
           chunksDone > 1 ? "x créés" : " créé"
-        } dans ./processed/`}
+        } dans ${PROCESSED_DIR_DISPLAY}`}
       </Text>
       {outcome.skippedTooLarge.length > 0 ? (
         <Text dimColor>

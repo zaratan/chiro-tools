@@ -11,11 +11,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { applyRenames } from "./fs/applyRenames.js";
 import { planRenames } from "./fs/planRenames.js";
-import { scanWavFiles } from "./fs/scanWavFiles.js";
+import { scanDirectory } from "./fs/scanDirectory.js";
 import { buildPrefix } from "./vigie-chiro/prefix.js";
 
 /**
- * E2E round-trip tests covering scanWavFiles → planRenames → applyRenames
+ * E2E round-trip tests covering scanDirectory → planRenames → applyRenames
  * against realistic fixtures inspired by Vigie-Chiro field data
  * (Teensy recorder filenames, accompanying log file, etc.).
  */
@@ -49,8 +49,11 @@ const PREFIX = buildPrefix({
 });
 
 const runPipeline = async (dir: string) => {
-  const files = await scanWavFiles(dir);
-  const plan = await planRenames(files, PREFIX, dir);
+  const scanResult = await scanDirectory(dir);
+  if (scanResult.kind !== "ok") {
+    throw new Error(`unexpected scan result: ${scanResult.kind}`);
+  }
+  const plan = await planRenames(scanResult.wavFiles, PREFIX, dir);
   return applyRenames(plan, dir);
 };
 
