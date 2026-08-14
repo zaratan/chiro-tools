@@ -116,6 +116,12 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version='${VERSION}'; fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n')"
       - run: pnpm install --frozen-lockfile
+      # `pnpm check` runs the archive tests, which validate every produced zip
+      # against three independent extractors and hard-fail (rather than skip)
+      # when one is missing on CI. unzip and python3 ship with the runner
+      # image; bsdtar does not on Linux. Same step as in ci.yml — keep both.
+      - name: Install bsdtar
+        run: sudo apt-get install -y libarchive-tools
       # See note in build-macos: full gate before building a release binary.
       - run: pnpm check
       - run: pnpm build:linux-x64

@@ -28,10 +28,16 @@ const isCi = process.env.CI !== undefined && process.env.CI !== "";
  * Locally, a missing tool just skips the block. In CI, every tool below is
  * expected to be installed by the workflow — a missing one there means the
  * CI image regressed, so it's a hard failure rather than a silent skip.
+ *
+ * `installHint` is what the failure message tells you to do. It is the whole
+ * point of the parameter: this guard has already fired twice on a workflow
+ * that ran the test suite without installing the tool, and a bare "not found
+ * on PATH" sends you reading test source instead of editing the workflow.
  */
 const describeWithTool = (
   bin: string | null,
   label: string,
+  installHint: string,
   registerTests: (bin: string) => void,
 ): void => {
   if (bin !== null) {
@@ -43,7 +49,10 @@ const describeWithTool = (
   if (isCi) {
     describe(label, () => {
       it("must be installed in CI", () => {
-        throw new Error(`${label}: binary not found on PATH in CI`);
+        throw new Error(
+          `${label}: binary not found on PATH in CI. ` +
+            `Add it to every workflow job that runs the test suite: ${installHint}`,
+        );
       });
     });
     return;
@@ -87,18 +96,24 @@ afterEach(async () => {
   await rm(tmpDir, { recursive: true, force: true });
 });
 
-describeWithTool(UNZIP_BIN, "real extractor — unzip -t", (bin) => {
-  it("validates the archive with no errors", () => {
-    const proc = spawnSync(bin, ["-tqq", zipPath], {
-      maxBuffer: 10 * 1024 * 1024,
+describeWithTool(
+  UNZIP_BIN,
+  "real extractor — unzip -t",
+  "ships with the GitHub runner images (Linux and macOS)",
+  (bin) => {
+    it("validates the archive with no errors", () => {
+      const proc = spawnSync(bin, ["-tqq", zipPath], {
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      expect(proc.status).toBe(0);
     });
-    expect(proc.status).toBe(0);
-  });
-});
+  },
+);
 
 describeWithTool(
   PYTHON_BIN,
   "real extractor — python3 -m zipfile -t",
+  "ships with the GitHub runner images (Linux and macOS)",
   (bin) => {
     it("validates the archive with no errors", () => {
       const proc = spawnSync(bin, ["-m", "zipfile", "-t", zipPath], {
@@ -125,13 +140,18 @@ describeWithTool(
   },
 );
 
-describeWithTool(BSDTAR_BIN, "real extractor — bsdtar -tf", (bin) => {
-  it("lists all three entries with no errors", () => {
-    const proc = spawnSync(bin, ["-tf", zipPath], {
-      maxBuffer: 10 * 1024 * 1024,
+describeWithTool(
+  BSDTAR_BIN,
+  "real extractor — bsdtar -tf",
+  "`sudo apt-get install -y libarchive-tools` on Linux; preinstalled on macOS",
+  (bin) => {
+    it("lists all three entries with no errors", () => {
+      const proc = spawnSync(bin, ["-tf", zipPath], {
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      expect(proc.status).toBe(0);
+      const listed = (proc.stdout?.toString("utf8") ?? "").trim().split("\n");
+      expect(listed).toHaveLength(3);
     });
-    expect(proc.status).toBe(0);
-    const listed = (proc.stdout?.toString("utf8") ?? "").trim().split("\n");
-    expect(listed).toHaveLength(3);
-  });
-});
+  },
+);
