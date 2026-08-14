@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isTransientArchiveError,
   mapArchiveErrorCodeToMessage,
   mapKnownArchiveErrorCode,
 } from "../errorMessages.js";
@@ -11,17 +12,18 @@ describe("mapKnownArchiveErrorCode", () => {
     "file-changed",
     "verify-failed",
     "entry-too-large",
+    "zip64-required",
     "collision-exhausted",
     "EACCES",
     "EPERM",
     "ENOSPC",
     "EROFS",
   ])("returns a non-null message for %s", (code) => {
-    expect(mapKnownArchiveErrorCode(code)).not.toBeNull();
+    expect(mapKnownArchiveErrorCode(code, "archived")).not.toBeNull();
   });
 
   it("returns null for an unrecognized code (used by the run-error screen to skip the message line)", () => {
-    expect(mapKnownArchiveErrorCode("EBUSY")).toBeNull();
+    expect(mapKnownArchiveErrorCode("EBUSY", "archived")).toBeNull();
   });
 
   it.each([
@@ -43,8 +45,12 @@ describe("mapKnownArchiveErrorCode", () => {
       "un enregistrement est trop volumineux pour être mis dans le zip — transmettez le détail technique",
     ],
     [
+      "zip64-required",
+      "chiro n'a pas réussi à préparer des fichiers acceptés par Vigie-Chiro — transmettez le détail technique",
+    ],
+    [
       "collision-exhausted",
-      "plusieurs zips ont déjà été créés dans la même minute — patientez une minute puis réessayez",
+      "trop de fichiers zip portent déjà ce nom — renommez ou rangez ceux du jour, puis réessayez",
     ],
     [
       "ENOSPC",
@@ -55,20 +61,51 @@ describe("mapKnownArchiveErrorCode", () => {
       "ce disque est protégé en écriture — copiez les fichiers ailleurs puis relancez",
     ],
   ] as const)("wording for %s matches the plan verbatim", (code, expected) => {
-    expect(mapKnownArchiveErrorCode(code)).toBe(expected);
+    expect(mapKnownArchiveErrorCode(code, "archived")).toBe(expected);
+  });
+
+  it("substitutes the dirLabel into the mkdir message rather than hard-coding 'archived'", () => {
+    expect(mapKnownArchiveErrorCode("mkdir:EACCES", "upload")).toBe(
+      "impossible de créer le sous-dossier « upload »",
+    );
   });
 });
 
 describe("mapArchiveErrorCodeToMessage", () => {
   it("falls back to the generic message for an unrecognized code", () => {
-    expect(mapArchiveErrorCodeToMessage("EBUSY")).toBe(
+    expect(mapArchiveErrorCodeToMessage("EBUSY", "archived")).toBe(
       "erreur inattendue (code: EBUSY)",
     );
   });
 
   it("returns the specific message for a known code", () => {
-    expect(mapArchiveErrorCodeToMessage("verify-failed")).toContain(
+    expect(mapArchiveErrorCodeToMessage("verify-failed", "archived")).toContain(
       "vos enregistrements sont intacts",
     );
   });
+});
+
+describe("isTransientArchiveError", () => {
+  it.each([
+    "ENOSPC",
+    "EACCES",
+    "EPERM",
+    "EROFS",
+    "ENOENT",
+    "file-changed",
+    "collision-exhausted",
+    "verify-failed",
+    "mkdir:ENOSPC",
+    "mkdir:EACCES",
+    "some-unknown-future-code",
+  ])("is transient for %s", (code) => {
+    expect(isTransientArchiveError(code)).toBe(true);
+  });
+
+  it.each(["zip64-required", "entry-too-large"])(
+    "is definitive (not transient) for %s",
+    (code) => {
+      expect(isTransientArchiveError(code)).toBe(false);
+    },
+  );
 });

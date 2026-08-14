@@ -1,12 +1,18 @@
 import { useApp, useInput } from "ink";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   processWavFiles as defaultProcessWavFiles,
   type SoxContext,
 } from "./lib/audio/processWavFiles.js";
 import { detectSox, type SoxAvailability } from "./lib/audio/soxFastPath.js";
 import { createZipArchive as defaultCreateZipArchive } from "./lib/archive/createZipArchive.js";
-import type { ArchiveEntryStat } from "./lib/archive/planArchive.js";
+import { createZipVolumes as defaultCreateZipVolumes } from "./lib/archive/createZipVolumes.js";
+import {
+  buildArchivedDir,
+  type ArchiveEntryStat,
+} from "./lib/archive/planArchive.js";
+import { buildUploadDir } from "./lib/archive/planUpload.js";
+import { buildOutDir } from "./lib/audio/batchPlan.js";
 import { applyRenames as defaultApplyRenames } from "./lib/fs/applyRenames.js";
 import { checkForUpdate } from "./lib/update/checkForUpdate.js";
 import type { UpdateChecker } from "./screens/UpdateScreen.js";
@@ -24,12 +30,18 @@ import {
   type ProcessWavFilesFn,
 } from "./screens/vigie-process/ConfirmScreen.js";
 import { ConstatScreen as ProcessConstatScreen } from "./screens/vigie-process/ConstatScreen.js";
-import {
-  ConfirmScreen as ArchiveConfirmScreen,
-  type CreateZipArchiveFn,
-} from "./screens/archive/ConfirmScreen.js";
+import { ConfirmScreen as ArchiveConfirmScreen } from "./screens/archive/ConfirmScreen.js";
 import { ConstatScreen as ArchiveConstatScreen } from "./screens/archive/ConstatScreen.js";
 import { ResultScreen as ArchiveResultScreen } from "./screens/archive/ResultScreen.js";
+import { UploadResultScreen } from "./screens/archive/UploadResultScreen.js";
+import {
+  createBackupBehavior,
+  type CreateZipArchiveFn,
+} from "./screens/archive/backupBehavior.js";
+import {
+  createPackageBehavior,
+  type CreateZipVolumesFn,
+} from "./screens/archive/packageBehavior.js";
 import type { ArchiveRunOutcome } from "./screens/archive/useArchiveRun.js";
 import { FormScreen as ProcessFormScreen } from "./screens/vigie-process/FormScreen.js";
 import { ResultScreen as ProcessResultScreen } from "./screens/vigie-process/ResultScreen.js";
@@ -41,6 +53,15 @@ import type {
 } from "./types.js";
 import type { ProcessResult } from "./lib/audio/processWavFiles.js";
 import { CHIRO_VERSION } from "./version.js";
+
+type BackupOutcome = Extract<
+  ArchiveRunOutcome,
+  { kind: "backup-ok" } | { kind: "aborted" }
+>;
+type PackageOutcome = Extract<
+  ArchiveRunOutcome,
+  { kind: "package-ok" } | { kind: "aborted" }
+>;
 
 type Screen =
   | { kind: "menu" }
@@ -79,7 +100,14 @@ type Screen =
       entries: ArchiveEntryStat[];
       totalBytes: number;
     }
-  | { kind: "archive:result"; outcome: ArchiveRunOutcome };
+  | { kind: "archive:result"; outcome: BackupOutcome }
+  | { kind: "package:constat" }
+  | {
+      kind: "package:confirm";
+      entries: ArchiveEntryStat[];
+      totalBytes: number;
+    }
+  | { kind: "package:result"; outcome: PackageOutcome };
 
 type BootChecker = (opts: {
   currentVersion: string;
@@ -94,6 +122,8 @@ export type AppProps = {
   processWavFiles?: ProcessWavFilesFn;
   /** Override for tests. Defaults to the real implementation. */
   createZipArchive?: CreateZipArchiveFn;
+  /** Override for tests. Defaults to the real implementation. */
+  createZipVolumes?: CreateZipVolumesFn;
   /** Called when the user confirms an update install; must be synchronous. */
   onRequestUpdate: () => void;
   /** Test seam for the boot auto-check. Defaults to real checkForUpdate. */
@@ -122,6 +152,7 @@ export const App = ({
   applyRenames = defaultApplyRenames,
   processWavFiles: processWavFilesProp = defaultProcessWavFiles,
   createZipArchive = defaultCreateZipArchive,
+  createZipVolumes = defaultCreateZipVolumes,
   onRequestUpdate,
   bootChecker,
   updateChecker,
@@ -138,6 +169,41 @@ export const App = ({
   // at this level (ConfirmScreen handles it locally during a running rename
   // batch). When false, Ctrl+C exits the program cleanly.
   const runningRef = useRef<boolean>(false);
+
+  // The backup/package behavior triplets ("app.tsx choisit le triplet au
+  // routage" — phase-9 plan, D7), memoized so their closures keep a stable
+  // identity across renders unrelated to this screen (e.g. the boot update
+  // check resolving while the user sits on the confirmation screen) — a
+  // fresh closure identity every render would otherwise re-trigger
+  // `useArchiveRun`'s preview-resolution effect on every unrelated
+  // re-render. Built unconditionally (never inside an `if (screen.kind ===
+  // ...)` branch) to respect the Rules of Hooks; harmlessly unused with an
+  // empty entries array when the matching screen isn't active.
+  const backupEntries =
+    screen.kind === "archive:confirm" ? screen.entries : null;
+  const backupBehavior = useMemo(
+    () =>
+      createBackupBehavior(
+        buildOutDir(cwd),
+        buildArchivedDir(cwd),
+        backupEntries ?? [],
+        createZipArchive,
+      ),
+    [cwd, backupEntries, createZipArchive],
+  );
+
+  const packageEntries =
+    screen.kind === "package:confirm" ? screen.entries : null;
+  const packageBehavior = useMemo(
+    () =>
+      createPackageBehavior(
+        buildOutDir(cwd),
+        buildUploadDir(cwd),
+        packageEntries ?? [],
+        createZipVolumes,
+      ),
+    [cwd, packageEntries, createZipVolumes],
+  );
 
   const soxContext: SoxContext | undefined =
     soxAvailability !== "pending" && soxAvailability.kind === "available"
@@ -214,7 +280,10 @@ export const App = ({
         onPickVigieProcess={() => {
           setScreen({ kind: "process:constat" });
         }}
-        onPickArchive={() => {
+        onPickPackage={() => {
+          setScreen({ kind: "package:constat" });
+        }}
+        onPickBackup={() => {
           setScreen({ kind: "archive:constat" });
         }}
         onPickUpdate={() => {
@@ -371,6 +440,7 @@ export const App = ({
   if (screen.kind === "archive:constat") {
     return (
       <ArchiveConstatScreen
+        mode="backup"
         cwd={cwd}
         onContinue={(entries, totalBytes) => {
           setScreen({ kind: "archive:confirm", entries, totalBytes });
@@ -385,12 +455,16 @@ export const App = ({
   if (screen.kind === "archive:confirm") {
     return (
       <ArchiveConfirmScreen
+        mode="backup"
         cwd={cwd}
         entries={screen.entries}
         totalBytes={screen.totalBytes}
         runningRef={runningRef}
-        createZipArchive={createZipArchive}
+        runner={backupBehavior.runner}
+        resolveTargetName={backupBehavior.resolveTargetName}
+        buildSessionEvent={backupBehavior.buildSessionEvent}
         onComplete={(outcome) => {
+          if (outcome.kind === "package-ok") return;
           setScreen({ kind: "archive:result", outcome });
         }}
         onBack={() => {
@@ -400,9 +474,59 @@ export const App = ({
     );
   }
 
-  // screen.kind === "archive:result"
+  if (screen.kind === "archive:result") {
+    return (
+      <ArchiveResultScreen
+        cwd={cwd}
+        outcome={screen.outcome}
+        onBackToMenu={() => {
+          setScreen({ kind: "menu" });
+        }}
+      />
+    );
+  }
+
+  if (screen.kind === "package:constat") {
+    return (
+      <ArchiveConstatScreen
+        mode="package"
+        cwd={cwd}
+        onContinue={(entries, totalBytes) => {
+          setScreen({ kind: "package:confirm", entries, totalBytes });
+        }}
+        onBack={() => {
+          setScreen({ kind: "menu" });
+        }}
+      />
+    );
+  }
+
+  if (screen.kind === "package:confirm") {
+    return (
+      <ArchiveConfirmScreen
+        mode="package"
+        cwd={cwd}
+        entries={screen.entries}
+        totalBytes={screen.totalBytes}
+        runningRef={runningRef}
+        runner={packageBehavior.runner}
+        resolveTargetName={packageBehavior.resolveTargetName}
+        buildSessionEvent={packageBehavior.buildSessionEvent}
+        onComplete={(outcome) => {
+          if (outcome.kind === "backup-ok") return;
+          setScreen({ kind: "package:result", outcome });
+        }}
+        onBack={() => {
+          setScreen({ kind: "package:constat" });
+        }}
+      />
+    );
+  }
+
+  // screen.kind === "package:result"
   return (
-    <ArchiveResultScreen
+    <UploadResultScreen
+      cwd={cwd}
       outcome={screen.outcome}
       onBackToMenu={() => {
         setScreen({ kind: "menu" });

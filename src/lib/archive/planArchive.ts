@@ -14,25 +14,66 @@ export const buildArchivedDir = (dir: string): string =>
 const pad2 = (n: number): string => n.toString().padStart(2, "0");
 
 /**
- * Builds the archive file name from a (local-time) date:
- * `processed_YYYYMMDDHHMM.zip`. Pure — the caller supplies `date` so the
- * "now" moment is a single decision made once by the orchestrator, not
+ * `YYYYMMDD` for a (local-time) date, day granularity only — shared by every
+ * name builder that stamps a date (`buildArchiveName` here,
+ * `buildSeriesDirName` in `planUpload.ts`) so the format lives in exactly
+ * one place.
+ */
+export const formatDateStamp = (date: Date): string =>
+  `${date.getFullYear().toString()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}`;
+
+/**
+ * Builds the archive file name from a (local-time) date: `{prefix}_
+ * YYYYMMDD.zip`, day granularity only — more meaningful for "which study,
+ * roughly when" than a minute-stamped name. `prefix` defaults to
+ * `"processed"` (the existing backup-zip flow, `useArchiveRun.ts`, never
+ * passes one). A same-day collision falls through to `resolveFreeName`'s
+ * `-2`..`-99` suffix logic, unchanged. Pure — the caller supplies `date` so
+ * the "now" moment is a single decision made once by the orchestrator, not
  * re-read here.
  */
-export const buildArchiveName = (date: Date): string => {
-  const y = date.getFullYear().toString();
-  const mo = pad2(date.getMonth() + 1);
-  const d = pad2(date.getDate());
-  const h = pad2(date.getHours());
-  const mi = pad2(date.getMinutes());
-  return `processed_${y}${mo}${d}${h}${mi}.zip`;
-};
+export const buildArchiveName = (
+  date: Date,
+  prefix: string | null = null,
+): string => `${prefix ?? "processed"}_${formatDateStamp(date)}.zip`;
 
 const MAX_COLLISION_SUFFIX = 99;
 const FIRST_COLLISION_SUFFIX = 2;
 
-export type ResolveArchiveFileNameResult =
+export type ResolveFreeNameResult =
   { kind: "ok"; fileName: string } | { kind: "collision-exhausted" };
+
+/** Kept as an alias so pre-9.B call sites/imports keep compiling unchanged —
+ * same type as {@link ResolveFreeNameResult}. Not `@deprecated`: it isn't
+ * slated for removal, `useArchiveRun.ts` (single-zip backup flow) keeps
+ * using this name deliberately, and `@deprecated` would flag every one of
+ * its call sites as a lint error. */
+export type ResolveArchiveFileNameResult = ResolveFreeNameResult;
+
+/**
+ * Yields `baseName` itself, then `-2` through `-99` suffixes inserted before
+ * its extension — or appended directly when `baseName` has none, e.g. a bare
+ * directory name like `depot_20260814` (`path.extname` returns `""` for
+ * those). The single source of truth for chiro's collision-suffix rule:
+ * `resolveFreeName` below consumes it for access-based lookups, and
+ * `createZipVolumes`'s commit step (9.B) consumes it directly to drive a
+ * loop of real `rename` attempts instead — see D2 in the phase-9 plan for
+ * why a directory-to-directory commit can't be resolved by pre-checking
+ * existence. The range is generous — `collision-exhausted` exists for
+ * no-throw exhaustiveness, not because it's expected to be reached.
+ */
+export function* collisionNameCandidates(baseName: string): Generator<string> {
+  yield baseName;
+  const ext = path.extname(baseName);
+  const stem = baseName.slice(0, baseName.length - ext.length);
+  for (
+    let suffix = FIRST_COLLISION_SUFFIX;
+    suffix <= MAX_COLLISION_SUFFIX;
+    suffix++
+  ) {
+    yield `${stem}-${suffix.toString()}${ext}`;
+  }
+}
 
 const pathExists = async (targetPath: string): Promise<boolean> => {
   try {
@@ -44,37 +85,29 @@ const pathExists = async (targetPath: string): Promise<boolean> => {
 };
 
 /**
- * Resolves a non-colliding file name inside `archivedDir` for `baseName`
- * (e.g. `processed_202608121430.zip`): the base name itself if free,
- * otherwise `-2` through `-99` suffixes inserted before the extension. The
- * suffix range is generous — `collision-exhausted` exists for no-throw
- * exhaustiveness, not because it's expected to be reached (it would require
- * 99 archives created in the same clock minute).
+ * Resolves a non-colliding name inside `dir` for `baseName` (a file name
+ * like `processed_20260812.zip`, or a bare directory name): the base name
+ * itself if free, otherwise the first free `collisionNameCandidates` suffix.
+ * Generalized out of the original archive-filename-only resolver so any
+ * access-based "what name is free" call site shares the single -2..-99 rule.
  */
-export const resolveArchiveFileName = async (
-  archivedDir: string,
+export const resolveFreeName = async (
+  dir: string,
   baseName: string,
-): Promise<ResolveArchiveFileNameResult> => {
-  if (!(await pathExists(path.join(archivedDir, baseName)))) {
-    return { kind: "ok", fileName: baseName };
-  }
-
-  const ext = path.extname(baseName);
-  const stem = baseName.slice(0, baseName.length - ext.length);
-
-  for (
-    let suffix = FIRST_COLLISION_SUFFIX;
-    suffix <= MAX_COLLISION_SUFFIX;
-    suffix++
-  ) {
-    const candidate = `${stem}-${suffix.toString()}${ext}`;
-    if (!(await pathExists(path.join(archivedDir, candidate)))) {
+): Promise<ResolveFreeNameResult> => {
+  for (const candidate of collisionNameCandidates(baseName)) {
+    if (!(await pathExists(path.join(dir, candidate)))) {
       return { kind: "ok", fileName: candidate };
     }
   }
-
   return { kind: "collision-exhausted" };
 };
+
+/** Kept as an alias so pre-9.B call sites (`useArchiveRun.ts`) keep
+ * importing a name specific to their use case — same function as
+ * {@link resolveFreeName}. Not `@deprecated`, see the note on
+ * {@link ResolveArchiveFileNameResult}. */
+export const resolveArchiveFileName = resolveFreeName;
 
 export type ArchiveEntryStat = { name: string; size: number; mtime: Date };
 

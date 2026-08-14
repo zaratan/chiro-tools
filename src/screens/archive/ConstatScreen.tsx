@@ -11,7 +11,10 @@ import {
   scanProcessedForArchive,
   type ArchiveEntryStat,
 } from "../../lib/archive/planArchive.js";
-import { formatBytes } from "../../lib/format/bytes.js";
+import { buildUploadDir } from "../../lib/archive/planUpload.js";
+import { cleanOrphanStagingDirs } from "../../lib/archive/createZipVolumes.js";
+import { formatBytes } from "../../format/bytes.js";
+import type { ArchiveFlowMode } from "./useArchiveRun.js";
 
 const BYTES_PER_ENTRY_OVERHEAD = 200;
 const DISK_SAFETY_MARGIN_BYTES = 1024 * 1024;
@@ -29,6 +32,11 @@ type ScanState =
     }
   | { kind: "ready"; entries: ArchiveEntryStat[]; totalBytes: number };
 
+const DIR_LABEL: Record<ArchiveFlowMode, string> = {
+  backup: "archived",
+  package: "upload",
+};
+
 const isWritable = async (dir: string): Promise<boolean> => {
   try {
     await access(dir, fsConstants.W_OK);
@@ -40,10 +48,24 @@ const isWritable = async (dir: string): Promise<boolean> => {
 
 const scanForArchive = async (
   cwd: string,
+  mode: ArchiveFlowMode,
   signal: AbortSignal,
 ): Promise<ScanState> => {
   const processedDir = buildOutDir(cwd);
-  const scanResult = await scanProcessedForArchive(processedDir, signal);
+
+  // Best-effort, silent — the screen already reads "Analyse du dossier…",
+  // and this is unrelated to whether `processed/` scans cleanly, so it runs
+  // regardless of that outcome (phase-9 plan: called at constat time, never
+  // mid-run where it would freeze the UI right after Entrée).
+  const orphanCleanup =
+    mode === "package"
+      ? cleanOrphanStagingDirs(buildUploadDir(cwd)).catch(() => undefined)
+      : Promise.resolve();
+
+  const [scanResult] = await Promise.all([
+    scanProcessedForArchive(processedDir, signal),
+    orphanCleanup,
+  ]);
 
   if (scanResult.kind === "no-processed") return { kind: "no-processed" };
   if (scanResult.kind === "empty-processed") {
@@ -61,7 +83,7 @@ const scanForArchive = async (
   const { entries, totalBytes } = scanResult;
 
   // Writability of cwd (not `processedDir`) — chiro needs to create the
-  // `archived/` sibling directory next to `processed/`.
+  // `archived`/`upload` sibling directory next to `processed/`.
   if (!(await isWritable(cwd))) {
     return { kind: "not-writable" };
   }
@@ -77,19 +99,23 @@ const scanForArchive = async (
       return { kind: "insufficient-disk", requiredBytes, availableBytes };
     }
   } catch {
-    // statfs failed — proceed; createZipArchive will surface ENOSPC if needed.
+    // statfs failed — proceed; the run will surface ENOSPC if needed.
   }
 
   return { kind: "ready", entries, totalBytes };
 };
 
 export type ArchiveConstatScreenProps = {
+  /** Wording-only branch (phase-9 plan, D7): the target-folder label and the
+   * closing question differ; the scan itself does not. */
+  mode: ArchiveFlowMode;
   cwd: string;
   onContinue: (entries: ArchiveEntryStat[], totalBytes: number) => void;
   onBack: () => void;
 };
 
 export const ConstatScreen = ({
+  mode,
   cwd,
   onContinue,
   onBack,
@@ -99,7 +125,7 @@ export const ConstatScreen = ({
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
-    void scanForArchive(cwd, controller.signal).then((result) => {
+    void scanForArchive(cwd, mode, controller.signal).then((result) => {
       if (cancelled) return;
       setState(result);
     });
@@ -107,7 +133,7 @@ export const ConstatScreen = ({
       cancelled = true;
       controller.abort();
     };
-  }, [cwd]);
+  }, [cwd, mode]);
 
   useInput((_input, key) => {
     if (key.escape) {
@@ -124,6 +150,8 @@ export const ConstatScreen = ({
     { key: "Entrée", label: "continuer" },
     { key: "Échap", label: "retour au menu" },
   ];
+
+  const dirLabel = DIR_LABEL[mode];
 
   if (state.kind === "loading") {
     return (
@@ -187,11 +215,12 @@ export const ConstatScreen = ({
         </Box>
         <Box marginTop={1} flexDirection="column">
           <Text>
-            L'outil ne peut pas créer le sous-dossier « archived » ici. Essayez
-            de :
+            {`L'outil ne peut pas créer le sous-dossier « ${dirLabel} » ici. Essayez de :`}
           </Text>
           <Text>
-            {"  • copier les fichiers dans un dossier de votre choix"}
+            {
+              "  • copier le dossier « processed » dans un dossier où vous pouvez écrire"
+            }
           </Text>
           <Text>{"  • puis relancer chiro dans ce nouveau dossier"}</Text>
         </Box>
@@ -235,8 +264,9 @@ export const ConstatScreen = ({
         </Box>
         <Box marginTop={1} flexDirection="column">
           <Text>
-            Le zip est une copie de vos enregistrements : il peut occuper
-            presque autant de place.
+            {mode === "backup"
+              ? "Le zip est une copie de vos enregistrements : il peut occuper presque autant de place."
+              : "Les fichiers zip sont une copie de vos enregistrements : ils peuvent occuper presque autant de place."}
           </Text>
         </Box>
         <Box marginTop={1}>
@@ -261,7 +291,11 @@ export const ConstatScreen = ({
       </Box>
       <Text>{`  Volume total : ${formatBytes(state.totalBytes)}`}</Text>
       <Box marginTop={1}>
-        <Text>Ce sont bien les enregistrements à mettre dans le zip ?</Text>
+        <Text>
+          {mode === "backup"
+            ? "Ce sont bien les enregistrements à mettre dans le zip ?"
+            : "Ce sont bien les enregistrements à déposer sur Vigie-Chiro ?"}
+        </Text>
       </Box>
       <Footer hints={nominalFooter} />
     </Box>

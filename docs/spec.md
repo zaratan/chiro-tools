@@ -43,9 +43,13 @@ La state machine comporte **5 écrans wizard** (Menu/Constat/Saisie/Confirmation
 - Items :
   - `Préfixer des enregistrements pour Vigie-Chiro` (item sélectionné par défaut)
   - `Découper les enregistrements (pour Tadarida)`
-  - `Créer un zip des enregistrements découpés (pour l'envoi)`
+  - `Créer les zips à déposer sur Vigie-Chiro`
+  - `Sauvegarder les enregistrements découpés (un seul zip)`
   - `Vérifier les mises à jour`
   - `Quitter`
+
+Six entrées depuis la Phase 9 : les deux flux zip (dépôt / sauvegarde) sont deux entrées distinctes, pas un sélecteur — les deux sorties coexistent et ne servent pas au même usage. `Préfixer` et `Préparer` partageant leurs quatre premières lettres, le verbe retenu pour le dépôt est **« Créer »** : six initiales restent ainsi distinctes au scan.
+
 - **Auto-check au boot** : un `useEffect` lance `checkForUpdate` au mount (cache disque 6 h, silent fail). Si une version > `CHIRO_VERSION` est dispo, un hint jaune `⚠ Une mise à jour est disponible (vX.Y.Z).` apparaît entre la liste d'items et le footer. Sinon (à jour, erreur réseau, etc.), aucun hint.
 - Navigation : `↑ ↓` pour bouger la sélection, `Entrée` pour valider, `Échap` ou `Ctrl+C` pour quitter.
 - Footer : `↑↓ choisir   Entrée valider   Échap quitter`
@@ -127,7 +131,7 @@ Affiché après exécution. Trois variantes possibles selon l'issue :
 - `✓ Terminé !`
 - `N fichiers renommés`
 - `M fichier(s) laissé(s) tel(s) quel(s) (déjà au bon format)` (si M > 0)
-- Phrase d'invitation à uploader vers Vigie-Chiro.
+- Phrase d'orientation vers l'étape suivante. ⚠ Le code dit encore « Vous pouvez maintenant les téléverser sur Vigie-Chiro », devenu faux : depuis les Phases 5 et 9, il faut découper puis empaqueter avant de déposer quoi que ce soit (dette de wording relevée en 9.D, remplacement proposé dans `ux.md`).
 - Footer : `Entrée retour au menu`
 
 **Variante B — Rien à faire (tout déjà préfixé)**
@@ -320,20 +324,20 @@ Tous les codes mappent en messages français lisibles (cf. `ux.md` → "Codes d'
 
 **Échec d'`install.sh`** : sur une somme de contrôle invalide (fichier corrompu/tronqué), le script affiche lui-même un message français bienveillant plutôt qu'une erreur brute (cf. `ux.md` § Self-update). Une coupure réseau en plein `curl` du tarball reste, elle, visible en `stderr` brut de curl (limite connue, acceptable) — mais dans tous les cas d'échec, `index.tsx` affiche en plus, après coup, un message pointant vers une commande de secours (`FALLBACK_INSTALL_SCRIPT_URL`, resté sur `main`), pour que l'utilisatrice ait toujours une action claire à faire même quand le message technique qui précède ne l'est pas.
 
-## Wizard "Créer un zip des enregistrements découpés" — 3 écrans (Phase 8)
+## Wizard "Sauvegarder les enregistrements découpés" — 3 écrans (Phase 8)
 
 ```
 [Menu] → [A-Constat] → [A-Confirmation] → [A-Résultat] → (retour Menu)
 ```
 
-Rassemble le contenu de `processed/` (sortie du flow Découper) dans une archive zip destinée au dépôt sur Vigie-Chiro. Pas d'écran de saisie : il n'y a rien à choisir, tout est déduit du dossier courant. **Non-destructif** : `processed/` n'est ni déplacé, ni modifié, ni supprimé — le zip est une copie.
+Rassemble le contenu de `processed/` (sortie du flow Découper) dans **une** archive zip unique. Depuis la Phase 9, ce zip n'est plus destiné au dépôt (le portail Vigie-Chiro refuse le ZIP64, et sur des volumes réels ce zip en est) : c'est la **copie de sauvegarde**, l'objet unique qu'on archive pour retrouver une étude des années plus tard. Le dépôt passe par le wizard « Créer les zips à déposer » ci-dessous. Pas d'écran de saisie : il n'y a rien à choisir, tout est déduit du dossier courant. **Non-destructif** : `processed/` n'est ni déplacé, ni modifié, ni supprimé — le zip est une copie.
 
 ### Source, destination, nommage
 
 - **Source** : `<cwd>/processed/`, niveau 1 uniquement (pas de récursion).
 - **Destination** : `<cwd>/archived/`, créé au besoin (`mkdir -p`).
-- **Nom** : `processed_YYYYMMDDHHMM.zip` — horodatage **local** au moment de l'entrée dans l'écran de Confirmation (`buildArchiveName`, pur). La minute suffit à distinguer deux zips d'une même session.
-- **Collision** : si le nom existe déjà, suffixes `-2` … `-99` insérés avant l'extension (`processed_202608131544-2.zip`). Au-delà → code `collision-exhausted` (inatteignable en pratique : il faudrait 99 zips dans la même minute). Le nom est résolu **deux fois** — une fois pour l'affichage en Confirmation, une seconde juste avant le run, pour réduire la fenêtre entre l'aperçu et la validation. Aucun écran « un zip existe déjà, que faire ? » : le nom horodaté distingue les zips, proposer « remplacer » violerait le principe non-destructif.
+- **Nom** : `{préfixe}_YYYYMMDD.zip` — date **locale** au moment de l'entrée dans l'écran de Confirmation (`buildArchiveName`, pur). Le `{préfixe}` est le préfixe Vigie-Chiro commun à **tous** les fichiers du lot (`extractCommonPrefix`), sinon `processed` : `Car340581-2026-Pass1-A1_20260814.zip` ou `processed_20260814.zip`. Le cas d'usage de l'archive est « dans trois ans, un client redemande les données de son étude » : à cette échéance la minute de fabrication du zip n'est pas la donnée qu'on cherche, le nom parlant est déjà dans les fichiers. Granularité **au jour** depuis la Phase 9 (avant : `processed_YYYYMMDDHHMM.zip`).
+- **Collision** : si le nom existe déjà, suffixes `-2` … `-99` insérés avant l'extension (`processed_20260814-2.zip`). Au-delà → code `collision-exhausted`. Conséquence assumée de la bascule à la journée : deux runs **le même jour** collisionnent (au lieu de deux runs la même minute) — le suffixe devient donc nettement plus visible. Le nom est résolu **deux fois** — une fois pour l'affichage en Confirmation, une seconde juste avant le run, pour réduire la fenêtre entre l'aperçu et la validation. Aucun écran « un zip existe déjà, que faire ? » : le nom daté distingue les zips, proposer « remplacer » violerait le principe non-destructif.
 
 ### Contenu et exclusions
 
@@ -381,7 +385,7 @@ Aperçu (nom du fichier, emplacement, taille maximale) puis exécution en place 
 
 Deux variantes seulement — une erreur n'atteint jamais cet écran (elle reste sur A-Confirmation) :
 
-**Variante A — Succès** : `✓ Terminé !`, nombre d'entrées, chemin relatif du zip, taille réelle, temps écoulé, invitation au dépôt sur Vigie-Chiro, rappel que `processed/` est intact.
+**Variante A — Succès** : `✓ Terminé !`, nombre d'entrées, chemin relatif du zip, taille réelle, temps écoulé, puis — depuis la Phase 9 — **pas** d'invitation au dépôt mais l'inverse : ce fichier est la copie de sauvegarde, et le dépôt se fait via l'entrée de menu « Créer les zips à déposer sur Vigie-Chiro », citée **exactement** (cf. `ux.md`). Rappel que `processed/` est intact.
 
 **Variante B — Interruption** : `ℹ Création du zip arrêtée à votre demande`, `Aucun fichier zip n'a été créé.`, rappel non-destructif.
 
@@ -400,6 +404,69 @@ Codes bruts produits par la lib, traduits en français par `src/screens/archive/
 | `collision-exhausted`                   | 99 zips déjà créés dans la même minute                                                             |
 
 Dans **tous** les cas d'échec, y compris interruption, aucun fichier n'apparaît dans `archived/` : l'écriture se fait dans un `.tmp` renommé en tout dernier (cf. `architecture.md` § « Module `lib/archive` »).
+
+## Wizard "Créer les zips à déposer sur Vigie-Chiro" — 3 écrans (Phase 9)
+
+```
+[Menu] → [U-Constat] → [U-Confirmation] → [U-Résultat] → (retour Menu)
+```
+
+Même posture que le wizard de sauvegarde — mêmes écrans, mêmes vérifications, mêmes composants — mais une **série** de zips au lieu d'un seul, chacun garanti sans ZIP64 (le portail Vigie-Chiro le refuse). C'est ce flux qui ferme la boucle du protocole : ses fichiers sont ceux qu'on dépose. **Non-destructif** vis-à-vis de `processed/`.
+
+### Source, destination, nommage
+
+- **Source** : `<cwd>/processed/`, niveau 1 uniquement — même scan et mêmes exclusions que le flux sauvegarde (`isVisibleNonTmpEntry`).
+- **Destination** : `<cwd>/upload/<série>/`, créé au besoin. Le dossier de série **apparaît d'un coup, complet**, en fin de run : les volumes sont écrits dans un dossier de staging caché (`upload/.<série>.<pid>.tmpdir/`) publié par un seul `rename`.
+- **Nom de la série** : `{préfixe}_YYYYMMDD` (même `extractCommonPrefix` que la sauvegarde), sinon `depot_YYYYMMDD`.
+- **Nom des volumes** : `{série}_partN.zip`, numérotation 1-based, **zéro-padding dynamique** au-delà de 9 volumes (`part01`…`part12`) — sans quoi `part10` se trie avant `part2` dans le Finder. Pas de `-sur-N` : le nom seul ne dit donc pas combien de fichiers composent la série, c'est l'écran de résultat qui le dit et le dossier qui les contient tous.
+- **Cas N = 1** (fréquent : un point d'écoute isolé) : **aucun suffixe `part`**, le fichier s'appelle `{série}.zip`. `partie 1 sur 1` serait une absurdité auto-évidente. Toute l'UI suit : libellés au singulier, pas de « un par un », compteur de volume masqué, phrase « Vigie-Chiro n'accepte pas les fichiers trop volumineux » supprimée (sans objet).
+- **Collision** : résolue **au commit**, jamais à l'aperçu — `rename(2)` sur un répertoire cible non vide échoue `ENOTEMPTY` au lieu d'écraser, donc le nom libre ne peut pas être décidé à l'avance sans risquer de perdre 15 minutes de calcul. Boucle sur `EEXIST`/`ENOTEMPTY` avec suffixes `-2` … `-99`, puis `collision-exhausted`. Les volumes portent toujours le nom **avant** suffixe : le dossier porte la distinction, les fichiers n'ont pas à la répéter.
+
+### Découpage en volumes
+
+- **Plafond : 3,5 Gio de zip réel** par volume (`maxVolumeBytes`), surchargeable par `CHIRO_MAX_VOLUME_BYTES` pour un test manuel — valeur **clampée dur** dans `[1 Mio, MAX_UINT32 − 64 Mio]`, entrée invalide ignorée.
+- Le plafond porte sur la taille **écrite**, pas sur les octets sources : plafonner la source aurait rempli les volumes au tiers (le WAV compresse à ~36 %). Détails et conséquences dans `architecture.md` § « Série de volumes ».
+- **Le nombre de volumes n'est connu qu'à la fin du run.** L'écran de progression affiche `Fichier zip 3` sans total ; la barre, pilotée par les octets sources, reste exacte.
+- **Tout ou rien** : abort, erreur, ou complétude de série en échec → le staging est détruit, `upload/` reste vide. Il n'existe jamais de série partielle.
+- **Complétude vérifiée à l'exécution** avant le commit : Σ des `entryCount` des volumes `===` nombre d'entrées demandées, **et** égalité ensembliste des noms.
+
+### Écran U-Constat
+
+Identique à A-Constat (mêmes cas bloquants, même pré-check disque) à trois wordings près (dossier `upload` au lieu de `archived`, question de confirmation, pluriel du message d'espace disque). Une action supplémentaire, invisible : le nettoyage des dossiers de staging orphelins d'un run précédent tué (`cleanOrphanStagingDirs`) tourne ici, pendant le « Analyse du dossier… », et jamais pendant le run.
+
+### Écran U-Confirmation
+
+Aperçu (emplacement du dossier de série, taille maximale par fichier) puis exécution en place. Le nom affiché est celui **avant** résolution de collision : la collision se décide au commit, montrer autre chose serait une devinette qui peut se révéler fausse.
+
+**Progression** : mêmes règles qu'A-Confirmation (barre en octets lus en source, ETA byte-weighted, throttle 100 ms, `finalizeRender()` synchrone), plus un compteur de volume. Les événements de chaque volume sont ré-offsetés en **coordonnées globales** — `Enregistrement 214 sur 720` compte sur toute la série, jamais dans le volume courant.
+
+**Ctrl+C pendant le run** : passe par un état **`cleaning`** (« Annulation en cours… ») avant le résultat — la destruction d'un staging de plusieurs Go prend 10 à 60 s sur un disque externe, pendant lesquelles un écran figé serait indiscernable d'un plantage.
+
+**Erreur pendant le run** : reste sur U-Confirmation en variante `run-error`. `Entrée réessayer` n'est proposé que pour les codes **transitoires** (cf. table ci-dessous).
+
+### Écran U-Résultat
+
+Deux variantes :
+
+**Variante A — Succès** : `✓ Terminé !`, nombre d'enregistrements et **nombre réel de fichiers zip**, chemin relatif du dossier de série **réellement obtenu** (il peut porter `-2`), taille totale, temps écoulé, consigne de dépôt (« un par un », l'ordre n'importe pas), incitation à faire aussi une sauvegarde, `📁 cwd` (elle doit pouvoir localiser le dossier dans le Finder), rappel que `processed/` est intact. **Les noms de fichiers ne sont pas listés** : coût en O(N) sur un écran à hauteur fixe, et c'est dans le Finder qu'ils lui servent.
+
+**Variante B — Interruption** : `ℹ Préparation du dépôt arrêtée à votre demande`, `Aucun fichier zip n'a été créé.`, rappel non-destructif.
+
+### États d'erreur — codes
+
+En plus des codes de la table A-Confirmation (tous atteignables ici), le flux de dépôt ajoute :
+
+| Code                         | Cause                                                                                                                                                | Transitoire ? |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `zip64-required`             | Un des trois gardes `zip64: "forbid"` s'est déclenché. **Bug interne** — inatteignable tant que le plafond de volume tient (d'où le clamp de l'env). | non           |
+| `entry-too-large-for-volume` | Une entrée seule ne tiendrait dans aucun volume. Déterministe.                                                                                       | non           |
+| `rename-volume:<code>`       | Échec du renommage d'un volume en son nom `partN` **à l'intérieur** du staging.                                                                      | oui           |
+| `verify-failed`              | Complétude de la série (ou d'un volume) en échec → staging détruit, `upload/` vide.                                                                  | oui           |
+| `collision-exhausted`        | 99 dossiers de série du même nom déjà présents dans `upload/`.                                                                                       | oui           |
+
+`isTransientArchiveError` est la source de vérité : **définitifs** = `zip64-required`, `entry-too-large`, `entry-too-large-for-volume` ; tout le reste est transitoire et se voit proposer `Entrée réessayer`. Proposer un réessai qui ne peut structurellement pas aboutir, à quelqu'un qui vient de perdre douze minutes, est la pire fuite de confiance du flux.
+
+Dans **tous** les cas d'échec, y compris interruption, `upload/` ne contient aucune série partielle.
 
 ## Règles métier
 
@@ -543,6 +610,45 @@ Pour les sessions de découpage, `schema_version: 2`. Format aligné avec v1 (ti
 
 `duration_ms` mesure la **tentative complète** côté orchestrateur (`useArchiveRun`), pas le seul temps passé dans `createZipArchive` — c'est la seule façon d'avoir une durée pour les runs interrompus ou en échec.
 
+### Schéma v4 — sessions `vigie-package` (Phase 9)
+
+`schema_version: 4`, `action: "vigie-package"`. Même forme que v3 (pas d'`input`, `result` discriminé sur `status`), enrichie de ce qui est propre à une série. Le nom de l'action dit ce que chiro fait réellement : il **prépare** des fichiers, il ne dépose rien — `vigie-upload` reste délibérément libre pour un futur upload Glacier.
+
+```json
+{
+  "schema_version": 4,
+  "ts": "2026-08-14T15:44:12.004Z",
+  "version": "0.5.0",
+  "cwd": "/Users/.../Vigie-2026-A1",
+  "action": "vigie-package",
+  "result": {
+    "status": "ok",
+    "series_dir": "Car340581-2026-Pass1-A1_20260814",
+    "volume_count": 3,
+    "volumes": [
+      {
+        "name": "Car340581-2026-Pass1-A1_20260814_part1.zip",
+        "entry_count": 241,
+        "zip_bytes": 3758096000
+      }
+    ],
+    "max_volume_bytes": 3758096384,
+    "entry_count": 720,
+    "total_bytes": 15032385536,
+    "duration_ms": 954120,
+    "durable": true
+  }
+}
+```
+
+- `volumes` est **borné à 50 entrées** (un `CHIRO_MAX_VOLUME_BYTES` bas, posé pour un test manuel, peut produire des dizaines de volumes et la ligne JSONL n'a pas à grossir avec). `volume_count` reste le compte réel, non tronqué.
+- `max_volume_bytes` enregistre le plafond réellement en vigueur pour ce run — c'est ce qui rend un log lisible après un test manuel avec override.
+- `durable` reflète le succès des `fsync` de répertoire (best-effort). Un futur flux destructif devra l'exiger à `true`.
+- `status: "aborted"` → `max_volume_bytes`, `entry_count`, `total_bytes`, `duration_ms`.
+- `status: "error"` → idem + `error_code` (le code brut, pas le libellé français).
+
+**v3 reste inchangé** : le flux sauvegarde continue d'écrire `vigie-archive`. `schema_version` est un identifiant de **forme d'événement** (une par `action`), pas un compteur de révision : v3 et v4 sont deux actions différentes ajoutées coup sur coup, pas deux révisions du même événement.
+
 ## Versioning
 
 - `chiro --version` lit la version dans `package.json` (bundled au moment du `bun build --compile`).
@@ -574,9 +680,14 @@ Pour les sessions de découpage, `schema_version: 2`. Format aligné avec v1 (ti
 | Terminal redimensionné en cours                           | Ink gère ; aucun traitement spécial requis                                                                                                 | Toutes                      |
 | Pas de `processed/` au flow zip                           | Message informatif + deux causes (découpage pas fait / mauvais dossier)                                                                    | A-Constat                   |
 | `processed/` sans fichier archivable                      | « ne contient aucun enregistrement » + guidance découpage interrompu                                                                       | A-Constat                   |
-| `cwd` non writable au flow zip                            | Message « impossible de créer le sous-dossier archived »                                                                                   | A-Constat                   |
+| `cwd` non writable au flow zip                            | Message « impossible de créer le sous-dossier archived » (ou « upload » selon le flux)                                                     | A-Constat / U-Constat       |
 | Espace disque insuffisant pour le zip                     | Chiffres requis/dispo + rappel qu'un zip est une copie                                                                                     | A-Constat                   |
-| Zip du même horodatage déjà présent                       | Suffixe `-2`…`-99`, aucun écrasement                                                                                                       | A-Confirmation              |
+| Zip du même jour déjà présent                             | Suffixe `-2`…`-99`, aucun écrasement                                                                                                       | A-Confirmation              |
+| Dossier de série du même jour déjà présent                | Résolu **au commit** : suffixe `-2`…`-99` sur le dossier, volumes inchangés                                                                | U-Confirmation              |
+| Ctrl+C pendant la création de la série                    | État `cleaning` (« Annulation en cours… ») puis U-Résultat interruption ; `upload/` reste vide                                             | U-Confirmation → U-Résultat |
+| Staging caché orphelin d'un run tué (`kill -9`)           | Nettoyé au constat suivant si PID mort **ou** plus vieux que 24 h                                                                          | U-Constat                   |
+| Lot ne tenant pas en un seul volume                       | Bascule automatique de volume, nombre de fichiers annoncé seulement au résultat                                                            | U-Confirmation → U-Résultat |
+| Lot tenant en un seul volume (N = 1)                      | Aucun suffixe `part`, libellés au singulier, compteur de volume masqué                                                                     | U-Confirmation → U-Résultat |
 | Fichier source modifié / supprimé pendant le zip          | `file-changed` → `.tmp` supprimé, aucun zip produit                                                                                        | A-Confirmation              |
 | Disque plein pendant le zip                               | `ENOSPC` (souvent au `sync()`) → `.tmp` supprimé, aucun zip produit                                                                        | A-Confirmation              |
 | Zip écrit mais vérification en échec                      | `verify-failed` → `.tmp` supprimé, rien dans `archived/`                                                                                   | A-Confirmation              |

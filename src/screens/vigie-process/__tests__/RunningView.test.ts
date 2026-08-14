@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildStatsLine } from "../RunningView.js";
 
 // formatShortDuration and buildRemainingLabel are unit-tested at their
-// source in lib/format/progress.test.ts — this file only covers the
+// source in format/progress.test.ts — this file only covers the
 // composition left behind in this screen.
 describe("buildStatsLine — composition with adaptive masking", () => {
   it("drops the ETA segment for small batches", () => {

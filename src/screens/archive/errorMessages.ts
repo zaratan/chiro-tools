@@ -1,19 +1,27 @@
 import { mapKnownFsErrorCode } from "../fsErrorMessages.js";
 
 /**
- * Maps a raw archive error code (as returned by `createZipArchive`, or a
- * setup-phase code produced by `useArchiveRun` itself — `mkdir:<X>`,
- * `collision-exhausted`) to a user-facing French message. UI layer
- * translation — the lib keeps raw codes.
+ * Maps a raw archive error code (as returned by `createZipArchive`/
+ * `createZipVolumes`, or a setup-phase code produced by `useArchiveRun`
+ * itself — `mkdir:<X>`, `collision-exhausted`) to a user-facing French
+ * message. UI layer translation — the lib keeps raw codes.
+ *
+ * `dirLabel` is the sub-folder name to mention in the `mkdir:` message
+ * (`"archived"` for the backup flow, `"upload"` for the upload-series flow)
+ * — a value, not a mode: it can't grow its own branches the way a `mode`
+ * flag threaded through every caller would (phase-9 plan, D7).
  *
  * Returns `null` for an unrecognized code — callers on the run-error screen
  * use this to skip the message line entirely rather than show a guess.
  * `mapArchiveErrorCodeToMessage` below wraps this with the generic fallback
  * for callers that always need a message.
  */
-export const mapKnownArchiveErrorCode = (code: string): string | null => {
+export const mapKnownArchiveErrorCode = (
+  code: string,
+  dirLabel: string,
+): string | null => {
   if (code.startsWith("mkdir:")) {
-    return "impossible de créer le sous-dossier « archived »";
+    return `impossible de créer le sous-dossier « ${dirLabel} »`;
   }
   const fsMessage = mapKnownFsErrorCode(code);
   if (fsMessage !== null) return fsMessage;
@@ -25,12 +33,36 @@ export const mapKnownArchiveErrorCode = (code: string): string | null => {
       return "chiro n'a pas pu vérifier que le zip était complet — il n'a pas été conservé, vos enregistrements sont intacts ; réessayez";
     case "entry-too-large":
       return "un enregistrement est trop volumineux pour être mis dans le zip — transmettez le détail technique";
+    case "zip64-required":
+      return "chiro n'a pas réussi à préparer des fichiers acceptés par Vigie-Chiro — transmettez le détail technique";
     case "collision-exhausted":
-      return "plusieurs zips ont déjà été créés dans la même minute — patientez une minute puis réessayez";
+      return "trop de fichiers zip portent déjà ce nom — renommez ou rangez ceux du jour, puis réessayez";
     default:
       return null;
   }
 };
 
-export const mapArchiveErrorCodeToMessage = (code: string): string =>
-  mapKnownArchiveErrorCode(code) ?? `erreur inattendue (code: ${code})`;
+export const mapArchiveErrorCodeToMessage = (
+  code: string,
+  dirLabel: string,
+): string =>
+  mapKnownArchiveErrorCode(code, dirLabel) ??
+  `erreur inattendue (code: ${code})`;
+
+/**
+ * Codes that can never resolve themselves on a retry: `zip64-required` is an
+ * internal bug (the guard tripped, no amount of retrying changes that), and
+ * `entry-too-large` is deterministic — the file is just too big, every
+ * retry fails the same way. Everything else
+ * (disk full since freed, a file that moved, a transient verify failure…)
+ * genuinely can succeed on a second attempt, so it defaults to `true`:
+ * offering a retry that cannot possibly work, to someone who may have just
+ * waited 12 minutes for the failure, is worse than not knowing.
+ */
+const DEFINITIVE_ARCHIVE_ERROR_CODES = new Set([
+  "zip64-required",
+  "entry-too-large",
+]);
+
+export const isTransientArchiveError = (code: string): boolean =>
+  !DEFINITIVE_ARCHIVE_ERROR_CODES.has(code);

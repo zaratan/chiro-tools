@@ -4,6 +4,7 @@ import { mkdir, open, readdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { createDeflateRaw } from "node:zlib";
 import { extractErrorCode, renameWithFallback } from "../fs/safeFsOps.js";
+import { deflateBound } from "./deflateBound.js";
 import type { ArchiveEntryStat } from "./planArchive.js";
 import { CRC32_INITIAL, crc32Final, crc32Update } from "./crc32.js";
 import {
@@ -13,7 +14,10 @@ import {
   buildLocalFileHeaderPatch,
   buildZip64EndOfCentralDirectory,
   buildZip64EndOfCentralDirectoryLocator,
+  CD_FIXED_SIZE,
   CRC_FIELD_OFFSET,
+  EOCD_FIXED_SIZE,
+  LFH_FIXED_SIZE,
   MAX_UINT16,
   MAX_UINT32,
   nameBytesOf,
@@ -45,6 +49,21 @@ export type CreateZipArchiveOptions = {
   onProgress?: (event: ArchiveProgressEvent) => void;
   zip64Thresholds?: Zip64Thresholds;
   /**
+   * Defaults to "allow". "forbid" fails the run with `zip64-required`
+   * instead of ever writing ZIP64 structures — for the Vigie-Chiro upload
+   * portal, which rejects ZIP64. The backup flow (single big zip,
+   * `useArchiveRun.ts`) never sets this and keeps its current ZIP64-nominal
+   * behavior.
+   */
+  zip64?: "allow" | "forbid";
+  /**
+   * Caps the real, on-disk size of this one zip. Once admitting the next
+   * entry would risk crossing it, the archive is finalized early and
+   * `"volume-full"` is returned instead of `"ok"` — the caller is expected
+   * to retry with the remaining entries at a new `zipPath`.
+   */
+  maxBytes?: number;
+  /**
    * Test-only hook, called with the `.tmp` path right after every entry has
    * been written but before `sync()`/verify — lets tests corrupt the file on
    * disk to exercise the real verify-and-discard path end to end. Never set
@@ -62,9 +81,35 @@ export type CreateZipArchiveResult =
       zipBytes: number;
       entryCount: number;
       durationMs: number;
+      /**
+       * Whether the archived directory was fsync'd after the rename —
+       * best-effort, never fails the run either way. Optional in the type
+       * so existing call sites/literals that predate this field keep
+       * compiling; the real implementation always sets a real boolean.
+       */
+      durable?: boolean;
     }
   | { kind: "aborted" }
   | { kind: "error"; code: string };
+
+/**
+ * `CreateZipArchiveResult` plus `"volume-full"`, returned only when the
+ * caller opts into `maxBytes`. Kept as a separate type (rather than adding
+ * the member directly to `CreateZipArchiveResult`) so every existing call
+ * site and test literal typed as `CreateZipArchiveResult` — none of which
+ * pass `maxBytes` — keeps compiling unchanged; see the overloads below.
+ */
+export type CreateZipArchiveVolumeResult =
+  | CreateZipArchiveResult
+  | {
+      kind: "volume-full";
+      entriesWritten: number;
+      zipPath: string;
+      zipBytes: number;
+      entryCount: number;
+      durationMs: number;
+      durable?: boolean;
+    };
 
 const isAliveProcess = (pid: number): boolean => {
   try {
@@ -109,6 +154,29 @@ export const cleanOrphanArchiveTmp = async (
   }
 };
 
+const isAborted = (signal?: AbortSignal): boolean => signal?.aborted === true;
+
+/**
+ * Best-effort fsync of a directory (e.g. after a rename lands a new file in
+ * it) — never throws, `false` just means the durability guarantee wasn't
+ * obtained. Purely a durability guarantee for a *future* destructive flow
+ * (deleting `processed/` after archiving), not a correctness requirement
+ * today: a failed fsync here never turns a successful rename into a failure.
+ */
+const fsyncDirBestEffort = async (dir: string): Promise<boolean> => {
+  try {
+    const dirFh = await open(dir, "r");
+    try {
+      await dirFh.sync();
+    } finally {
+      await dirFh.close();
+    }
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 type DeflateEntryResult =
   | {
       kind: "ok";
@@ -143,40 +211,63 @@ const deflateEntry = async (params: {
   let writeOffset = params.startOffset;
   let aborted = false;
 
+  // Both loops must be able to end the other one, or the app freezes with no
+  // way out: the consumer below awaits the deflater's end, and `runningRef`
+  // keeps the global Ctrl+C disabled while a run is in flight. So a read
+  // failure destroys the stream (surfacing as a rejection in the consumer's
+  // for-await) rather than returning silently, and every resumption point
+  // re-checks both the signal and whether the stream is already gone.
+  // `deflater.destroyed` flips from another async task, which tseslint cannot
+  // see across an await — same narrowing limitation as `signal?.aborted` in a
+  // generator (cf. CLAUDE.md). Read it through a helper.
+  const streamGone = (): boolean => deflater.destroyed;
+
   const pump = async (): Promise<void> => {
     const readBuf = Buffer.alloc(READ_CHUNK_BYTES);
     let position = 0;
-    for (;;) {
-      if (params.signal?.aborted === true) {
-        aborted = true;
-        break;
-      }
-      const { bytesRead } = await params.srcFh.read(
-        readBuf,
-        0,
-        READ_CHUNK_BYTES,
-        position,
-      );
-      if (bytesRead === 0) break;
+    try {
+      for (;;) {
+        if (isAborted(params.signal) || streamGone()) {
+          aborted = true;
+          break;
+        }
+        const { bytesRead } = await params.srcFh.read(
+          readBuf,
+          0,
+          READ_CHUNK_BYTES,
+          position,
+        );
+        if (bytesRead === 0) break;
 
-      const chunk = Buffer.from(readBuf.subarray(0, bytesRead));
-      crc = crc32Update(crc, chunk);
-      uncompressedSize += bytesRead;
-      position += bytesRead;
-      params.onBytesRead(bytesRead);
+        // The consumer may have broken out (abort) while we were reading —
+        // writing to a destroyed stream never drains, and never errors.
+        if (isAborted(params.signal) || streamGone()) {
+          aborted = true;
+          break;
+        }
 
-      if (!deflater.write(chunk)) {
-        await once(deflater, "drain");
+        const chunk = Buffer.from(readBuf.subarray(0, bytesRead));
+        crc = crc32Update(crc, chunk);
+        uncompressedSize += bytesRead;
+        position += bytesRead;
+        params.onBytesRead(bytesRead);
+
+        if (!deflater.write(chunk)) {
+          await once(deflater, "drain");
+        }
       }
+    } catch (err) {
+      deflater.destroy(err instanceof Error ? err : new Error(String(err)));
+      return;
     }
-    deflater.end();
+    if (!streamGone()) deflater.end();
   };
 
   const pumpPromise = pump();
 
   try {
     for await (const outChunk of deflater as AsyncIterable<Buffer>) {
-      if (params.signal?.aborted === true) {
+      if (isAborted(params.signal)) {
         aborted = true;
         break;
       }
@@ -191,7 +282,7 @@ const deflateEntry = async (params: {
 
   await pumpPromise.catch(() => undefined);
 
-  if (aborted || params.signal?.aborted === true) {
+  if (aborted || isAborted(params.signal)) {
     return { kind: "aborted" };
   }
 
@@ -202,8 +293,6 @@ const deflateEntry = async (params: {
     uncompressedSize,
   };
 };
-
-const isAborted = (signal?: AbortSignal): boolean => signal?.aborted === true;
 
 /**
  * Creates a ZIP archive of `entries` (read from `sourceDir`) at `zipPath`,
@@ -216,10 +305,21 @@ const isAborted = (signal?: AbortSignal): boolean => signal?.aborted === true;
  * (reading before sync could validate a truncated page-cache view) →
  * `close()` → rename. Any failure along the way unlinks the `.tmp` and
  * returns a tagged error — nothing partial ever appears at `zipPath`.
+ *
+ * Two overloads keyed on `maxBytes` presence: existing call sites, which
+ * never pass it, get the narrow `CreateZipArchiveResult` return type
+ * unchanged; only a caller who opts into `maxBytes` sees `"volume-full"` in
+ * its type.
  */
-export const createZipArchive = async (
+export function createZipArchive(
+  opts: CreateZipArchiveOptions & { maxBytes?: undefined },
+): Promise<CreateZipArchiveResult>;
+export function createZipArchive(
+  opts: CreateZipArchiveOptions & { maxBytes: number | undefined },
+): Promise<CreateZipArchiveVolumeResult>;
+export async function createZipArchive(
   opts: CreateZipArchiveOptions,
-): Promise<CreateZipArchiveResult> => {
+): Promise<CreateZipArchiveVolumeResult> {
   const startedAt = performance.now();
   const signal = opts.signal;
   const archivedDir = path.dirname(opts.zipPath);
@@ -248,6 +348,7 @@ export const createZipArchive = async (
 
   const offsetThreshold = opts.zip64Thresholds?.offset ?? MAX_UINT32;
   const entryCountThreshold = opts.zip64Thresholds?.entryCount ?? MAX_UINT16;
+  const zip64Mode = opts.zip64 ?? "allow";
 
   const emit = (event: ArchiveProgressEvent): void => {
     try {
@@ -257,7 +358,9 @@ export const createZipArchive = async (
     }
   };
 
-  const failWith = async (code: string): Promise<CreateZipArchiveResult> => {
+  const failWith = async (
+    code: string,
+  ): Promise<CreateZipArchiveResult & { kind: "error" }> => {
     await targetFh.close().catch(() => undefined);
     await cleanupTmp();
     return { kind: "error", code };
@@ -270,16 +373,185 @@ export const createZipArchive = async (
   };
 
   try {
+    if (
+      zip64Mode === "forbid" &&
+      opts.maxBytes === undefined &&
+      opts.entries.length >= entryCountThreshold
+    ) {
+      // Guard 0 — the only guard that can see the entry-count trigger; the
+      // per-entry offset guard (guard 2, below) structurally cannot. Skipped
+      // when `maxBytes` is set: `opts.entries` is then the *remaining* pool
+      // handed to every volume by the 9.B orchestrator, not what this one
+      // volume will actually write — the loop-level check below (which sees
+      // each volume's real entry count) is guard 0's replacement in that
+      // case.
+      return await failWith("zip64-required");
+    }
+
     const cdRecords: Buffer[] = [];
     const planEntries: ArchivePlanEntry[] = [];
     let currentOffset = 0;
     let bytesReadFromSources = 0;
+
+    /**
+     * Shared tail: writes the central directory (+ ZIP64 EOCD/locator if
+     * needed) and classic EOCD, syncs, verifies against `expectedNames`,
+     * closes, and renames into place. Used both for the natural end-of-loop
+     * close and for an early `maxBytes` cutoff — `expectedNames` is a
+     * parameter rather than always `opts.entries` because an early cutoff
+     * only ever asked for a slice of them; see the two call sites.
+     */
+    const finalize = async (
+      expectedNames: ReadonlySet<string>,
+    ): Promise<
+      | { kind: "ok"; zipBytes: number; entryCount: number; durable: boolean }
+      | { kind: "aborted" }
+      | { kind: "error"; code: string }
+    > => {
+      const cdOffset = currentOffset;
+      const cdSize = cdRecords.reduce((sum, r) => sum + r.length, 0);
+      const entryCount = cdRecords.length;
+
+      const needsZip64 = needsZip64Eocd(
+        { entryCount, cdSize, cdOffset },
+        { entryCount: entryCountThreshold, offset: offsetThreshold },
+      );
+      if (zip64Mode === "forbid" && needsZip64) {
+        // Guard 3 — nothing has been written to the CD/EOCD region yet.
+        return await failWith("zip64-required");
+      }
+
+      let offset = currentOffset;
+      for (const record of cdRecords) {
+        await targetFh.write(record, 0, record.length, offset);
+        offset += record.length;
+      }
+
+      if (needsZip64) {
+        const zip64EocdOffset = offset;
+        const zip64Eocd = buildZip64EndOfCentralDirectory({
+          entryCount,
+          cdSize,
+          cdOffset,
+        });
+        await targetFh.write(zip64Eocd, 0, zip64Eocd.length, offset);
+        offset += zip64Eocd.length;
+
+        const locator = buildZip64EndOfCentralDirectoryLocator(zip64EocdOffset);
+        await targetFh.write(locator, 0, locator.length, offset);
+        offset += locator.length;
+      }
+
+      const eocd = buildEndOfCentralDirectory({ entryCount, cdSize, cdOffset });
+      await targetFh.write(eocd, 0, eocd.length, offset);
+      offset += eocd.length;
+
+      try {
+        await targetFh.sync();
+      } catch (err) {
+        return await failWith(extractErrorCode(err));
+      }
+
+      if (opts.corruptBeforeVerifyForTests) {
+        await opts.corruptBeforeVerifyForTests(tmpPath);
+      }
+
+      // `planEntries` is built by the write loop, so verifying against it
+      // alone would be self-referential: an entry silently skipped above
+      // would be missing from BOTH the archive and the reference, and every
+      // check would still pass. Anchor completeness on what the caller
+      // asked for instead — this is the guarantee a future "delete
+      // processed/ after archiving" flow has to stand on.
+      const archivedNames = new Set(planEntries.map((e) => e.name));
+      const missing = [...expectedNames].filter((n) => !archivedNames.has(n));
+      if (missing.length > 0 || archivedNames.size !== expectedNames.size) {
+        return await failWith("verify-failed");
+      }
+
+      const verifyResult = await verifyZipArchive(tmpPath, planEntries, {
+        crcMode: "spot",
+      });
+      if (verifyResult.kind !== "ok") {
+        return await failWith("verify-failed");
+      }
+
+      try {
+        await targetFh.close();
+      } catch (err) {
+        await cleanupTmp();
+        return { kind: "error", code: extractErrorCode(err) };
+      }
+
+      const renameResult = await renameWithFallback(tmpPath, opts.zipPath, {
+        signal,
+      });
+      if (renameResult.kind === "error") {
+        await cleanupTmp();
+        // A Ctrl+C landing in the short un-abortable tail (verify → close →
+        // rename) comes back as ABORT_ERR. That is an interruption, not a
+        // failure: reporting it as an error would show her a raw ABORT_ERR
+        // code with no French explanation for something she just asked for.
+        if (renameResult.code === "ABORT_ERR" || isAborted(signal)) {
+          return { kind: "aborted" };
+        }
+        return { kind: "error", code: renameResult.code };
+      }
+
+      const durable = await fsyncDirBestEffort(path.dirname(opts.zipPath));
+      return { kind: "ok", zipBytes: offset, entryCount, durable };
+    };
 
     for (let index = 0; index < opts.entries.length; index++) {
       const entry = opts.entries[index];
       if (entry === undefined) continue;
 
       if (isAborted(signal)) return await abortRun();
+
+      const nameBytes = nameBytesOf(entry.name);
+
+      if (opts.maxBytes !== undefined && index > 0) {
+        // The first entry admitted into any given call always proceeds
+        // regardless of `maxBytes` — an oversized-single-entry edge case is
+        // explicitly out of scope here (belongs to the 9.B orchestrator).
+        const priorCdBytes = cdRecords.reduce((sum, r) => sum + r.length, 0);
+        const estimatedFootprint =
+          LFH_FIXED_SIZE +
+          nameBytes.length +
+          deflateBound(entry.size) +
+          CD_FIXED_SIZE +
+          nameBytes.length;
+        // `priorCdBytes` (the exact size of CD records already built for
+        // entries admitted so far) and `EOCD_FIXED_SIZE` are included on
+        // top of `currentOffset` + this entry's own footprint — omitting
+        // them would let the real on-disk volume creep past `maxBytes` with
+        // many small entries, since CD records are only physically written
+        // at `finalize` time and don't show up in `currentOffset` yet.
+        const wouldExceedBytes =
+          currentOffset + priorCdBytes + estimatedFootprint + EOCD_FIXED_SIZE >
+          opts.maxBytes;
+        // Guard 0 above only sees `opts.entries.length`, which under
+        // `maxBytes` is the whole remaining pool, not this volume's real
+        // count — so the entry-count threshold has to be re-checked here,
+        // per volume, against what this call has actually admitted so far.
+        const wouldExceedEntryCount =
+          zip64Mode === "forbid" && cdRecords.length + 1 >= entryCountThreshold;
+        if (wouldExceedBytes || wouldExceedEntryCount) {
+          const expectedNames = new Set(
+            opts.entries.slice(0, index).map((e) => e.name),
+          );
+          const closed = await finalize(expectedNames);
+          if (closed.kind !== "ok") return closed;
+          return {
+            kind: "volume-full",
+            entriesWritten: index,
+            zipPath: opts.zipPath,
+            zipBytes: closed.zipBytes,
+            entryCount: closed.entryCount,
+            durationMs: performance.now() - startedAt,
+            durable: closed.durable,
+          };
+        }
+      }
 
       emit({
         kind: "entry-start",
@@ -305,8 +577,12 @@ export const createZipArchive = async (
         return await failWith("entry-too-large");
       }
 
-      const nameBytes = nameBytesOf(entry.name);
       const localHeaderOffset = currentOffset;
+      if (zip64Mode === "forbid" && localHeaderOffset >= offsetThreshold) {
+        // Guard 2 — per-entry offset check.
+        return await failWith("zip64-required");
+      }
+
       const lfh = buildLocalFileHeader({
         nameBytes,
         modified: entry.mtime,
@@ -379,78 +655,19 @@ export const createZipArchive = async (
       emit({ kind: "entry-done", entryIndex: index });
     }
 
-    const cdOffset = currentOffset;
-    for (const record of cdRecords) {
-      await targetFh.write(record, 0, record.length, currentOffset);
-      currentOffset += record.length;
-    }
-    const cdSize = currentOffset - cdOffset;
-    const entryCount = cdRecords.length;
-
-    if (
-      needsZip64Eocd(
-        { entryCount, cdSize, cdOffset },
-        { entryCount: entryCountThreshold, offset: offsetThreshold },
-      )
-    ) {
-      const zip64EocdOffset = currentOffset;
-      const zip64Eocd = buildZip64EndOfCentralDirectory({
-        entryCount,
-        cdSize,
-        cdOffset,
-      });
-      await targetFh.write(zip64Eocd, 0, zip64Eocd.length, currentOffset);
-      currentOffset += zip64Eocd.length;
-
-      const locator = buildZip64EndOfCentralDirectoryLocator(zip64EocdOffset);
-      await targetFh.write(locator, 0, locator.length, currentOffset);
-      currentOffset += locator.length;
-    }
-
-    const eocd = buildEndOfCentralDirectory({ entryCount, cdSize, cdOffset });
-    await targetFh.write(eocd, 0, eocd.length, currentOffset);
-    currentOffset += eocd.length;
-
-    try {
-      await targetFh.sync();
-    } catch (err) {
-      return await failWith(extractErrorCode(err));
-    }
-
-    if (opts.corruptBeforeVerifyForTests) {
-      await opts.corruptBeforeVerifyForTests(tmpPath);
-    }
-
-    const verifyResult = await verifyZipArchive(tmpPath, planEntries, {
-      crcMode: "spot",
-    });
-    if (verifyResult.kind !== "ok") {
-      return await failWith("verify-failed");
-    }
-
-    try {
-      await targetFh.close();
-    } catch (err) {
-      await cleanupTmp();
-      return { kind: "error", code: extractErrorCode(err) };
-    }
-
-    const renameResult = await renameWithFallback(tmpPath, opts.zipPath, {
-      signal,
-    });
-    if (renameResult.kind === "error") {
-      await cleanupTmp();
-      return { kind: "error", code: renameResult.code };
-    }
-
+    const finalResult = await finalize(
+      new Set(opts.entries.map((e) => e.name)),
+    );
+    if (finalResult.kind !== "ok") return finalResult;
     return {
       kind: "ok",
       zipPath: opts.zipPath,
-      zipBytes: currentOffset,
-      entryCount,
+      zipBytes: finalResult.zipBytes,
+      entryCount: finalResult.entryCount,
       durationMs: performance.now() - startedAt,
+      durable: finalResult.durable,
     };
   } catch (err) {
     return await failWith(extractErrorCode(err));
   }
-};
+}

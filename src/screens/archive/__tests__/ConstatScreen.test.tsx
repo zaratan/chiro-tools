@@ -1,5 +1,12 @@
 import { render } from "ink-testing-library";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ArchiveEntryStat } from "../../../lib/archive/planArchive.js";
@@ -55,6 +62,7 @@ describe("ArchiveConstatScreen — no-processed", () => {
   it("shows guidance and mentions pwd when 'processed/' does not exist", async () => {
     const { lastFrame } = render(
       <ConstatScreen
+        mode="backup"
         cwd={tmpDir}
         onContinue={() => undefined}
         onBack={() => undefined}
@@ -78,6 +86,7 @@ describe("ArchiveConstatScreen — empty-processed", () => {
 
     const { lastFrame } = render(
       <ConstatScreen
+        mode="backup"
         cwd={tmpDir}
         onContinue={() => undefined}
         onBack={() => undefined}
@@ -99,6 +108,7 @@ describe("ArchiveConstatScreen — empty-processed", () => {
 
     const { lastFrame } = render(
       <ConstatScreen
+        mode="backup"
         cwd={tmpDir}
         onContinue={() => undefined}
         onBack={() => undefined}
@@ -124,11 +134,12 @@ describe("ArchiveConstatScreen — ready", () => {
     return processedDir;
   };
 
-  it("shows the count, volume, and confirmation question for N files (plural)", async () => {
+  it("shows the count, volume, and confirmation question for N files (plural), backup mode", async () => {
     await writeProcessedFiles(["a_001.wav", "a_002.wav", "a_003.wav"]);
 
     const { lastFrame } = render(
       <ConstatScreen
+        mode="backup"
         cwd={tmpDir}
         onContinue={() => undefined}
         onBack={() => undefined}
@@ -146,11 +157,33 @@ describe("ArchiveConstatScreen — ready", () => {
     );
   });
 
+  it("shows the upload-flavored closing question in package mode", async () => {
+    await writeProcessedFiles(["a_001.wav"]);
+
+    const { lastFrame } = render(
+      <ConstatScreen
+        mode="package"
+        cwd={tmpDir}
+        onContinue={() => undefined}
+        onBack={() => undefined}
+      />,
+    );
+
+    await waitUntil(() => !(lastFrame() ?? "").includes("Analyse du dossier…"));
+
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain(
+      "Ce sont bien les enregistrements à déposer sur Vigie-Chiro ?",
+    );
+    expect(frame).not.toContain("à mettre dans le zip ?");
+  });
+
   it("uses the singular form for a single file", async () => {
     await writeProcessedFiles(["a_001.wav"]);
 
     const { lastFrame } = render(
       <ConstatScreen
+        mode="backup"
         cwd={tmpDir}
         onContinue={() => undefined}
         onBack={() => undefined}
@@ -178,6 +211,7 @@ describe("ArchiveConstatScreen — ready", () => {
 
     const { stdin, lastFrame } = render(
       <ConstatScreen
+        mode="backup"
         cwd={tmpDir}
         onContinue={(entries, totalBytes) => {
           resultBox.entries = entries;
@@ -204,6 +238,7 @@ describe("ArchiveConstatScreen — ready", () => {
     const onBackCalls: number[] = [];
     const { stdin, lastFrame } = render(
       <ConstatScreen
+        mode="backup"
         cwd={tmpDir}
         onContinue={() => undefined}
         onBack={() => onBackCalls.push(1)}
@@ -220,7 +255,7 @@ describe("ArchiveConstatScreen — ready", () => {
 
 describe("ArchiveConstatScreen — not-writable", () => {
   itUnlessRoot(
-    "shows the protected-folder guidance when cwd cannot be written to",
+    "shows the protected-folder guidance when cwd cannot be written to, backup mode mentions « archived »",
     async () => {
       const processedDir = path.join(tmpDir, "processed");
       await mkdir(processedDir);
@@ -230,6 +265,7 @@ describe("ArchiveConstatScreen — not-writable", () => {
 
       const { lastFrame } = render(
         <ConstatScreen
+          mode="backup"
           cwd={tmpDir}
           onContinue={() => undefined}
           onBack={() => undefined}
@@ -246,6 +282,34 @@ describe("ArchiveConstatScreen — not-writable", () => {
       expect(frame).toContain("« archived »");
     },
   );
+
+  itUnlessRoot(
+    "mentions « upload » instead of « archived » in package mode",
+    async () => {
+      const processedDir = path.join(tmpDir, "processed");
+      await mkdir(processedDir);
+      await writeFile(path.join(processedDir, "a_001.wav"), "1234");
+
+      await chmod(tmpDir, 0o500);
+
+      const { lastFrame } = render(
+        <ConstatScreen
+          mode="package"
+          cwd={tmpDir}
+          onContinue={() => undefined}
+          onBack={() => undefined}
+        />,
+      );
+
+      await waitUntil(
+        () => !(lastFrame() ?? "").includes("Analyse du dossier…"),
+      );
+
+      const frame = lastFrame() ?? "";
+      expect(frame).toContain("« upload »");
+      expect(frame).not.toContain("« archived »");
+    },
+  );
 });
 
 describe("ArchiveConstatScreen — scan-error", () => {
@@ -257,6 +321,7 @@ describe("ArchiveConstatScreen — scan-error", () => {
 
     const { lastFrame } = render(
       <ConstatScreen
+        mode="backup"
         cwd={tmpDir}
         onContinue={() => undefined}
         onBack={() => undefined}
@@ -271,5 +336,63 @@ describe("ArchiveConstatScreen — scan-error", () => {
       "Une erreur inattendue est survenue en lisant ce dossier.",
     );
     expect(frame).toContain("Détail technique : ENOTDIR");
+  });
+});
+
+describe("ArchiveConstatScreen — package mode orphan cleanup", () => {
+  it("removes an orphaned staging dir in upload/ while scanning, before reaching 'ready'", async () => {
+    const processedDir = path.join(tmpDir, "processed");
+    await mkdir(processedDir);
+    await writeFile(path.join(processedDir, "a_001.wav"), "1234");
+
+    const uploadDir = path.join(tmpDir, "upload");
+    await mkdir(uploadDir);
+    // A staging dir whose PID is certainly dead (max PID space is far below
+    // this on every real OS) — deterministic without touching `process.kill`.
+    const orphanName = ".depot_20200101.999999999.tmpdir";
+    await mkdir(path.join(uploadDir, orphanName));
+    await writeFile(
+      path.join(uploadDir, orphanName, "volume-1.zip"),
+      "leftover",
+    );
+
+    const { lastFrame } = render(
+      <ConstatScreen
+        mode="package"
+        cwd={tmpDir}
+        onContinue={() => undefined}
+        onBack={() => undefined}
+      />,
+    );
+
+    await waitUntil(() => !(lastFrame() ?? "").includes("Analyse du dossier…"));
+
+    const remaining = await readdir(uploadDir);
+    expect(remaining).not.toContain(orphanName);
+  });
+
+  it("does not touch upload/ in backup mode", async () => {
+    const processedDir = path.join(tmpDir, "processed");
+    await mkdir(processedDir);
+    await writeFile(path.join(processedDir, "a_001.wav"), "1234");
+
+    const uploadDir = path.join(tmpDir, "upload");
+    await mkdir(uploadDir);
+    const orphanName = ".depot_20200101.999999999.tmpdir";
+    await mkdir(path.join(uploadDir, orphanName));
+
+    const { lastFrame } = render(
+      <ConstatScreen
+        mode="backup"
+        cwd={tmpDir}
+        onContinue={() => undefined}
+        onBack={() => undefined}
+      />,
+    );
+
+    await waitUntil(() => !(lastFrame() ?? "").includes("Analyse du dossier…"));
+
+    const remaining = await readdir(uploadDir);
+    expect(remaining).toContain(orphanName);
   });
 });

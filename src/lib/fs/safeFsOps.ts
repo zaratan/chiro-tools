@@ -87,14 +87,17 @@ export const renameWithFallback = async (
 };
 
 /**
- * Writes a buffer to `targetPath` atomically: writes to a process-unique tmp
- * (`targetPath + ".<pid>.tmp"`), then renames. On EXDEV (cross-device, typical
- * with SD-card → home dir), falls back to copyFile + unlink of the tmp.
+ * Writes a buffer to `targetPath` atomically: writes to a unique tmp
+ * (`targetPath + ".<uuid8>.tmp"`), then renames. On EXDEV (cross-device,
+ * typical with SD-card → home dir), falls back to copyFile + unlink of the
+ * tmp.
  *
- * The PID in the tmp suffix avoids races if two chiro instances write into
- * the same destination directory (e.g., user opens two terminals on the
- * same cwd). The orphan-tmp pre-clean in the caller still matches the
- * `.tmp` suffix regardless of PID.
+ * The random suffix avoids races if two chiro instances write into the same
+ * destination directory (e.g., user opens two terminals on the same cwd).
+ * The orphan-tmp pre-clean in the caller matches the `.tmp` suffix whatever
+ * the suffix contains. Note `lib/archive` uses a *PID* suffix instead: it
+ * needs to tell a dead run's leftovers from a live instance's in-flight tmp,
+ * which a random suffix cannot express.
  *
  * Never throws. Returns a tagged Result.
  *

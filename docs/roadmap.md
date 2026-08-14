@@ -235,6 +235,8 @@ Détails d'implémentation complets dans `CLAUDE.md` (« Pièges connus », § w
 
 **Objectif** : fermer la boucle du protocole. Une fois le découpage fait, l'utilisatrice doit déposer ses fichiers sur Vigie-Chiro — ce qui suppose de zipper `processed/` à la main dans le Finder, sur des dossiers de milliers de fichiers et des dizaines de Go. Phase 8 internalise cette étape : `processed/` → `archived/processed_YYYYMMDDHHMM.zip`, **non-destructif**. Détails complets dans `docs/architecture.md` § « Module `lib/archive` ».
 
+> **Repositionné par la Phase 9** : le portail refuse le ZIP64, dans lequel ce zip tombe sur des volumes réels. Ce flow est devenu « Sauvegarder les enregistrements découpés (un seul zip) » — la copie de sauvegarde — et le dépôt passe par la série de volumes. Son nommage est aussi passé à `{préfixe}_YYYYMMDD.zip`.
+
 ### Tâches (réalisées en 8.A / 8.B / 8.C / 8.D)
 
 - **Writer ZIP maison** (`src/lib/archive/`) : `crc32.ts`, builders binaires purs (`zipFormat.ts`), plan et nommage (`planArchive.ts`), orchestration streaming (`createZipArchive.ts`), vérification post-écriture (`verifyZipArchive.ts`). Zéro dépendance ajoutée — ADR dans `architecture.md` (npm type yazl, `spawn zip` et tar/tar.gz écartés, ce dernier parce que le format zip est imposé par le portail).
@@ -242,7 +244,7 @@ Détails d'implémentation complets dans `CLAUDE.md` (« Pièges connus », § w
 - **ZIP64 conditionnel** (central directory + EOCD seulement, jamais les local headers ; saturation par champ) avec **seuils injectables**, ce qui permet d'exercer tout le chemin en CI sans fixture de 4 Go.
 - **Vérification avant publication** : complétude contre le plan (égalité d'ensembles), structure (dont relecture des octets patchés de chaque local header et contiguïté), CRC en mode `spot`. Ordre `sync()` → verify → `close()` → `rename` — `ENOSPC` se manifeste au fsync, pas au write.
 - **3 écrans** (`src/screens/archive/`) sans écran de saisie, progression pilotée par les octets lus en source + ETA byte-weighted réutilisé du flow Découper. Ctrl+C câblé localement pendant le run.
-- **Extractions à leur 2ᵉ usage** : `src/lib/format/{bytes,progress}.ts`, `isVisibleNonTmpEntry` partagé entre le flow Découper et le flow zip, `src/screens/fsErrorMessages.ts` (règle de trois atteinte).
+- **Extractions à leur 2ᵉ usage** : `src/lib/format/{bytes,progress}.ts` (déplacé en `src/format/` par la Phase 9.0), `isVisibleNonTmpEntry` partagé entre le flow Découper et le flow zip, `src/screens/fsErrorMessages.ts` (règle de trois atteinte).
 - **`SessionEvent` v3** (`action: "vigie-archive"`, sans `input`, `result` discriminé sur `status`) + frontière eslint pour le 3ᵉ flow d'écrans.
 
 ### Critère de sortie
@@ -253,6 +255,36 @@ Détails d'implémentation complets dans `CLAUDE.md` (« Pièges connus », § w
 - [x] Non-destructivité : `processed/` intact après succès, abort et échec ; aucun zip partiel dans `archived/` dans les trois cas.
 - [ ] Test manuel : parcours complet dans un dossier réel, zip ouvert avec Archive Utility, dépôt accepté par Vigie-Chiro comme un zip manuel.
 - [ ] Test manuel : run sur un dossier > 4 Gio (confirmation du chemin ZIP64 déjà couvert en CI).
+
+## Phase 9 — Dépôt Vigie-Chiro : série de zips sans ZIP64 ✓
+
+**Objectif** : le zip unique de la Phase 8 est **indéposable**. Sur des volumes réels (10–20 Go) il est en ZIP64, et le portail Vigie-Chiro refuse le ZIP64 (confirmé par l'utilisatrice ; aucune limite de taille imposée par ailleurs) — donc le dépôt, finalité de l'outil, était bloqué. Phase 9 ajoute une **série** de zips de 3,5 Go, chacun prouvé sans ZIP64. Le gros zip reste, comme objet unique de sauvegarde (cas d'usage précis : « dans trois ans, un client redemande les données de son étude »). Détails complets dans `docs/architecture.md` § « Série de volumes ».
+
+Décisions produit : volumes de **3,5 Go réels** · **deux entrées de menu** (pas de sélecteur) · **les deux sorties coexistent** · **incitation à sauvegarder** en fin de dépôt · **tout ou rien** sur la série.
+
+### Tâches (réalisées en 9.0 / 9.A / 9.B / 9.C / 9.D)
+
+- **9.0 — Facteur commun** : `src/lib/format/` → **`src/format/`** (+ sa règle eslint), extraction de `components/ProgressPanel.tsx` (cadre commun des trois `RunningView`) et de `src/lib/progress/renderThrottle.ts`. Aucun changement fonctionnel : les tests du flow découpage passent sans modification d'assertion. Le déplacement, plutôt qu'une exception à la règle `components/ ∌ lib/`, est ce qui garde la frontière binaire.
+- **9.A — Fondations lib** : borne de compression **inconditionnelle** (`deflateBound.ts`), `maxBytes`/`volume-full` dans `createZipArchive`, garde-fou `zip64: "allow" | "forbid"` (3 points), clamp dur de `CHIRO_MAX_VOLUME_BYTES`, `extractCommonPrefix`, nommage daté **au jour** (y compris bascule du flow sauvegarde, `YYYYMMDDHHMM` → `YYYYMMDD`), `noZip64.test.ts` (« la preuve », détection structurelle) + contre-témoin par trois extracteurs réels.
+- **9.B — Orchestration** : `createZipVolumes` (bascule dynamique sur la taille réelle, staging caché, commit par un `rename` unique avec collision en boucle, nommage `partN` attribué au commit, ré-offset de progression en coordonnées globales, complétude de série), `cleanOrphanStagingDirs` (liveness PID + garde d'âge 24 h, suppression fichier par fichier), `SessionEvent` v4, `buildPackageSessionEvent`.
+- **9.C — UI** : menu à 6 entrées, routage `package:*` dans `app.tsx`, injection du triplet comportemental dans `useArchiveRun` (le hook ne connaît plus le mode), état `cleaning`, `UploadResultScreen`, réessai limité aux codes transitoires, corrections du wording du flow sauvegarde.
+- **9.D — Docs** : `CLAUDE.md` (deux flux, ZIP64 nominal **pour la sauvegarde uniquement**, 4 nouveaux pièges), `architecture.md` (§ « Série de volumes », ADR staging, invariant de non-destructivité reformulé, `fsync` fait), `spec.md` (wizard dépôt, schéma v4, codes), `ux.md` (menu, nouveau flow, colonne transitoire/définitif, règles de vocabulaire), `roadmap.md`.
+
+### Critère de sortie
+
+- [x] `pnpm check` vert, 833 tests.
+- [x] Absence de ZIP64 prouvée structurellement sur chaque volume + contre-témoin `unzip` / `python3 -m zipfile` / `bsdtar` (`extract_version == 20` partout).
+- [x] Câblage `zip64: "forbid"` testé (et pas seulement le garde) : seuils injectés → `zip64-required` **et** `upload/` vide.
+- [x] Atomicité : abort, erreur, complétude en échec → `upload/` vide, `processed/` intact.
+- [x] `fsync` de répertoire dans les deux flux, remonté en `durable` (dette Phase 8 soldée).
+- [x] Test manuel en terminal réel : série multi-volumes, cas N = 1, Ctrl+C en cours de série, staging orphelin nettoyé, collision de dossier.
+- [ ] Test manuel sur le **binaire compilé**, sur un vrai `processed/` > 4 Gio sans override : trois extracteurs OK sur chaque volume, aucune mention « Zip64 » dans `unzip -v`, double-clic Archive Utility, une ligne `schema_version: 4` dans `~/.chiro/sessions.jsonl`.
+- [ ] **Recette finale** : dépôt effectif d'une série complète sur le portail Vigie-Chiro. C'est le seul critère qui compte.
+
+### Écarté de la V1, à reconsidérer
+
+- **Un `A-LIRE.txt` dans le dossier de série** (liste des fichiers + cases à cocher) : proposé en review UX comme le meilleur rapport valeur/coût des ajouts possibles — l'écran de résultat disparaît alors qu'elle a plusieurs heures de dépôt devant elle. Écarté comme pièce mobile supplémentaire ; à re-poser après le premier dépôt réel.
+- **`--self-test` n'est pas étendu** au zip ni à la série : ni asset bundlé ni worker, donc aucun piège de `bun --compile` à couvrir. Écrit ici pour qu'un futur reviewer ne re-litige pas.
 
 ## V2 (post-MVP, hors scope)
 
@@ -266,10 +298,10 @@ Idées priorisées par valeur utilisateur :
 6. **Linux arm64**, **macOS Intel x64**. Estimation : 1 h (juste 2 targets de build à ajouter).
 7. **Internationalisation** (EN) si l'usage déborde le réseau Vigie-Chiro français.
 
-### Follow-ups Phase 8 (zip) — différés
+### Follow-ups Phases 8-9 (zip) — différés
 
-14. **Upload direct vers Glacier Scaleway** depuis chiro, une fois le zip créé et vérifié : l'archivage long terme des enregistrements bruts est aujourd'hui manuel. Suppose de gérer des credentials (à ne pas stocker en clair), l'upload multipart d'un objet de 10–20 Go et la reprise sur coupure réseau. Estimation : 2 j.
-15. **Suppression de `processed/` après zip vérifié** — le vrai gain d'espace disque pour l'utilisatrice. Trois préconditions, non négociables : (1) `verifyZipArchive` appelé en **`crcMode: "full"`** et non `"spot"` (un mot à changer, le mode existe déjà) ; (2) **`fsync` du répertoire `archived/`** après le rename, sinon on supprime les sources en se fiant à une entrée de répertoire non durable ; (3) écran de confirmation explicite, distinct du flow non-destructif actuel — la réassurance « rien n'est supprimé » disparaît, tout le wording est à revoir. Estimation : 1 j.
+14. **Upload direct vers Glacier Scaleway** depuis chiro : l'archivage long terme est aujourd'hui manuel. La cible est **le gros zip du flow sauvegarde** (un objet unique, nommé par le préfixe de l'étude, restaurable sans recoller de morceaux), pas la série de dépôt — celle-ci n'existe que pour le portail Vigie-Chiro et n'a aucune raison d'être archivée en N morceaux. Suppose de gérer des credentials (à ne pas stocker en clair), l'upload multipart d'un objet de 10–20 Go et la reprise sur coupure réseau. C'est aussi pour ce futur upload que le nom d'action `vigie-upload` est resté libre dans `SessionEvent` (la Phase 9 a pris `vigie-package`). Estimation : 2 j.
+15. **Suppression de `processed/` après zip vérifié** — le vrai gain d'espace disque pour l'utilisatrice. Il reste **trois** préconditions, non négociables : (1) `verifyZipArchive` en **`crcMode: "full"`** — le mode existe, mais l'activer suppose aussi de lui **propager un `AbortSignal` et d'émettre une progression** : en `full` sur 10–20 Go la vérification dure plusieurs minutes pendant lesquelles la TUI serait figée et Ctrl+C inopérant ; ~~(2) **`fsync` du répertoire `archived/`** après le rename~~ — **soldée en Phase 9** (§ « `fsync` de répertoire », mesurée à 0,12 ms, faite dans les deux flux et remontée en `durable` ; le flux destructif devra exiger `durable === true`) ; (3) écran de confirmation explicite, distinct du flow non-destructif actuel — la réassurance « rien n'est supprimé » disparaît, tout le wording est à revoir ; (4) **re-scanner `processed/` juste avant la suppression** et ne supprimer que l'intersection avec ce qui a été archivé : `opts.entries` vient du scan de l'écran Constat, potentiellement plusieurs minutes plus tôt, et un fichier apparu depuis n'est pas dans le zip ; (5) `createZipArchive` doit **retourner la liste nominative** des entrées archivées et non un simple compteur, sans quoi (4) n'est pas implémentable. Estimation : 1,25 j.
 
 ### Follow-ups Phase 5 (split / TE) — différés
 

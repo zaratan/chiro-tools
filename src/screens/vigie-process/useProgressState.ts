@@ -6,6 +6,7 @@ import {
   markFileDone,
 } from "../../lib/audio/etaTracker.js";
 import type { ETATracker } from "../../lib/audio/etaTracker.js";
+import { shouldRenderNow } from "../../lib/progress/renderThrottle.js";
 import type { ProgressEvent } from "../../types.js";
 
 export type ProgressState = {
@@ -23,10 +24,6 @@ type ProgressAccumulator = {
   currentFileIndex: number | null;
   chunksWritten: number;
 };
-
-// ~10 Hz — fast enough for the human eye to perceive progress, slow enough to
-// not saturate Ink's renderer when a file produces 20+ chunks per second.
-const THROTTLE_MS = 100;
 
 /**
  * Drives the running view of the « Découper » flow.
@@ -99,7 +96,7 @@ export const useProgressState = (
     } else if (event.kind === "chunk-written") {
       progressRef.current.chunksWritten += 1;
       const nowMs = now();
-      if (nowMs - lastRenderAtRef.current > THROTTLE_MS) {
+      if (shouldRenderNow(lastRenderAtRef.current, nowMs)) {
         setState(snapshot());
         lastRenderAtRef.current = nowMs;
       }

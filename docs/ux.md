@@ -48,19 +48,19 @@ Couleur : `dimColor`. Séparateur : 3 espaces (pas de pipe `|`).
 **Cas particuliers** :
 
 - **Sur les écrans dégradés (constat KO)**, le footer n'affiche que `Échap retour au menu`.
-- **Sur les écrans d'erreur pendant l'exécution** (run-error, cf. Écran 3 et P-Confirmation dégradés), le footer affiche `Échap revenir au début` : Échap ramène à l'écran Constat, pas au menu — un simple « retour » serait ambigu sur ce qu'il désigne.
+- **Sur les écrans d'erreur pendant l'exécution** (run-error, cf. Écran 3 et P-Confirmation dégradés), le footer affiche `Échap revenir au début` : Échap ramène à l'écran Constat, pas au menu — un simple « retour » serait ambigu sur ce qu'il désigne. Le run-error des flows zip ajoute `Entrée réessayer` devant (cf. A-Confirmation dégradé), **mais seulement quand le code d'erreur est transitoire** — leurs runs sont longs, et un réessai qui ne peut pas aboutir est pire que pas de réessai.
 - **Sur l'écran de Confirmation pendant l'exécution du renommage**, le footer est vide (Ctrl+C reste fonctionnel mais on ne l'affiche pas pour éviter les abandons accidentels).
 
 ## Navigation clavier — référence
 
-| Touche            | Action                                                                                                                                                                      | Affichée en footer ?       |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| `Tab` / `Maj+Tab` | Champ suivant / précédent (FormScreen) — alias de `↓` / `↑`                                                                                                                 | Non (redondant avec `↑↓`)  |
-| `↑` / `↓`         | Naviguer dans le menu, ou entre les champs du formulaire                                                                                                                    | MenuScreen, FormScreen     |
-| `←` / `→`         | Décrémenter / incrémenter un champ numérique (Année, Passage)                                                                                                               | Oui sur FormScreen         |
-| `Entrée`          | Valider l'écran courant (sur UpdateScreen : uniquement quand une version est dispo)                                                                                         | Toujours                   |
-| `Échap`           | Revenir à l'écran précédent (ou quitter depuis Menu)                                                                                                                        | Toujours sauf Résultat     |
-| `Ctrl+C`          | Quitter immédiatement (sauf pendant un renommage/découpage en cours, où Ctrl+C est ignoré — pendant un check de mise à jour, Ctrl+C annule et revient au menu, comme Échap) | Implicite — jamais affiché |
+| Touche            | Action                                                                                                                                                                                                                                                     | Affichée en footer ?       |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `Tab` / `Maj+Tab` | Champ suivant / précédent (FormScreen) — alias de `↓` / `↑`                                                                                                                                                                                                | Non (redondant avec `↑↓`)  |
+| `↑` / `↓`         | Naviguer dans le menu, ou entre les champs du formulaire                                                                                                                                                                                                   | MenuScreen, FormScreen     |
+| `←` / `→`         | Décrémenter / incrémenter un champ numérique (Année, Passage)                                                                                                                                                                                              | Oui sur FormScreen         |
+| `Entrée`          | Valider l'écran courant (sur UpdateScreen : uniquement quand une version est dispo)                                                                                                                                                                        | Toujours                   |
+| `Échap`           | Revenir à l'écran précédent (ou quitter depuis Menu)                                                                                                                                                                                                       | Toujours sauf Résultat     |
+| `Ctrl+C`          | Quitter immédiatement (sauf : pendant un renommage/découpage en cours, où Ctrl+C est ignoré ; pendant une création de zip ou de série, où il **annule proprement** le run ; pendant un check de mise à jour, où il annule et revient au menu, comme Échap) | Implicite — jamais affiché |
 
 ## Wordings par écran — prêts à coller
 
@@ -73,7 +73,8 @@ Que voulez-vous faire ?
 
   ▸ Préfixer des enregistrements pour Vigie-Chiro
     Découper les enregistrements (pour Tadarida)
-    Créer un zip des enregistrements découpés (pour l'envoi)
+    Créer les zips à déposer sur Vigie-Chiro
+    Sauvegarder les enregistrements découpés (un seul zip)
     Vérifier les mises à jour
     Quitter
 
@@ -81,6 +82,8 @@ Que voulez-vous faire ?
 ```
 
 Item sélectionné préfixé par `▸ ` (avec un espace). Items non sélectionnés alignés sur la même colonne (`  ` deux espaces).
+
+**Six entrées depuis la Phase 9.** Les deux flux zip sont deux entrées distinctes, pas un sélecteur : elles ne produisent pas la même chose et ne servent pas au même usage (déposer / garder). Le verbe **« Créer »** est repris pour le dépôt parce que `Préfixer` et `Préparer` partagent leurs quatre premières lettres — au scan, six initiales distinctes valent mieux qu'un mot plus juste.
 
 **Variante — auto-check au boot a trouvé une nouvelle version** : entre la liste d'items et le footer, afficher en `color="yellow"` :
 
@@ -91,7 +94,8 @@ Que voulez-vous faire ?
 
   ▸ Préfixer des enregistrements pour Vigie-Chiro
     Découper les enregistrements (pour Tadarida)
-    Créer un zip des enregistrements découpés (pour l'envoi)
+    Créer les zips à déposer sur Vigie-Chiro
+    Sauvegarder les enregistrements découpés (un seul zip)
     Vérifier les mises à jour
     Quitter
 
@@ -345,10 +349,13 @@ Même structure que l'écran 1 « erreur inattendue au scan » : titre bienveill
       Car040962-2026-Pass3-A1-
   1 fichier laissé tel quel (déjà au bon format)
 
-Vous pouvez maintenant les téléverser sur Vigie-Chiro.
+Vous pouvez maintenant les découper, puis créer les zips à déposer
+sur Vigie-Chiro.
 
   Entrée retour au menu
 ```
+
+La dernière ligne a été corrigée en 9.D : elle disait « Vous pouvez maintenant les téléverser sur Vigie-Chiro », ce qui était faux sur deux points — le verbe (« téléverser » viole la règle « déposer ») et le fait, puisque depuis les Phases 5 et 9 préfixer ne suffit plus : il faut découper puis empaqueter avant de déposer quoi que ce soit.
 
 ### Écran 4 — Résultat (variante B : rien à faire)
 
@@ -807,7 +814,7 @@ Même structure que P-Constat § espace disque insuffisant : titre bienveillant,
   Entrée retour au menu
 ```
 
-`Temps écoulé` est en `dimColor` (information secondaire). Le format suit `formatDuration` (cf. `src/lib/format/duration.ts`) : secondes sous 1 min, minutes sous 1 h, sinon `X h MM`.
+`Temps écoulé` est en `dimColor` (information secondaire). Le format suit `formatDuration` (cf. `src/format/duration.ts`) : secondes sous 1 min, minutes sous 1 h, sinon `X h MM`.
 
 Si applicable, ajouter en `dimColor` après le compte de fichiers :
 
@@ -890,9 +897,9 @@ Groupage par message d'erreur (max 5 fichiers affichés par groupe, le reste ré
 | `skippedTooLarge` (compte)                                        | `fichier trop volumineux (> 500 Mo) — non géré pour l'instant`                                                       |
 | `skippedAlreadyChunked` (c)                                       | (skip silencieux — pas affiché comme une erreur)                                                                     |
 
-## Wordings — Flow « Créer un zip » (Phase 8)
+## Wordings — Flow « Sauvegarder les enregistrements découpés » (Phase 8)
 
-Zippe le contenu de `processed/` vers `archived/processed_YYYYMMDDHHMM.zip`. Non-destructif : `processed/` n'est jamais touché. Le zip est destiné au dépôt sur Vigie-Chiro.
+Zippe le contenu de `processed/` vers `archived/{préfixe}_YYYYMMDD.zip` (ou `processed_YYYYMMDD.zip` en repli). Non-destructif : `processed/` n'est jamais touché. Depuis la Phase 9, ce zip est la **copie de sauvegarde**, pas l'objet du dépôt — le portail refuse le ZIP64 dans lequel il tombe sur des volumes réels. Tous les wordings qui invitaient au dépôt ont donc été corrigés (cf. A-Résultat).
 
 ### A-Constat (nominal)
 
@@ -954,11 +961,11 @@ Mêmes patterns que P-Constat. Deux spécificités :
 
 On va rassembler 720 enregistrements dans un fichier zip.
 
-Nom du fichier : processed_202608131544.zip
+Nom du fichier : Car340581-2026-Pass1-A1_20260814.zip
 Emplacement :    ./archived/
 Taille du zip :  au plus 1,4 Go — souvent moins, le zip compresse
 
-La date et l'heure de création sont dans le nom du fichier.
+La date de création est dans le nom du fichier.
 Un zip existe déjà dans ./archived/ — celui-ci s'ajoutera à côté.
 Vos enregistrements restent dans ./processed/.
 Rien n'est déplacé ni supprimé.
@@ -966,7 +973,9 @@ Rien n'est déplacé ni supprimé.
   Entrée créer le zip   Échap revenir au début
 ```
 
-Nom du fichier en `cyan`. Les quatre dernières lignes du bloc en `dimColor` ; celle du zip existant est **conditionnelle** à la présence d'un `processed_*.zip` dans `archived/`. Aucun écran « un zip existe déjà, que faire ? » : le nom horodaté distingue les zips, et proposer « remplacer » violerait le principe non-destructif.
+Nom du fichier en `cyan`. Les quatre dernières lignes du bloc en `dimColor` ; celle du zip existant est **conditionnelle** à la présence, dans `archived/`, d'un zip au format de nommage de chiro (`processed_` ou un préfixe Vigie-Chiro, daté). Aucun écran « un zip existe déjà, que faire ? » : le nom daté distingue les zips, et proposer « remplacer » violerait le principe non-destructif.
+
+La ligne sur la date a été corrigée en 9.D : elle annonçait « la date **et l'heure** » alors que le nom est passé à la granularité du **jour** en 9.A.
 
 ### A-Confirmation (pendant la création)
 
@@ -980,11 +989,14 @@ Création du zip en cours…
   Enregistrement 42 sur 720
 
   ██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  15 %
-  Temps écoulé 12 s   Temps restant ~3 min
+  Temps écoulé 12 s • Encore environ 3 min
 
 Vos enregistrements ne sont pas modifiés.
-Fichier créé : ./archived/processed_202608131544.zip
+Dossier de sortie : ./archived/
+Vous pouvez laisser cette fenêtre ouverte, ça continue tout seul.
 ```
+
+La ligne de stats reprend **mot pour mot** le format du flow Découper (`Temps écoulé X • Encore environ Y`, séparateur `•`) : les formes `~X` et `≈ X` sont rejetées comme trop notationnelles, et deux flows affichant la même information de deux façons différentes est une confusion à eux seuls. Les trois dernières lignes en `dimColor`. Le cadre entier (chemin, titre, compteurs, barre, stats, réassurance, footer vide) est le composant partagé `components/ProgressPanel.tsx` depuis la Phase 9.0 — les trois `RunningView` de l'app n'en fournissent que les chaînes.
 
 ### A-Confirmation (dégradé : erreur pendant la création)
 
@@ -1002,8 +1014,10 @@ Plus de place sur le disque — libérez de l'espace puis relancez.
 Détail technique : ENOSPC
   (à transmettre si vous demandez de l'aide)
 
-  Échap revenir au début
+  Entrée réessayer   Échap revenir au début
 ```
+
+**`Entrée` ramène à A-Confirmation**, nom du zip re-résolu (le jour a pu tourner, une collision a pu disparaître). Le réessai n'est proposé que pour les codes **transitoires** (colonne dédiée dans la table plus bas) : leurs libellés se terminent tous par « réessayez » — une instruction sans moyen de l'exécuter est pire que pas d'instruction. Sur un run de 12 minutes qui échoue à la 11ᵉ, refaire tout le parcours depuis le menu serait une punition. Le run n'est **pas** relancé directement : on repasse par l'écran de confirmation, comme pour toute action longue. Quand le réessai est proposé, une ligne `dimColor` le dit franchement : `(la création du zip reprend depuis le début)`.
 
 ### A-Résultat (succès)
 
@@ -1011,18 +1025,24 @@ Détail technique : ENOSPC
 ✓ Terminé !
 
   720 enregistrements rassemblés dans un fichier zip
-  ./archived/processed_202608131544.zip
+  ./archived/Car340581-2026-Pass1-A1_20260814.zip
   Taille : 890 Mo
   Temps écoulé : 6 minutes
 
-Vous pouvez maintenant déposer ce fichier sur Vigie-Chiro.
+Ce fichier est votre copie de sauvegarde : gardez-le de côté.
 
+ℹ Pour déposer sur Vigie-Chiro, choisissez
+  « Créer les zips à déposer sur Vigie-Chiro » dans le menu.
+
+📁 /Users/.../Vigie-2026-pointA1
 Vos enregistrements sont toujours dans ./processed/.
 
   Entrée retour au menu
 ```
 
-Chemin affiché **relatif** (`./archived/…`), jamais absolu : un chemin utilisateur réel dépasse la largeur de 70 et serait coupé. `Temps écoulé` et la dernière ligne en `dimColor`.
+Chemin du zip affiché **relatif** (`./archived/…`), jamais absolu : un chemin utilisateur réel dépasse la largeur de 70 et serait coupé — d'où le `📁 cwd` en `dimColor` plus bas, sans lequel elle n'aurait aucun moyen de localiser le fichier. `Temps écoulé` et les deux dernières lignes en `dimColor`.
+
+**Correction Phase 9** : la ligne « Vous pouvez maintenant déposer ce fichier sur Vigie-Chiro » était devenue fausse — c'est précisément le fichier que le portail refuse. Le libellé de l'entrée de menu est cité **exactement**, sinon elle cherche une ligne qui n'existe pas.
 
 ### A-Résultat (interruption Ctrl+C)
 
@@ -1041,16 +1061,196 @@ Rien n'a été modifié : vos enregistrements sont intacts dans
 
 ### Codes d'erreur Archive → libellés FR
 
-Les codes système (`ENOSPC`, `EACCES`, `EPERM`, `EROFS`) sont mutualisés dans `src/screens/fsErrorMessages.ts` — un seul wording pour les trois flows.
+Table commune aux **deux** flux zip (`src/screens/archive/errorMessages.ts`). Les codes système (`ENOSPC`, `EACCES`, `EPERM`, `EROFS`) sont mutualisés dans `src/screens/fsErrorMessages.ts` — un seul wording pour les quatre flows.
 
-| Code interne          | Libellé FR                                                                                                                   |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `mkdir:<X>`           | `impossible de créer le sous-dossier « archived »`                                                                           |
-| `ENOENT`              | `un enregistrement a changé ou disparu pendant la création du zip — réessayez`                                               |
-| `file-changed`        | `un enregistrement a changé ou disparu pendant la création du zip — réessayez`                                               |
-| `verify-failed`       | `chiro n'a pas pu vérifier que le zip était complet — il n'a pas été conservé, vos enregistrements sont intacts ; réessayez` |
-| `entry-too-large`     | `un enregistrement est trop volumineux pour être mis dans le zip — transmettez le détail technique`                          |
-| `collision-exhausted` | `plusieurs zips ont déjà été créés dans la même minute — patientez une minute puis réessayez`                                |
+La colonne **Transitoire** est ce qui décide de l'affichage de `Entrée réessayer` (`isTransientArchiveError`) : proposer un réessai qui ne peut structurellement pas aboutir, à quelqu'un qui vient de perdre douze minutes, est la pire fuite de confiance possible. Tout code non listé comme définitif est traité comme transitoire — le défaut est celui qui laisse une action à faire.
+
+| Code interne                 | Libellé FR                                                                                                                   | Transitoire ?          |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `mkdir:<X>`                  | `impossible de créer le sous-dossier « archived »` (ou `« upload »` — le libellé de dossier est un paramètre, pas un mode)   | oui                    |
+| `ENOENT`                     | `un enregistrement a changé ou disparu pendant la création du zip — réessayez`                                               | oui                    |
+| `file-changed`               | `un enregistrement a changé ou disparu pendant la création du zip — réessayez`                                               | oui                    |
+| `verify-failed`              | `chiro n'a pas pu vérifier que le zip était complet — il n'a pas été conservé, vos enregistrements sont intacts ; réessayez` | oui                    |
+| `collision-exhausted`        | `trop de fichiers zip portent déjà ce nom — renommez ou rangez ceux du jour, puis réessayez`                                 | oui                    |
+| `entry-too-large`            | `un enregistrement est trop volumineux pour être mis dans le zip — transmettez le détail technique`                          | **non** (déterministe) |
+| `entry-too-large-for-volume` | `un enregistrement est trop volumineux pour être déposé sur Vigie-Chiro — transmettez le détail technique`                   | **non** (déterministe) |
+| `zip64-required`             | `chiro n'a pas réussi à préparer des fichiers acceptés par Vigie-Chiro — transmettez le détail technique`                    | **non** (bug interne)  |
+
+Les trois derniers codes n'appartiennent qu'au flux de dépôt en pratique. Leur libellé ne dit jamais « réessayez » et ne promet rien : il oriente vers le détail technique, c'est-à-dire vers son conjoint dev.
+
+⚠ **Dette de wording** : le libellé de `collision-exhausted` parle encore de « la même minute » alors que les noms sont datés au **jour** depuis la Phase 9, et il dit « zips » là où la règle de vocabulaire ci-dessous impose « fichiers zip ». Remplacement à appliquer : `plusieurs fichiers zip portent déjà ce nom — renommez ou déplacez les précédents puis réessayez`.
+
+## Wordings — Flow « Créer les zips à déposer » (Phase 9)
+
+Rassemble `processed/` en une **série** de fichiers zip de 3,5 Go maximum dans `upload/{série}/`, chacun acceptable par le portail Vigie-Chiro (qui refuse le ZIP64). Mêmes écrans et mêmes composants que le flow sauvegarde ; ci-dessous, **uniquement ce qui diffère** — le reste (Constat dégradés, structure de l'écran d'erreur, footers) est identique.
+
+### U-Constat (nominal)
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+✓ 720 enregistrements trouvés dans ./processed/
+  Volume total : 1,4 Go
+
+Ce sont bien les enregistrements à déposer sur Vigie-Chiro ?
+
+  Entrée continuer   Échap retour au menu
+```
+
+Deux autres écarts sur les variantes dégradées : le dossier nommé est `« upload »` (« L'outil ne peut pas créer le sous-dossier « upload » ici. »), et le message d'espace disque passe au pluriel (« Les zips sont une copie de vos enregistrements : ils peuvent occuper presque autant de place. » — cf. dette de vocabulaire en fin de section).
+
+### U-Confirmation (plusieurs fichiers attendus)
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+On va rassembler 720 enregistrements dans plusieurs fichiers zip.
+
+Emplacement :      ./upload/Car340581-2026-Pass1-A1_20260814/
+Taille de chacun : au plus 3,5 Go
+
+Vigie-Chiro n'accepte pas les fichiers trop volumineux : vos
+enregistrements seront répartis en plusieurs fichiers zip, à déposer
+un par un sur le site.
+
+Les fichiers zip n'apparaîtront qu'à la fin, tous en même temps.
+Un dossier de dépôt existe déjà dans ./upload/ — celui-ci s'ajoutera à côté.
+Vos enregistrements restent dans ./processed/.
+Rien n'est déplacé ni supprimé.
+
+  Entrée créer les zips   Échap revenir au début
+```
+
+- L'écran **ouvre par la phrase du patron maison** (« On va rassembler N enregistrements… »), qui porte toute la nouveauté à un mot près. Emplacement en `cyan`.
+- Le bloc explicatif « Vigie-Chiro n'accepte pas… » est en **couleur par défaut, pas `dimColor`** : c'est le contrat de l'écran, pas de l'aide contextuelle.
+- Les quatre dernières lignes en `dimColor`. Celle du dossier existant est **conditionnelle** à la présence d'un dossier de série dans `upload/`. Le nom affiché est celui **avant** résolution de collision : la collision se règle au commit (cf. `spec.md`), afficher un `-2` supposé serait une devinette.
+- La ligne d'atomicité (« n'apparaîtront qu'à la fin ») est ici **et** dans l'écran de progression : c'est à T+6 min qu'elle ouvre le Finder pour vérifier, pas à T=0.
+
+**Variante « un seul fichier attendu »** — déclenchée quand le volume source tient sous le plafond (estimation d'affichage seulement : la compression n'est connue qu'en cours de run, se tromper ne coûte qu'une phrase légèrement à côté, jamais un résultat faux) :
+
+```
+On va rassembler 720 enregistrements dans un fichier zip.
+
+Emplacement :      ./upload/Car340581-2026-Pass1-A1_20260814/
+Taille :           au plus 3,5 Go
+
+Le fichier zip n'apparaîtra qu'à la fin.
+…
+  Entrée créer le zip   Échap revenir au début
+```
+
+Tout passe au singulier, la phrase « Vigie-Chiro n'accepte pas… » **disparaît** (sans objet), et le footer aussi.
+
+### U-Confirmation (pendant la création)
+
+Footer **vide**, comme partout ailleurs pendant un run long.
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+Création des fichiers zip en cours…
+
+  Fichier zip 3
+  Enregistrement 214 sur 720
+
+  ████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░  30 %
+  Temps écoulé 4 min 20 s • Encore environ 9 min
+
+Vos enregistrements ne sont pas modifiés.
+Dossier de sortie : ./upload/
+Les fichiers zip n'y apparaîtront qu'à la toute fin, tous ensemble.
+Vous pouvez laisser cette fenêtre ouverte, ça continue tout seul.
+```
+
+- **`Fichier zip 3` n'a pas de total** : le nombre de volumes est inconnu tant que le run n'est pas fini (cf. `spec.md`). La ligne est **entièrement masquée tant qu'on est sur le premier volume** — un « Fichier zip 1 » qui ne bougerait jamais sur un run mono-volume (le cas d'un point d'écoute isolé, fréquent) serait absurde, et compter honnêtement à partir du deuxième ne coûte rien.
+- **`Enregistrement 214 sur 720` est global**, jamais relatif au volume courant : elle suit une seule progression, pas N progressions imbriquées.
+- Le dossier annoncé est `./upload/`, pas le dossier daté — celui-ci n'existe pas encore.
+
+### U-Confirmation (annulation en cours)
+
+Écran intermédiaire après Ctrl+C, avant le résultat. Supprimer un staging de 10 Go sur un disque externe prend 10 à 60 s : sans cet écran, la progression resterait figée avec Ctrl+C apparemment inopérant — indiscernable d'un plantage.
+
+```
+Annulation en cours…
+
+Nettoyage des fichiers temporaires, un instant.
+```
+
+Seconde ligne en `dimColor`, footer vide, aucune touche active (l'annulation est déjà en cours, il n'y a rien à décider).
+
+### U-Confirmation (dégradé : erreur pendant la création)
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+⚠ Une erreur est survenue pendant la préparation des zips.
+
+Aucun fichier zip n'a été créé — vos enregistrements sont intacts.
+
+Plus de place sur le disque — libérez de l'espace puis relancez.
+
+Détail technique : ENOSPC
+  (à transmettre si vous demandez de l'aide)
+  (la création des zips reprend depuis le début)
+
+  Entrée réessayer   Échap revenir au début
+```
+
+La ligne `(la création des zips reprend depuis le début)` et `Entrée réessayer` n'apparaissent **que pour les codes transitoires** (cf. table des codes, colonne dédiée). Sur un code définitif (`zip64-required`, `entry-too-large-for-volume`), il ne reste que `Échap revenir au début`.
+
+### U-Résultat (succès, plusieurs fichiers)
+
+```
+✓ Terminé !
+
+  720 enregistrements répartis dans 3 fichiers zip
+  ./upload/Car340581-2026-Pass1-A1_20260814/
+  Taille totale : 5,4 Go
+  Temps écoulé : 18 minutes
+
+Déposez les 3 fichiers sur Vigie-Chiro, un par un.
+L'ordre n'a pas d'importance.
+
+ℹ Vous pouvez aussi garder une copie complète de côté :
+  choisissez « Sauvegarder les enregistrements découpés ».
+
+📁 /Users/.../Vigie-2026-pointA1
+Vos enregistrements sont toujours dans ./processed/.
+
+  Entrée retour au menu
+```
+
+- Le dossier affiché est celui **réellement obtenu** (il peut porter un `-2`), jamais le nom prévu à l'aperçu.
+- **Les noms de fichiers ne sont pas listés** : coût en O(N) sur un écran à hauteur fixe, et c'est dans le Finder qu'ils lui servent, où `_part2` se lit tout seul.
+- L'incitation à la sauvegarde donne le **motif d'abord** (« garder une copie complète de côté ») et le geste ensuite. Ni `dimColor` (invisible = inutile) ni `⚠` (rien ne va mal). Le libellé de l'entrée de menu est cité exactement.
+- `📁 cwd` en `dimColor` : le chemin du dossier est relatif, sans le cwd elle ne peut pas le retrouver dans le Finder.
+
+**Variante N = 1** : `720 enregistrements rassemblés dans un fichier zip`, puis `Déposez ce fichier sur Vigie-Chiro.` — sans « un par un » ni « L'ordre n'a pas d'importance ».
+
+### U-Résultat (interruption Ctrl+C)
+
+```
+ℹ Préparation du dépôt arrêtée à votre demande
+
+Aucun fichier zip n'a été créé.
+
+Rien n'a été modifié : vos enregistrements sont intacts dans
+./processed/. Vous pouvez recommencer quand vous voudrez.
+
+  Entrée retour au menu
+```
+
+`ℹ` en `color="cyan"`, comme les autres écrans d'interruption.
+
+### Règles de vocabulaire figées en 9.D
+
+Trois règles, à appliquer à **toute** l'app (pas seulement aux flux zip) :
+
+1. **« déposer » est le verbe unique.** L'app disait indifféremment téléverser, déposer, envoyer. C'est le mot du portail Vigie-Chiro, celui qu'elle lira sur le site : tout autre synonyme l'oblige à traduire. Bannis : « téléverser », « uploader », « envoyer », « transmettre » (sauf dans « à transmettre si vous demandez de l'aide », qui parle du support, pas du portail).
+2. **« fichiers zip », jamais « zips »** dans une phrase adressée à l'utilisatrice. « zips » est un raccourci de dev ; « fichier zip » est ce qu'elle voit dans le Finder. Exception assumée : le **libellé de menu** (« Créer les zips à déposer sur Vigie-Chiro ») et le hint de footer (« créer les zips »), où la contrainte de longueur prime et où le mot est isolé, pas noyé dans une phrase.
+3. **Les compteurs sont globaux, jamais par volume.** `Enregistrement 214 sur 720` compte sur toute la série. Un compteur qui repartirait à 1 à chaque fichier zip donnerait l'impression que le travail recommence.
+
+Les quatre écarts relevés dans le code au moment de figer ces règles **ont tous été corrigés en 9.D** : le « téléverser » de l'Écran 4 (qui était en plus devenu factuellement faux), « Les zips sont une copie… » du constat d'espace disque, « plusieurs zips… dans la même minute » de `collision-exhausted` (la minute n'a plus de sens depuis que le nom est daté au jour), et « la date **et l'heure** de création » de A-Confirmation. Il ne reste que les deux exceptions assumées ci-dessus, où « zips » est isolé et contraint par la longueur : le libellé de menu et le hint de footer.
 
 ## Choix UX validés (rappel)
 
@@ -1059,6 +1259,7 @@ Les codes système (`ENOSPC`, `EACCES`, `EPERM`, `EROFS`) sont mutualisés dans 
 - **Pré-scan AVANT la saisie** (écran Constat) : économise 4 saisies si l'utilisatrice n'est pas dans le bon dossier.
 - **3 exemples sur l'écran de Confirmation**, pas 1 — montre un pattern cohérent.
 - **Confirmation explicite Entrée**, jamais une touche aléatoire pour déclencher l'action destructive.
-- **« enregistrements » jamais « morceaux » ni « chunks »** (cf. Wording-clé P-Confirmation), **durée en minutes** jamais en compte de fichiers côté Confirm, **réassurance non-destructive** systématique sur Confirm + Result du flow découper.
+- **« enregistrements » jamais « morceaux » ni « chunks »** (cf. Wording-clé P-Confirmation), **durée en minutes** jamais en compte de fichiers côté Confirm, **réassurance non-destructive** systématique sur Confirm + Result du flow découper. Depuis la Phase 9 s'ajoutent trois règles figées : **« déposer »** verbe unique, **« fichiers zip »** jamais « zips », **compteurs globaux** jamais par volume (cf. § « Règles de vocabulaire figées en 9.D »).
+- **Deux entrées de menu pour les deux flux zip**, jamais un sélecteur ni une question « pour quoi faire ? » : les deux sorties coexistent, servent à deux choses différentes, et le choix se fait à l'entrée du flux, pas à l'intérieur.
 - **Moteur de découpage silencieux** (Phase 6). Le pipeline interne (worker pool wavefile vs fast-path sox) est invisible dans la TUI : aucun footer "Moteur : sox", aucun hint "Astuce : installez sox". La cible naturaliste n'a pas le modèle mental ; nommer un moteur invite une question sans réponse utile. L'ETA absorbe naturellement les écarts via la moyenne glissante. L'incitation à installer sox vit **uniquement** dans le README (lu par le binôme dev au setup initial). Le pipeline réellement utilisé est loggé dans `~/.chiro/sessions.jsonl` (`engine: "wavefile" | "sox"`, `engine_fallback_count`) pour diagnostic dev.
 - **`formatDuration` affiche la durée audio source**, pas le wall-clock estimé du traitement. Avec sox, le wall-clock devient bien inférieur à la durée audio — c'est attendu, la "durée annoncée" reste celle des enregistrements, jamais le temps de calcul.

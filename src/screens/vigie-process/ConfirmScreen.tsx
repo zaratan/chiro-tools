@@ -2,7 +2,7 @@ import { Box, Text, useInput } from "ink";
 import { Footer } from "../../components/Footer.js";
 import { PROCESSED_DIR_DISPLAY } from "../../lib/audio/batchPlan.js";
 import type { ProcessResult } from "../../lib/audio/processWavFiles.js";
-import { formatDuration } from "../../lib/format/duration.js";
+import { formatDuration } from "../../format/duration.js";
 import type { ProcessInput } from "../../types.js";
 import { mapKnownProcessErrorCode } from "./errorMessages.js";
 import { RunningView } from "./RunningView.js";

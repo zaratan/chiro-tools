@@ -55,6 +55,13 @@ jobs:
       - name: Install sox (macOS)
         if: matrix.sox == 'with' && runner.os == 'macOS'
         run: brew install sox
+      # bsdtar is one of the three independent zip extractors the archive
+      # tests validate against, and those tests hard-fail (rather than skip)
+      # when a tool is missing on CI. unzip and python3 ship with the runner
+      # images; bsdtar does not on Linux.
+      - name: Install bsdtar (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libarchive-tools
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
 

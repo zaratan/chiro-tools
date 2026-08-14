@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./app.js";
 import { makeRampWav } from "./lib/audio/__tests__/fixtures.js";
 import { readZip } from "./lib/archive/__tests__/zipTestReader.js";
-import type { CreateZipArchiveFn } from "./screens/archive/ConfirmScreen.js";
+import type { CreateZipArchiveFn } from "./screens/archive/backupBehavior.js";
+import type { CreateZipVolumesFn } from "./screens/archive/packageBehavior.js";
 import type { ApplyRenamesFn } from "./screens/vigie-chiro/ConfirmScreen.js";
 import type { RenamePlan, RenameOutcome } from "./types.js";
 
@@ -391,8 +392,10 @@ describe("App — end-to-end", () => {
       />,
     );
 
-    // Navigate Menu: three downs to skip vigie-process and the archive entry,
+    // Navigate Menu: four downs to skip vigie-process, package, and backup,
     // landing on "Vérifier les mises à jour"
+    stdin.write("\x1B[B");
+    await settle();
     stdin.write("\x1B[B");
     await settle();
     stdin.write("\x1B[B");
@@ -420,8 +423,8 @@ describe("App — end-to-end", () => {
     unmount();
   });
 
-  describe("archive flow", () => {
-    it("completes the archive flow end-to-end with the real createZipArchive: Menu → archive:constat → archive:confirm → archive:result", async () => {
+  describe("backup flow", () => {
+    it("completes the backup flow end-to-end with the real createZipArchive: Menu → archive:constat → archive:confirm → archive:result", async () => {
       const processedDir = path.join(tmpDir, "processed");
       await mkdir(processedDir, { recursive: true });
       const archiveFileNames = [
@@ -447,7 +450,10 @@ describe("App — end-to-end", () => {
         <App cwd={tmpDir} onRequestUpdate={vi.fn()} />,
       );
 
-      // Menu: 2x down → "archive" item (3rd), then Entrée → archive:constat
+      // Menu: 3x down → "backup" item (4th: prefix, process, package,
+      // backup), then Entrée → archive:constat
+      stdin.write("\x1B[B");
+      await settle();
       stdin.write("\x1B[B");
       await settle();
       stdin.write("\x1B[B");
@@ -478,6 +484,9 @@ describe("App — end-to-end", () => {
       // --- Result ---
       const resultFrame = lastFrame() ?? "";
       expect(resultFrame).toContain("Terminé");
+      expect(resultFrame).toContain(
+        "Ce fichier est votre copie de sauvegarde : gardez-le de côté.",
+      );
 
       // A zip was written to archived/
       const archivedDir = path.join(tmpDir, "archived");
@@ -510,11 +519,13 @@ describe("App — end-to-end", () => {
       }
     });
 
-    it("navigates Menu → archive:constat via 2x down + Entrée, and Échap returns to the menu", async () => {
+    it("navigates Menu → archive:constat via 3x down + Entrée, and Échap returns to the menu", async () => {
       const { stdin, lastFrame } = render(
         <App cwd={tmpDir} onRequestUpdate={vi.fn()} />,
       );
 
+      stdin.write("\x1B[B");
+      await settle();
       stdin.write("\x1B[B");
       await settle();
       stdin.write("\x1B[B");
@@ -545,6 +556,8 @@ describe("App — end-to-end", () => {
         <App cwd={tmpDir} onRequestUpdate={vi.fn()} />,
       );
 
+      stdin.write("\x1B[B");
+      await settle();
       stdin.write("\x1B[B");
       await settle();
       stdin.write("\x1B[B");
@@ -588,6 +601,8 @@ describe("App — end-to-end", () => {
       await settle();
       stdin.write("\x1B[B");
       await settle();
+      stdin.write("\x1B[B");
+      await settle();
       stdin.write("\r");
       await settle();
       await new Promise((r) => setTimeout(r, 200));
@@ -613,6 +628,185 @@ describe("App — end-to-end", () => {
       expect(lastFrame()).not.toBeNull();
 
       // Échap → back to archive:constat, not the menu.
+      stdin.write("\x1b");
+      await settle();
+      await new Promise((r) => setTimeout(r, 200));
+
+      const afterEscapeFrame = lastFrame() ?? "";
+      expect(afterEscapeFrame).not.toContain("chiro — outils Vigie-Chiro");
+      expect(afterEscapeFrame).toContain(tmpDir);
+    });
+  });
+
+  describe("package (upload-series) flow", () => {
+    it("completes the package flow end-to-end with the real createZipVolumes: Menu → package:constat → package:confirm → package:result", async () => {
+      const processedDir = path.join(tmpDir, "processed");
+      await mkdir(processedDir, { recursive: true });
+      const fileNames = [
+        "Car040962-2026-Pass1-A1-PaRecPR1925645_20260507_210004.wav",
+        "Car040962-2026-Pass1-A1-PaRecPR1925645_20260507_210009.wav",
+        "Car040962-2026-Pass1-A1-PaRecPR1925645_20260507_210011.wav",
+      ];
+      const contents = fileNames.map((name) => `content of ${name}`);
+      for (let i = 0; i < fileNames.length; i++) {
+        const name = fileNames[i];
+        const content = contents[i];
+        if (name === undefined || content === undefined) continue;
+        await writeFile(path.join(processedDir, name), content);
+      }
+
+      const beforeSizes = new Map<string, number>();
+      for (const name of fileNames) {
+        const s = await stat(path.join(processedDir, name));
+        beforeSizes.set(name, s.size);
+      }
+
+      const { stdin, lastFrame } = render(
+        <App cwd={tmpDir} onRequestUpdate={vi.fn()} />,
+      );
+
+      // Menu: 2x down → "package" item (3rd: prefix, process, package),
+      // then Entrée → package:constat
+      stdin.write("\x1B[B");
+      await settle();
+      stdin.write("\x1B[B");
+      await settle();
+      stdin.write("\r");
+      await settle();
+      await new Promise((r) => setTimeout(r, 200));
+
+      // --- Constat ---
+      const constatFrame = lastFrame() ?? "";
+      expect(constatFrame).toContain(tmpDir);
+      expect(constatFrame).toContain(
+        "3 enregistrements trouvés dans ./processed/",
+      );
+      expect(constatFrame).toContain(
+        "Ce sont bien les enregistrements à déposer sur Vigie-Chiro ?",
+      );
+
+      // Continue → package:confirm
+      stdin.write("\r");
+      await settle();
+      await new Promise((r) => setTimeout(r, 200));
+
+      // --- Confirm --- (tiny batch: single-volume wording)
+      expect(lastFrame() ?? "").toContain(
+        "On va rassembler 3 enregistrements dans un fichier zip.",
+      );
+
+      // Launch the real upload-series creation
+      stdin.write("\r");
+      await new Promise((r) => setTimeout(r, 500));
+
+      // --- Result ---
+      const resultFrame = lastFrame() ?? "";
+      expect(resultFrame).toContain("Terminé");
+      expect(resultFrame).toContain(
+        "enregistrements rassemblés dans un fichier zip",
+      );
+      expect(resultFrame).toContain("Déposez ce fichier sur Vigie-Chiro.");
+
+      // upload/ holds exactly one series directory, itself holding exactly
+      // one zip (N=1 — buildVolumeFileName drops the "partN" suffix).
+      const uploadDir = path.join(tmpDir, "upload");
+      const seriesDirs = await readdir(uploadDir);
+      expect(seriesDirs).toHaveLength(1);
+      const seriesDirName = seriesDirs[0];
+      if (seriesDirName === undefined) throw new Error("no series dir found");
+      const seriesDirPath = path.join(uploadDir, seriesDirName);
+
+      const volumeNames = await readdir(seriesDirPath);
+      expect(volumeNames).toHaveLength(1);
+      const volumeName = volumeNames[0];
+      if (volumeName === undefined) throw new Error("no volume found");
+      expect(volumeName).not.toContain("part");
+
+      // It's a valid, readable zip with the right entries and content, and
+      // no ZIP64 structures (the whole point of this flow).
+      const parsed = await readZip(path.join(seriesDirPath, volumeName));
+      expect(parsed.entryCount).toBe(3);
+      for (let i = 0; i < fileNames.length; i++) {
+        const name = fileNames[i];
+        const content = contents[i];
+        if (name === undefined || content === undefined) continue;
+        const found = parsed.entries.find((e) => e.name === name);
+        expect(found).toBeDefined();
+        expect(found?.data.toString("utf8")).toBe(content);
+      }
+
+      // processed/ is strictly untouched: same names, same sizes.
+      const afterNames = (await readdir(processedDir)).sort();
+      expect(afterNames).toEqual([...fileNames].sort());
+      for (const name of fileNames) {
+        const s = await stat(path.join(processedDir, name));
+        expect(s.size).toBe(beforeSizes.get(name));
+      }
+    });
+
+    it("navigates Menu → package:constat via 2x down + Entrée, and Échap returns to the menu", async () => {
+      const { stdin, lastFrame } = render(
+        <App cwd={tmpDir} onRequestUpdate={vi.fn()} />,
+      );
+
+      stdin.write("\x1B[B");
+      await settle();
+      stdin.write("\x1B[B");
+      await settle();
+      stdin.write("\r");
+      await settle();
+      await new Promise((r) => setTimeout(r, 200));
+
+      const constatFrame = lastFrame() ?? "";
+      expect(constatFrame).toContain(tmpDir);
+      expect(constatFrame).toContain("processed");
+
+      stdin.write("\x1b");
+      await settle();
+
+      expect(lastFrame() ?? "").toContain("chiro — outils Vigie-Chiro");
+    });
+
+    it("shows run-error without exiting the app when createZipVolumes fails, and Échap returns to package:constat (not the menu)", async () => {
+      const processedDir = path.join(tmpDir, "processed");
+      await mkdir(processedDir, { recursive: true });
+      await writeFile(path.join(processedDir, "a.wav"), "content a");
+
+      const failingCreateZipVolumes: CreateZipVolumesFn = () =>
+        Promise.resolve({ kind: "error", code: "ENOSPC" });
+
+      const { stdin, lastFrame } = render(
+        <App
+          cwd={tmpDir}
+          onRequestUpdate={vi.fn()}
+          createZipVolumes={failingCreateZipVolumes}
+        />,
+      );
+
+      stdin.write("\x1B[B");
+      await settle();
+      stdin.write("\x1B[B");
+      await settle();
+      stdin.write("\r");
+      await settle();
+      await new Promise((r) => setTimeout(r, 200));
+
+      stdin.write("\r");
+      await settle();
+      await new Promise((r) => setTimeout(r, 200));
+
+      expect(lastFrame() ?? "").toContain("On va rassembler");
+
+      stdin.write("\r");
+      await new Promise((r) => setTimeout(r, 300));
+
+      const errorFrame = lastFrame() ?? "";
+      expect(errorFrame).toContain(
+        "Une erreur est survenue pendant la préparation des zips.",
+      );
+      expect(errorFrame).toContain("ENOSPC");
+      expect(lastFrame()).not.toBeNull();
+
       stdin.write("\x1b");
       await settle();
       await new Promise((r) => setTimeout(r, 200));

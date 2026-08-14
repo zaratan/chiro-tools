@@ -3,7 +3,7 @@ import { statfs } from "node:fs/promises";
 import { useEffect, useState } from "react";
 import { Footer } from "../../components/Footer.js";
 import { buildOutDir } from "../../lib/audio/batchPlan.js";
-import { formatBytes } from "../../lib/format/bytes.js";
+import { formatBytes } from "../../format/bytes.js";
 import {
   checkProcessedDirConflict,
   scanDirectory as scanWavDirectory,

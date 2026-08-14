@@ -1,12 +1,10 @@
-import { Box, Text } from "ink";
 import { useEffect, useRef } from "react";
-import { Footer } from "../../components/Footer.js";
-import { PROCESSED_DIR_DISPLAY } from "../../lib/audio/batchPlan.js";
+import { ProgressPanel } from "../../components/ProgressPanel.js";
 import {
   buildRemainingLabel,
   formatShortDuration,
-  renderBar,
-} from "../../lib/format/progress.js";
+} from "../../format/progress.js";
+import { PROCESSED_DIR_DISPLAY } from "../../lib/audio/batchPlan.js";
 import type { ProgressEvent } from "../../types.js";
 import { useProgressState } from "./useProgressState.js";
 
@@ -77,28 +75,24 @@ export const RunningView = ({
     totalFiles,
   );
 
+  const counterLines =
+    state.currentFileName !== null
+      ? [
+          `  Fichier ${((state.currentFileIndex ?? 0) + 1).toString()} sur ${totalFiles.toString()}  •  ${state.currentFileName}`,
+        ]
+      : [];
+
   return (
-    <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-      <Text>📁 {cwd}</Text>
-      <Box marginTop={1}>
-        <Text>Découpage en cours…</Text>
-      </Box>
-      {state.currentFileName !== null ? (
-        <Box marginTop={1}>
-          <Text>
-            {`  Fichier ${((state.currentFileIndex ?? 0) + 1).toString()} sur ${totalFiles.toString()}  •  ${state.currentFileName}`}
-          </Text>
-        </Box>
-      ) : null}
-      <Box marginTop={1} flexDirection="column">
-        <Text>{`  ${renderBar(percent)}  ${percent.toString()} %`}</Text>
-        <Text dimColor>{`  ${statsLine}`}</Text>
-      </Box>
-      <Box marginTop={1} flexDirection="column">
-        <Text dimColor>Vos fichiers d'origine ne sont pas modifiés.</Text>
-        <Text dimColor>{`Dossier de sortie : ${PROCESSED_DIR_DISPLAY}`}</Text>
-      </Box>
-      <Footer hints={[]} />
-    </Box>
+    <ProgressPanel
+      cwd={cwd}
+      title="Découpage en cours…"
+      counterLines={counterLines}
+      percent={percent}
+      statsLine={statsLine}
+      reassuranceLines={[
+        "Vos fichiers d'origine ne sont pas modifiés.",
+        `Dossier de sortie : ${PROCESSED_DIR_DISPLAY}`,
+      ]}
+    />
   );
 };

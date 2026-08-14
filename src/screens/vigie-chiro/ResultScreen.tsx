@@ -101,7 +101,10 @@ export const ResultScreen = ({
           </Text>
         ) : null}
         <Box marginTop={1}>
-          <Text>Vous pouvez maintenant les téléverser sur Vigie-Chiro.</Text>
+          <Text>
+            Vous pouvez maintenant les découper, puis créer les zips à déposer
+            sur Vigie-Chiro.
+          </Text>
         </Box>
         <Footer hints={[{ key: "Entrée", label: "retour au menu" }]} />
       </Box>

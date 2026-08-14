@@ -451,6 +451,26 @@ describe("createZipArchive — entry-too-large admission", () => {
   }, 30_000);
 });
 
+describe("createZipArchive — overload resolution", () => {
+  it("accepts a spread options object whose maxBytes is a `number | undefined` variable, not a literal", async () => {
+    // Neither overload structurally matched `{ ...base, maxBytes: cap }` when
+    // `cap` is a plain `number | undefined` variable — this is exactly the
+    // shape the 9.B orchestrator builds. This call exists to make
+    // `tsc --noEmit` exercise the overload; a type regression here fails
+    // `pnpm check`, not this assertion.
+    const entries = [await writeSourceFile("overload.wav", "content")];
+    const base = {
+      sourceDir,
+      entries,
+      zipPath: path.join(archivedDir, "processed_overload.zip"),
+    };
+    const cap: number | undefined = undefined;
+
+    const result = await createZipArchive({ ...base, maxBytes: cap });
+    expect(result.kind).toBe("ok");
+  });
+});
+
 describe("cleanOrphanArchiveTmp", () => {
   it("does nothing when the archived directory doesn't exist yet (no throw)", async () => {
     await expect(
@@ -543,5 +563,60 @@ describe("createZipArchive — low-level filesystem errors", () => {
     await expect(
       stat(path.join(zipPath, "keep-me-non-empty")),
     ).resolves.toBeDefined();
+  });
+
+  it("reports a tagged error and cleans up when a source entry cannot be opened", async () => {
+    // Covers open() failing (here: a directory where a file is expected).
+    // NOTE: this does NOT cover read() failing *mid-stream* — that path (a
+    // flaky SD card yanked during the run) has no automated test, because
+    // making a successfully-opened regular file fail mid-read needs a seam we
+    // deliberately did not add. It was verified by hand: before the fix in
+    // `deflateEntry`, it froze the run forever with Ctrl+C disabled.
+    const good = await writeSourceFile("a.wav", "content");
+    await mkdir(path.join(sourceDir, "broken.wav"));
+    const entries = [
+      good,
+      { name: "broken.wav", size: 7, mtime: new Date(2026, 0, 1) },
+    ];
+    const zipPath = path.join(archivedDir, "processed_unreadable.zip");
+
+    const settled = await Promise.race([
+      createZipArchive({ sourceDir, entries, zipPath }),
+      new Promise<"HANG">((r) =>
+        setTimeout(() => {
+          r("HANG");
+        }, 5000),
+      ),
+    ]);
+
+    expect(settled).not.toBe("HANG");
+    expect(await tmpFilesIn(archivedDir)).toEqual([]);
+    await expect(stat(zipPath)).rejects.toThrow();
+  });
+
+  it("treats an abort landing in the finalization tail as an interruption, not an error", async () => {
+    // verify → close → rename is not abortable mid-way; a Ctrl+C landing
+    // there makes renameWithFallback return ABORT_ERR. Reporting that as an
+    // error would show a bare ABORT_ERR code with no French explanation for
+    // something the user just asked for.
+    const entries = [await writeSourceFile("a.wav", "content")];
+    const zipPath = path.join(archivedDir, "processed_taildabort.zip");
+    const controller = new AbortController();
+
+    const result = await createZipArchive({
+      sourceDir,
+      entries,
+      zipPath,
+      signal: controller.signal,
+      // Fires after every entry is written, just before sync/verify/rename.
+      corruptBeforeVerifyForTests: () => {
+        controller.abort();
+        return Promise.resolve();
+      },
+    });
+
+    expect(result.kind).toBe("aborted");
+    expect(await tmpFilesIn(archivedDir)).toEqual([]);
+    await expect(stat(zipPath)).rejects.toThrow();
   });
 });

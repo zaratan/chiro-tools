@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 import { formatDuration } from "../duration.js";
 
 describe("formatDuration", () => {
-  it("renders sub-minute durations in seconds", () => {
-    expect(formatDuration(0)).toBe("0 secondes");
-    expect(formatDuration(1)).toBe("1 secondes");
+  it("renders sub-minute durations in seconds, with singular/plural", () => {
+    expect(formatDuration(1)).toBe("1 seconde");
     expect(formatDuration(45)).toBe("45 secondes");
     expect(formatDuration(59.4)).toBe("59 secondes");
+  });
+
+  it("never says '0 secondes' — a sub-second run reads as 'nothing happened'", () => {
+    expect(formatDuration(0)).toBe("moins d'une seconde");
+    expect(formatDuration(0.4)).toBe("moins d'une seconde");
   });
 
   it("renders sub-hour durations in minutes with singular/plural", () => {

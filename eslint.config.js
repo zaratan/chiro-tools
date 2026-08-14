@@ -81,6 +81,34 @@ export default tseslint.config(
     },
   },
   {
+    files: ["src/format/**/*.{ts,tsx}"],
+    ignores: ["src/format/**/*.test.{ts,tsx}", "src/format/**/__tests__/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["ink", "ink-*", "react", "react-*"],
+              message: "src/format/ must stay UI-free (no ink/react imports).",
+            },
+            {
+              group: [
+                "**/lib/**",
+                "**/screens/**",
+                "**/components/**",
+                "**/app.js",
+                "**/index.js",
+              ],
+              message:
+                "src/format/ is presentational-pure: no lib/, screens/, components/, or app imports.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ["src/components/**/*.{ts,tsx}"],
     ignores: [
       "src/components/**/*.test.{ts,tsx}",
@@ -113,7 +141,21 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["**/vigie-process/**", "**/screens/archive/**"],
+              // Both the "screens/"-qualified form AND the bare relative
+              // forms. no-restricted-imports matches the literal import
+              // string, and a real cross-flow import reads
+              // "../vigie-process/x.js" — which never contains "screens/".
+              // Listing only the qualified form silently disables the guard.
+              // A bare "**/vigie-process/**" is not an option either: it
+              // would also match the legitimate src/lib/vigie-chiro/ module.
+              group: [
+                "**/screens/vigie-process/**",
+                "../vigie-process/**",
+                "../../vigie-process/**",
+                "**/screens/archive/**",
+                "../archive/**",
+                "../../archive/**",
+              ],
               message: "No cross-flow imports between screen directories.",
             },
           ],
@@ -133,7 +175,16 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["**/vigie-chiro/**", "**/screens/archive/**"],
+              // Cannot use a bare "**/vigie-chiro/**": it would also match
+              // the legitimate src/lib/vigie-chiro/ business module.
+              group: [
+                "**/screens/vigie-chiro/**",
+                "../vigie-chiro/**",
+                "../../vigie-chiro/**",
+                "**/screens/archive/**",
+                "../archive/**",
+                "../../archive/**",
+              ],
               message: "No cross-flow imports between screen directories.",
             },
           ],
@@ -153,7 +204,18 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["**/vigie-chiro/**", "**/vigie-process/**"],
+              // Qualified + relative forms, cf. the vigie-chiro block above.
+              // A bare "**/vigie-chiro/**" would also match the legitimate
+              // src/lib/vigie-chiro/ module this flow imports
+              // (extractCommonPrefix), so both forms must be listed.
+              group: [
+                "**/screens/vigie-chiro/**",
+                "../vigie-chiro/**",
+                "../../vigie-chiro/**",
+                "**/screens/vigie-process/**",
+                "../vigie-process/**",
+                "../../vigie-process/**",
+              ],
               message: "No cross-flow imports between screen directories.",
             },
           ],

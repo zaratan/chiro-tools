@@ -166,16 +166,63 @@ export type ArchiveResultSerialized =
     };
 
 /**
+ * Aggregated result for a completed (or aborted/errored) `vigie-package`
+ * (Vigie-Chiro upload series) session. Discriminated on `status`, same shape
+ * as `ArchiveResultSerialized`. `volumes` is explicitly bounded to
+ * `MAX_LOGGED_VOLUMES` (see `buildPackageSessionEvent.ts`) — a low
+ * `CHIRO_MAX_VOLUME_BYTES` used for manual testing can otherwise produce 50+
+ * volumes, and `volume_count` (the true, unbounded count) stays accurate
+ * even when `volumes` is truncated.
+ */
+export type PackageResultSerialized =
+  | {
+      status: "ok";
+      series_dir: string;
+      volume_count: number;
+      volumes: { name: string; entry_count: number; zip_bytes: number }[];
+      max_volume_bytes: number;
+      entry_count: number;
+      total_bytes: number;
+      duration_ms: number;
+      durable: boolean;
+    }
+  | {
+      status: "aborted";
+      max_volume_bytes: number;
+      entry_count: number;
+      total_bytes: number;
+      duration_ms: number;
+    }
+  | {
+      status: "error";
+      error_code: string;
+      max_volume_bytes: number;
+      entry_count: number;
+      total_bytes: number;
+      duration_ms: number;
+    };
+
+/**
  * A single JSONL entry written to `~/.chiro/sessions.jsonl` after each session.
  *
  * Discriminated on `schema_version` so older readers (which only know
  * schema 1) can ignore v2+ entries safely. The `action` field is also
  * available as a secondary discriminant.
  *
+ * `schema_version` identifies an event *shape* — one per `action` — not a
+ * schema revision counter: v3 (`vigie-archive`) and v4 (`vigie-package`) are
+ * different actions that happen to have been added back to back, not two
+ * revisions of the same event. A future change to `vigie-archive`'s shape
+ * needs its own new version number, not "v3.1" folded into v3 nor
+ * borrowing v4 (already taken by `vigie-package`).
+ *
  * v1 — `vigie-prefix` rename sessions. Wire format must remain byte-stable.
  * v2 — `vigie-process` split-and-expand sessions.
  * v3 — `vigie-archive` zip-creation sessions. No `input` field — the run
  * has nothing user-chosen to record (unlike v1/v2's form input).
+ * v4 — `vigie-package` Vigie-Chiro upload-series sessions (chiro prepares
+ * volumes, it doesn't upload — "vigie-upload" is deliberately left free for
+ * a future real Glacier upload feature).
  */
 export type SessionEvent =
   | {
@@ -203,4 +250,12 @@ export type SessionEvent =
       cwd: string;
       action: "vigie-archive";
       result: ArchiveResultSerialized;
+    }
+  | {
+      schema_version: 4;
+      ts: string;
+      version: string;
+      cwd: string;
+      action: "vigie-package";
+      result: PackageResultSerialized;
     };

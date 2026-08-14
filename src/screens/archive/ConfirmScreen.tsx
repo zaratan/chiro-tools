@@ -1,24 +1,28 @@
 import { Box, Text, useInput } from "ink";
 import { Footer } from "../../components/Footer.js";
-import {
-  buildOutDir,
-  PROCESSED_DIR_DISPLAY,
-} from "../../lib/audio/batchPlan.js";
+import { PROCESSED_DIR_DISPLAY } from "../../lib/audio/batchPlan.js";
 import {
   ARCHIVED_DIR_DISPLAY,
-  buildArchivedDir,
   type ArchiveEntryStat,
 } from "../../lib/archive/planArchive.js";
-import { formatBytes } from "../../lib/format/bytes.js";
-import { mapKnownArchiveErrorCode } from "./errorMessages.js";
+import { maxVolumeBytes } from "../../lib/archive/maxVolumeBytes.js";
+import { UPLOAD_DIR_DISPLAY } from "../../lib/archive/planUpload.js";
+import { formatBytes } from "../../format/bytes.js";
+import {
+  isTransientArchiveError,
+  mapKnownArchiveErrorCode,
+} from "./errorMessages.js";
 import { RunningView } from "./RunningView.js";
 import {
   useArchiveRun,
+  type ArchiveFlowMode,
   type ArchiveRunOutcome,
-  type CreateZipArchiveFn,
+  type ArchiveRunner,
+  type BuildRunSessionEvent,
+  type ResolveTargetName,
 } from "./useArchiveRun.js";
 
-export type { CreateZipArchiveFn };
+export type { ArchiveFlowMode };
 
 /**
  * Capitalizes the first letter and appends a trailing period — the mapper
@@ -33,39 +37,59 @@ const asSentence = (text: string): string => {
   return `${first.toUpperCase()}${rest.join("")}.`;
 };
 
+const DIR_LABEL: Record<ArchiveFlowMode, string> = {
+  backup: "archived",
+  package: "upload",
+};
+
+const RUN_ERROR_TITLE: Record<ArchiveFlowMode, string> = {
+  backup: "Une erreur est survenue pendant la création du zip.",
+  package: "Une erreur est survenue pendant la préparation des zips.",
+};
+
+const RETRY_RESTART_HINT: Record<ArchiveFlowMode, string> = {
+  backup: "(la création du zip reprend depuis le début)",
+  package: "(la création des zips reprend depuis le début)",
+};
+
 export type ArchiveConfirmScreenProps = {
+  /** Wording-only branch — behavior is fully injected below, never keyed on
+   * this (phase-9 plan, D7). */
+  mode: ArchiveFlowMode;
   cwd: string;
   entries: readonly ArchiveEntryStat[];
   totalBytes: number;
   /** Mutated during the run; consulted by the App-level Ctrl+C handler. */
   runningRef: React.RefObject<boolean>;
-  /** Injected for tests. Defaults to the real implementation. */
-  createZipArchive: CreateZipArchiveFn;
+  /** Injected — built by `createBackupBehavior`/`createPackageBehavior`. */
+  runner: ArchiveRunner;
+  resolveTargetName: ResolveTargetName;
+  buildSessionEvent: BuildRunSessionEvent;
   onComplete: (outcome: ArchiveRunOutcome) => void;
   onBack: () => void;
 };
 
 export const ConfirmScreen = ({
+  mode,
   cwd,
   entries,
   totalBytes,
   runningRef,
-  createZipArchive,
+  runner,
+  resolveTargetName,
+  buildSessionEvent,
   onComplete,
   onBack,
 }: ArchiveConfirmScreenProps): React.JSX.Element => {
-  const processedDir = buildOutDir(cwd);
-  const archivedDir = buildArchivedDir(cwd);
-
-  const { state, startArchive, abort, registerRunningViewHandles } =
+  const { state, startArchive, abort, retry, registerRunningViewHandles } =
     useArchiveRun({
       cwd,
-      processedDir,
-      archivedDir,
       entries,
       totalBytes,
       runningRef,
-      createZipArchive,
+      runner,
+      resolveTargetName,
+      buildSessionEvent,
       onComplete,
     });
 
@@ -74,6 +98,9 @@ export const ConfirmScreen = ({
       if (key.ctrl && input2 === "c") {
         abort();
       }
+      return;
+    }
+    if (state.kind === "cleaning") {
       return;
     }
     if (state.kind === "loading") {
@@ -85,6 +112,10 @@ export const ConfirmScreen = ({
       return;
     }
     if (key.return) {
+      if (state.kind === "run-error") {
+        if (isTransientArchiveError(state.code)) retry();
+        return;
+      }
       void startArchive();
     }
   });
@@ -100,24 +131,36 @@ export const ConfirmScreen = ({
   if (state.kind === "running") {
     return (
       <RunningView
+        mode={mode}
         cwd={cwd}
         entries={entries}
         totalBytes={totalBytes}
-        zipDisplayPath={`${ARCHIVED_DIR_DISPLAY}${state.fileName}`}
         onMount={registerRunningViewHandles}
       />
     );
   }
 
+  if (state.kind === "cleaning") {
+    return (
+      <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
+        <Text>Annulation en cours…</Text>
+        <Box marginTop={1}>
+          <Text dimColor>Nettoyage des fichiers temporaires, un instant.</Text>
+        </Box>
+        <Footer hints={[]} />
+      </Box>
+    );
+  }
+
   if (state.kind === "run-error") {
-    const knownMessage = mapKnownArchiveErrorCode(state.code);
+    const dirLabel = DIR_LABEL[mode];
+    const knownMessage = mapKnownArchiveErrorCode(state.code, dirLabel);
+    const transient = isTransientArchiveError(state.code);
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
         <Text>📁 {cwd}</Text>
         <Box marginTop={1} flexDirection="column">
-          <Text color="yellow">
-            ⚠ Une erreur est survenue pendant la création du zip.
-          </Text>
+          <Text color="yellow">⚠ {RUN_ERROR_TITLE[mode]}</Text>
         </Box>
         <Box marginTop={1} flexDirection="column">
           <Text>
@@ -134,40 +177,115 @@ export const ConfirmScreen = ({
             Détail technique : <Text color="cyan">{state.code}</Text>
           </Text>
           <Text dimColor>{"  (à transmettre si vous demandez de l'aide)"}</Text>
+          {transient ? <Text dimColor>{RETRY_RESTART_HINT[mode]}</Text> : null}
         </Box>
-        <Footer hints={[{ key: "Échap", label: "revenir au début" }]} />
+        <Footer
+          hints={
+            transient
+              ? [
+                  { key: "Entrée", label: "réessayer" },
+                  { key: "Échap", label: "revenir au début" },
+                ]
+              : [{ key: "Échap", label: "revenir au début" }]
+          }
+        />
       </Box>
     );
   }
 
   // state.kind === "preview"
+  if (mode === "backup") {
+    const archivedDir = ARCHIVED_DIR_DISPLAY;
+    return (
+      <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
+        <Text>📁 {cwd}</Text>
+        <Box marginTop={1}>
+          <Text>
+            {`On va rassembler ${entries.length.toString()} enregistrement${
+              entries.length > 1 ? "s" : ""
+            } dans un fichier zip.`}
+          </Text>
+        </Box>
+        <Box marginTop={1} flexDirection="column">
+          <Text>
+            {`Nom du fichier : `}
+            <Text color="cyan">{state.name}</Text>
+          </Text>
+          <Text>{`Emplacement :    ${archivedDir}`}</Text>
+          <Text>
+            {`Taille du zip :  au plus ${formatBytes(totalBytes)} — souvent moins, le zip compresse`}
+          </Text>
+        </Box>
+        <Box marginTop={1} flexDirection="column">
+          <Text dimColor>La date de création est dans le nom du fichier.</Text>
+          {state.alreadyExists ? (
+            <Text dimColor>
+              {`Un zip existe déjà dans ${archivedDir} — celui-ci s'ajoutera à côté.`}
+            </Text>
+          ) : null}
+          <Text dimColor>
+            {`Vos enregistrements restent dans ${PROCESSED_DIR_DISPLAY}.`}
+          </Text>
+          <Text dimColor>Rien n'est déplacé ni supprimé.</Text>
+        </Box>
+        <Footer
+          hints={[
+            { key: "Entrée", label: "créer le zip" },
+            { key: "Échap", label: "revenir au début" },
+          ]}
+        />
+      </Box>
+    );
+  }
+
+  // mode === "package"
+  // The zip count is unknowable before the run (compression only happens
+  // during it — D1), so this is a display-only estimate: uncompressed
+  // source size fits in one volume ⇒ almost certainly one volume. A wrong
+  // guess here only costs a slightly-off sentence, never a wrong result —
+  // the Result screen always reflects what actually happened.
+  const estimatedSingleVolume = totalBytes <= maxVolumeBytes();
   return (
     <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
       <Text>📁 {cwd}</Text>
       <Box marginTop={1}>
         <Text>
-          {`On va rassembler ${entries.length.toString()} enregistrement${
-            entries.length > 1 ? "s" : ""
-          } dans un fichier zip.`}
+          {estimatedSingleVolume
+            ? `On va rassembler ${entries.length.toString()} enregistrement${
+                entries.length > 1 ? "s" : ""
+              } dans un fichier zip.`
+            : `On va rassembler ${entries.length.toString()} enregistrements dans plusieurs fichiers zip.`}
         </Text>
       </Box>
       <Box marginTop={1} flexDirection="column">
         <Text>
-          {`Nom du fichier : `}
-          <Text color="cyan">{state.fileName}</Text>
+          {`Emplacement :      `}
+          <Text color="cyan">{`${UPLOAD_DIR_DISPLAY}${state.name}/`}</Text>
         </Text>
-        <Text>{`Emplacement :    ${ARCHIVED_DIR_DISPLAY}`}</Text>
         <Text>
-          {`Taille du zip :  au plus ${formatBytes(totalBytes)} — souvent moins, le zip compresse`}
+          {estimatedSingleVolume
+            ? `Taille :           au plus ${formatBytes(maxVolumeBytes())}`
+            : `Taille de chacun : au plus ${formatBytes(maxVolumeBytes())}`}
         </Text>
       </Box>
+      {!estimatedSingleVolume ? (
+        <Box marginTop={1} flexDirection="column">
+          <Text>
+            Vigie-Chiro n'accepte pas les fichiers trop volumineux : vos
+            enregistrements seront répartis en plusieurs fichiers zip, à déposer
+            un par un sur le site.
+          </Text>
+        </Box>
+      ) : null}
       <Box marginTop={1} flexDirection="column">
         <Text dimColor>
-          La date et l'heure de création sont dans le nom du fichier.
+          {estimatedSingleVolume
+            ? "Le fichier zip n'apparaîtra qu'à la fin."
+            : "Les fichiers zip n'apparaîtront qu'à la fin, tous en même temps."}
         </Text>
-        {state.zipAlreadyExists ? (
+        {state.alreadyExists ? (
           <Text dimColor>
-            {`Un zip existe déjà dans ${ARCHIVED_DIR_DISPLAY} — celui-ci s'ajoutera à côté.`}
+            {`Un dossier de dépôt existe déjà dans ${UPLOAD_DIR_DISPLAY} — celui-ci s'ajoutera à côté.`}
           </Text>
         ) : null}
         <Text dimColor>
@@ -177,7 +295,10 @@ export const ConfirmScreen = ({
       </Box>
       <Footer
         hints={[
-          { key: "Entrée", label: "créer le zip" },
+          {
+            key: "Entrée",
+            label: estimatedSingleVolume ? "créer le zip" : "créer les zips",
+          },
           { key: "Échap", label: "revenir au début" },
         ]}
       />

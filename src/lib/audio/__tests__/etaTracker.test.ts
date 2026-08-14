@@ -4,6 +4,7 @@ import {
   elapsedMs,
   estimateRemainingMs,
   markFileDone,
+  SLIDING_WINDOW_SIZE,
 } from "../etaTracker.js";
 
 describe("etaTracker", () => {
@@ -21,25 +22,37 @@ describe("etaTracker", () => {
     expect(remaining).toBe(9000);
   });
 
-  it("estimateRemainingMs uses sliding window throughput (last 5 files)", () => {
-    // 6 files done: first one was slow (1 byte/ms), rest fast (10 bytes/ms).
-    // Window holds last 5; oldest (slow) is dropped → estimate uses fast rate.
-    const t = createETATracker(10000, 0);
-    // File 0: 100 bytes over 100ms (slow: 1 byte/ms) — will be evicted
-    markFileDone(t, 100, 100);
-    // Files 1-5: each 100 bytes over 10ms (fast: 10 bytes/ms)
-    markFileDone(t, 100, 110);
-    markFileDone(t, 100, 120);
-    markFileDone(t, 100, 130);
-    markFileDone(t, 100, 140);
-    markFileDone(t, 100, 150);
+  it("estimateRemainingMs drops the oldest sample once the window is full", () => {
+    // One slow file (1 byte/ms), then a full window of fast ones
+    // (10 bytes/ms). The slow sample must be evicted, so the estimate
+    // reflects the fast rate only. Written against SLIDING_WINDOW_SIZE
+    // rather than a hard-coded count, so retuning the window keeps this
+    // test meaningful instead of merely re-baselining it.
+    const totalBytes = 1_000_000;
+    const t = createETATracker(totalBytes, 0);
 
-    // Window now contains files 1-5: each { bytes: 100, durationMs: 10 }
-    // throughput = 500 bytes / 50ms = 10 bytes/ms
-    // bytesDone = 600, bytesRemaining = 9400
-    // estimate = 9400 / 10 = 940 ms
-    const remaining = estimateRemainingMs(t, 150);
-    expect(remaining).toBeCloseTo(940, 0);
+    let now = 100;
+    markFileDone(t, 100, now); // slow: 100 bytes over 100 ms — to be evicted
+    for (let i = 0; i < SLIDING_WINDOW_SIZE; i++) {
+      now += 10;
+      markFileDone(t, 100, now); // fast: 100 bytes over 10 ms
+    }
+
+    const bytesDone = 100 * (SLIDING_WINDOW_SIZE + 1);
+    const expected = (totalBytes - bytesDone) / 10; // 10 bytes/ms
+    expect(estimateRemainingMs(t, now)).toBeCloseTo(expected, 0);
+  });
+
+  it("keeps the slow sample while the window still has room", () => {
+    // Mirror of the test above: with fewer marks than the window holds,
+    // nothing is evicted and the slow file must still drag the estimate up.
+    const t = createETATracker(10_000, 0);
+    markFileDone(t, 100, 100); // slow
+    markFileDone(t, 100, 110); // fast
+    // Blended rate: 200 bytes over 110 ms, well below the fast-only rate.
+    const remaining = estimateRemainingMs(t, 110);
+    if (remaining === null) throw new Error("expected an estimate");
+    expect(remaining).toBeGreaterThan((10_000 - 200) / 10);
   });
 
   it("estimateRemainingMs depends on bytes, not file count", () => {

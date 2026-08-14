@@ -99,16 +99,24 @@ chiro-tools/
 │   │       ├── useProgressState.ts # hook throttle 100 ms + finalizeRender() synchrone
 │   │       ├── useVigieProcessRun.ts # hook d'orchestration du run — estimate, abort, runningRef, logSession
 │   │       └── errorMessages.ts   # mapping FR pour codes d'erreur process
-│   │   └── archive/               # flow "Créer un zip" — 3 écrans (Phase 8)
-│   │       ├── ConstatScreen.tsx  # scan processed/ + writable + pré-check disque (statfs)
-│   │       ├── ConfirmScreen.tsx  # aperçu / running / run-error — Ctrl+C local pendant le run
-│   │       ├── RunningView.tsx    # barre pilotée par les octets lus en source + ETA
-│   │       ├── useArchiveProgressState.ts # throttle 100 ms + finalizeRender() synchrone
-│   │       ├── useArchiveRun.ts   # orchestration : résolution du nom, abort, runningRef, logSession v3
-│   │       ├── ResultScreen.tsx   # 2 variantes : succès / interrompu
-│   │       └── errorMessages.ts   # mapping FR pour codes d'erreur archive
+│   │   └── archive/               # flows "Sauvegarder" (Phase 8) ET "Créer les zips à déposer" (Phase 9)
+│   │       ├── ConstatScreen.tsx  # scan processed/ + writable + pré-check disque (statfs) ; en mode package, cleanOrphanStagingDirs
+│   │       ├── ConfirmScreen.tsx  # aperçu / running / cleaning / run-error — Ctrl+C local pendant le run
+│   │       ├── RunningView.tsx    # ProgressPanel piloté par les octets lus en source + ETA (+ compteur de volume)
+│   │       ├── useArchiveProgressState.ts # throttle 100 ms + finalizeRender() synchrone, switch exhaustif sur VolumeProgressEvent
+│   │       ├── useArchiveRun.ts   # orchestration mode-agnostique : triplet injecté, abort, runningRef, logSession
+│   │       ├── backupBehavior.ts  # triplet du flow sauvegarde (createZipArchive, buildArchiveName, SessionEvent v3)
+│   │       ├── packageBehavior.ts # triplet du flow dépôt (createZipVolumes, buildSeriesDirName, SessionEvent v4)
+│   │       ├── ResultScreen.tsx   # sauvegarde — 2 variantes : succès / interrompu
+│   │       ├── UploadResultScreen.tsx # dépôt — 2 variantes : succès (N volumes) / interrompu
+│   │       └── errorMessages.ts   # mapping FR + isTransientArchiveError (transitoire vs définitif)
+│   ├── format/                    # helpers d'affichage purs (ex-`lib/format/`, déplacé en 9.0)
+│   │   ├── duration.ts            # formatDuration(seconds) → texte FR ("X secondes" / "X minutes" / "X h MM")
+│   │   ├── bytes.ts               # formatBytes → "1,4 Go" (virgule décimale française)
+│   │   └── progress.ts            # renderBar, formatShortDuration, buildRemainingLabel
 │   ├── components/
 │   │   ├── TextField.tsx          # label + ink-text-input (ou Text en mode managed) + aide/erreur
+│   │   ├── ProgressPanel.tsx      # cadre commun des 3 RunningView (cwd, titre, compteurs, barre, stats, réassurance)
 │   │   └── Footer.tsx             # footer de raccourcis stylé
 │   ├── lib/
 │   │   ├── vigie-chiro/
@@ -116,13 +124,19 @@ chiro-tools/
 │   │   │   ├── isAlreadyPrefixed.ts
 │   │   │   ├── buildConstatCounts.ts # compteurs du Constat (alreadyPrefixed/upperCaseWav/otherIgnored)
 │   │   │   └── validation.ts      # validators purs par champ
-│   │   ├── archive/               # lib zip Phase 8 — writer ZIP maison, deflate, ZIP64, vérification
+│   │   ├── archive/               # lib zip Phases 8-9 — writer ZIP maison, deflate, ZIP64, vérification, volumes
 │   │   │   ├── crc32.ts           # table 256, CRC32_INITIAL / crc32Update / crc32Final
 │   │   │   ├── zipFormat.ts       # builders binaires purs (LFH, CD, EOCD, ZIP64) + toDosDateTime
-│   │   │   ├── planArchive.ts     # archived/, buildArchiveName, résolution de collision, scan de processed/
-│   │   │   ├── createZipArchive.ts # orchestration streaming deflate + patch pwrite + sync/verify/rename
+│   │   │   ├── planArchive.ts     # archived/, buildArchiveName, formatDateStamp, collisionNameCandidates, scan de processed/
+│   │   │   ├── planUpload.ts      # upload/, buildSeriesDirName, buildVolumeFileName, buildStagingDirName
+│   │   │   ├── createZipArchive.ts # orchestration streaming deflate + patch pwrite + sync/verify/rename + maxBytes/zip64
+│   │   │   ├── createZipVolumes.ts # série de volumes : staging, bascule dynamique, complétude, commit, cleanOrphanStagingDirs
+│   │   │   ├── deflateBound.ts    # borne inconditionnelle de sortie deflate (cf. § Borne de compression)
+│   │   │   ├── maxVolumeBytes.ts  # plafond par volume (3,5 Gio) + clamp dur de CHIRO_MAX_VOLUME_BYTES
 │   │   │   ├── verifyZipArchive.ts # complétude vs plan + structure + CRC spot/full
-│   │   │   └── __tests__/         # crc32, zipFormat, planArchive, createZipArchive, zip64, golden, externalTools
+│   │   │   └── __tests__/         # crc32, zipFormat, planArchive, planUpload, createZipArchive, createZipVolumes, zip64, noZip64, deflateBound, maxVolumeBytes, golden, externalTools
+│   │   ├── progress/
+│   │   │   └── renderThrottle.ts  # THROTTLE_MS + shouldRenderNow — partagé par les 2 hooks de progression
 │   │   ├── fs/
 │   │   │   ├── scanDirectory.ts   # scan unique des 3 flows : scanDirectory + sumFileSizes + checkProcessedDirConflict + isVisibleNonTmpEntry
 │   │   │   ├── safeFsOps.ts       # renameWithFallback (EXDEV) + writeFileAtomic (.tmp + rename)
@@ -155,10 +169,6 @@ chiro-tools/
 │   │   │   └── installDir.ts      # CHIRO_INSTALL_DIR override pour que le self-update cible le binaire réellement lancé
 │   │   ├── selftest/
 │   │   │   └── selfTest.ts        # --self-test : exercice binaire compilé de bout en bout
-│   │   ├── format/               # helpers d'affichage purs, extraits à leur 2e usage
-│   │   │   ├── duration.ts        # formatDuration(seconds) → texte FR ("X secondes" / "X minutes" / "X h MM")
-│   │   │   ├── bytes.ts           # formatBytes → "1,4 Go" (virgule décimale française)
-│   │   │   └── progress.ts        # renderBar, formatShortDuration, buildRemainingLabel
 │   │   ├── update/
 │   │   │   ├── constants.ts       # GITHUB_REPO, RELEASES_API_URL, INSTALL_SCRIPT_URL, TTL, cache path
 │   │   │   ├── parseVersion.ts    # semver-light parser
@@ -169,7 +179,8 @@ chiro-tools/
 │   │   ├── logging/
 │   │   │   ├── log.ts             # append JSONL dans ~/.chiro/sessions.jsonl
 │   │   │   ├── buildVigieProcessSessionEvent.ts # SessionEvent v2 depuis un ProcessResult
-│   │   │   └── buildArchiveSessionEvent.ts # SessionEvent v3 depuis un CreateZipArchiveResult
+│   │   │   ├── buildArchiveSessionEvent.ts # SessionEvent v3 depuis un CreateZipArchiveResult
+│   │   │   └── buildPackageSessionEvent.ts # SessionEvent v4 depuis un CreateZipVolumesResult
 │   │   └── e2e.test.ts            # round-trip complet sur dossier mkdtemp
 ├── .gitattributes                 # LFS pour test-data/
 ├── .gitignore
@@ -182,17 +193,20 @@ chiro-tools/
 └── README.md                      # racine — utilisateur final (install + usage rapide)
 ```
 
-Convention tests : la plupart des fichiers `*.test.ts(x)` sont colocalisés à côté du code qu'ils testent (ex. `prefix.ts` / `prefix.test.ts`, `MenuScreen.tsx` / `MenuScreen.test.tsx`). Certains dossiers regroupent leurs tests (et fixtures partagées) dans un sous-dossier `__tests__/` — convention adoptée en Phase 5 : `src/lib/audio/`, `src/lib/audio/metadata/`, `src/lib/archive/`, `src/lib/files/`, `src/lib/format/`, `src/screens/vigie-chiro/`, `src/screens/vigie-process/`, `src/screens/archive/`. Non listés fichier par fichier ci-dessus.
+Convention tests : la plupart des fichiers `*.test.ts(x)` sont colocalisés à côté du code qu'ils testent (ex. `prefix.ts` / `prefix.test.ts`, `MenuScreen.tsx` / `MenuScreen.test.tsx`). Certains dossiers regroupent leurs tests (et fixtures partagées) dans un sous-dossier `__tests__/` — convention adoptée en Phase 5 : `src/lib/audio/`, `src/lib/audio/metadata/`, `src/lib/archive/`, `src/lib/files/`, `src/lib/progress/`, `src/format/`, `src/components/`, `src/screens/vigie-chiro/`, `src/screens/vigie-process/`, `src/screens/archive/`. Non listés fichier par fichier ci-dessus.
 
 ### Principes de séparation
 
 - **`src/lib/`** : 100% TypeScript pur, **aucun import** de `ink`, `react`, ni `ink-text-input`. Tout est testable en `vitest` sans rendu Ink. Cible : couverture 100%.
 - **`src/screens/`** : composants Ink qui orchestrent. Ils appellent `lib/`, jamais l'inverse. Pas de logique métier ici (si elle dépasse 5 lignes, elle migre dans `lib/`). Aucun `process.env` dans les screens : tout kill-switch passe par une fonction `lib/` nommée (`metadataEnabled`, `detectSox`…).
 - **Hooks `use*.ts` colocalisés dans `screens/<flow>/`** : orchestration de cycle de vie (état du run, AbortController, `runningRef`, logging) — zéro JSX, zéro logique métier (déléguée à `lib/`). Pattern de référence : `useVigieProcessRun`.
-- **`src/components/`** : composants Ink réutilisables (visuel). Pas de logique non plus.
+- **`src/components/`** : composants Ink réutilisables (visuel). Pas de logique non plus. Peuvent importer `src/format/`.
+- **`src/format/`** (ex-`src/lib/format/`, déplacé en Phase 9.0) : fonctions **pures de présentation** (`formatBytes`, `formatDuration`, `renderBar`…). N'importe ni `ink`/`react`, ni `lib/`, ni `screens/`. Le déplacement était la seule façon d'extraire `components/ProgressPanel.tsx` (facteur commun des trois `RunningView`) sans ajouter un « sauf » à la règle `components/ ∌ lib/` : vérifié avant de bouger, aucun module de `lib/` n'importait ce dossier et aucun de ses fichiers n'a d'import `node:` — il était mal rangé, pas mal contraint.
 - **`src/types.ts`** : types partagés (entrées formulaire, plan de renommage, événement de log). Pas de comportement.
 
-Ces règles sont **machine-enforced** par `eslint.config.js` (`no-restricted-imports`, blocs « Architecture boundaries ») : un bloc par couche (`lib/`, `components/`) plus **un bloc par flow d'écrans** — `vigie-chiro/`, `vigie-process/`, `archive/` — chacun interdisant l'import des deux autres. Ajouter un flow = ajouter son bloc **et** l'ajouter à la liste d'interdits des blocs existants ; les fichiers de test sont exemptés (ils croisent légitimement les couches).
+Ces règles sont **machine-enforced** par `eslint.config.js` (`no-restricted-imports`, blocs « Architecture boundaries ») : un bloc par couche (`lib/`, `format/`, `components/`) plus **un bloc par flow d'écrans** — `vigie-chiro/`, `vigie-process/`, `archive/` — chacun interdisant l'import des deux autres. Ajouter un flow = ajouter son bloc **et** l'ajouter à la liste d'interdits des blocs existants ; les fichiers de test sont exemptés (ils croisent légitimement les couches).
+
+**Piège (régression réelle, corrigée en Phase 9)** : `no-restricted-imports` matche la **chaîne d'import littérale**, pas le chemin résolu. Un motif `**/screens/vigie-process/**` ne bloque donc **pas** `../vigie-process/x.js`, la forme qu'un import inter-flux prend réellement. Chaque bloc liste les **deux** formes (qualifiée + relatives `../` et `../../`). Et un motif nu `**/vigie-chiro/**` est faux dans l'autre sens : il bloquerait `src/lib/vigie-chiro/`, module métier que `screens/archive/` importe légitimement (`extractCommonPrefix`).
 
 ## State machine (`src/app.tsx`)
 
@@ -214,15 +228,25 @@ type Screen =
       entries: ArchiveEntryStat[];
       totalBytes: number;
     }
-  | { kind: "archive:result"; outcome: ArchiveRunOutcome };
+  | { kind: "archive:result"; outcome: BackupOutcome }
+  | { kind: "package:constat" }
+  | {
+      kind: "package:confirm";
+      entries: ArchiveEntryStat[];
+      totalBytes: number;
+    }
+  | { kind: "package:result"; outcome: PackageOutcome };
 ```
+
+Les états `archive:*` (sauvegarde, Phase 8) et `package:*` (dépôt, Phase 9) sont **distincts** alors qu'ils rendent les mêmes composants `screens/archive/` : la seule différence de comportement est le triplet injecté (`backupBehavior` / `packageBehavior`, mémoïsés dans `app.tsx`), et les écrans reçoivent en plus un `mode: "backup" | "package"` qui ne pilote **que** la copie.
 
 Transitions :
 
 ```
 menu --select "Préfixer"--> vigie:constat
 menu --select "Découper"--> process:constat
-menu --select "Créer un zip"--> archive:constat
+menu --select "Créer les zips à déposer"--> package:constat
+menu --select "Sauvegarder (un seul zip)"--> archive:constat
 menu --select "Mettre à jour"--> update
 update --Échap--> menu
 update --confirm install--> onRequestUpdate() + exit() → post-Ink spawn install.sh
@@ -245,16 +269,28 @@ process:confirm --Entrée--> processWavFiles → process:result (+ logSession v2
 process:confirm --Échap--> process:constat
 process:result --Entrée--> menu
 
-# Flow Créer un zip (Phase 8)
+# Flow Sauvegarder — un seul zip (Phase 8)
 archive:constat --Entrée--> archive:confirm  (si processed/ peuplé, writable, espace OK)
 archive:constat --Échap--> menu
 archive:confirm --Entrée--> createZipArchive → archive:result (+ logSession v3)
 archive:confirm --Ctrl+C pendant le run--> abort → archive:result (interrompu)
+archive:confirm --Entrée sur run-error transitoire--> archive:confirm (aperçu re-résolu)
 archive:confirm --Échap--> archive:constat
 archive:result --Entrée--> menu
+
+# Flow Créer les zips à déposer — série de volumes (Phase 9)
+package:constat --Entrée--> package:confirm  (mêmes checks + cleanOrphanStagingDirs)
+package:constat --Échap--> menu
+package:confirm --Entrée--> createZipVolumes → package:result (+ logSession v4)
+package:confirm --Ctrl+C pendant le run--> cleaning → abort → package:result (interrompu)
+package:confirm --Entrée sur run-error transitoire--> package:confirm (aperçu re-résolu)
+package:confirm --Échap--> package:constat
+package:result --Entrée--> menu
 ```
 
-Le flow zip n'a **pas** d'écran de saisie : rien n'est paramétrable, tout est déduit du `cwd`. Une erreur de run ne produit pas d'écran dédié — elle reste sur `archive:confirm` en variante `run-error`, d'où `Échap` renvoie au Constat pour un nouveau scan.
+Aucun des deux flows zip n'a d'écran de saisie : rien n'est paramétrable, tout est déduit du `cwd`. Une erreur de run ne produit pas d'écran dédié — elle reste sur l'écran de confirmation en variante `run-error`, d'où `Échap` renvoie au Constat pour un nouveau scan et `Entrée` propose un réessai **uniquement si le code est transitoire** (`isTransientArchiveError`).
+
+L'état intermédiaire **`cleaning`** (entre `running` et la sortie) est propre au flux de dépôt dans son intention : `createZipVolumes` détruit son staging (jusqu'à plusieurs Go) avant de retourner `aborted`, soit 10 à 60 s sur un disque externe pendant lesquelles l'écran afficherait sinon un « Fichier zip 3 » figé avec Ctrl+C apparemment inopérant — indiscernable d'un plantage. Le `rm` n'est délibérément **pas** fire-and-forget (on retomberait sur un staging partiel). L'état existe dans `useArchiveRun`, donc le flux sauvegarde le traverse aussi, en quelques millisecondes (un seul `unlink`).
 
 L'`App` tient le state via `useState<Screen>` et passe des callbacks aux écrans. Pas de Redux, pas de Context, pas de routeur.
 
@@ -381,6 +417,7 @@ L'identifiant exact du certificat et le team ID seront demandés au moment d'act
   - `v1` → action `vigie-prefix` (wire format **byte-stable** — assertion par snapshot test, toute modif accidentelle fait échouer `pnpm check`)
   - `v2` → action `vigie-process` (introduit en Phase 5)
   - `v3` → action `vigie-archive` (introduit en Phase 8) — pas de champ `input`, `result` discriminé sur `status` (`ok` / `aborted` / `error`)
+  - `v4` → action `vigie-package` (introduit en Phase 9) — même forme que v3, plus `series_dir`, `volume_count`, `volumes[]` (borné à 50), `max_volume_bytes`, `durable`. Le nom `vigie-upload` est délibérément laissé libre : chiro **prépare** les fichiers, il ne dépose rien (le futur upload Glacier, lui, le fera vraiment)
 - **`schema_version` est un discriminant d'événement, pas un numéro de version du format.** Il n'y a jamais eu de « migration v1 → v2 » : chaque nouveau flow prend le numéro suivant et les précédents restent figés pour toujours. Un futur changement de forme d'un événement existant demanderait donc autre chose qu'un incrément (nouveau champ optionnel, ou nouvelle `action`).
 - Lecteurs jq aval peuvent brancher sur `.schema_version` plutôt que sur `.action` pour une compatibilité future-proof.
 
@@ -624,36 +661,47 @@ Si un futur use case justifie ffmpeg (un autre format que PCM), repartir du PoC 
 
 Aucun affichage de "Moteur : sox" / "Moteur : interne" dans `RunningView`. Décision UX actée (cf. `docs/ux.md` § Choix UX validés). Le pipeline utilisé est tracé dans `~/.chiro/sessions.jsonl` (`engine`, `engine_fallback_count`) pour diagnostic dev.
 
-## Module `lib/archive` (Phase 8)
+## Module `lib/archive` (Phases 8 et 9)
 
-Écrit `archived/processed_YYYYMMDDHHMM.zip` à partir du contenu de `processed/`. Comportement fonctionnel dans `spec.md` § « Wizard "Créer un zip…" », wordings dans `ux.md` § « Flow « Créer un zip » ». Cette section documente le **comment** et surtout le **pourquoi**.
+Écrit, à partir du contenu de `processed/`, **deux sorties différentes selon le flux appelant** :
 
-Réalité produit qui cadre toutes les décisions : des zips de **10–20 Go**, produits pour être **déposés sur Vigie-Chiro**. Donc ZIP64 est le chemin nominal et non un cas limite, le run dure plusieurs minutes (ETA obligatoire), et compresser fait gagner du temps d'upload à l'utilisatrice.
+| Flux           | Sortie                                                        | Entrée du module   | ZIP64                            |
+| -------------- | ------------------------------------------------------------- | ------------------ | -------------------------------- |
+| **Sauvegarde** | `archived/<préfixe>_YYYYMMDD.zip` — un objet unique, 10–20 Go | `createZipArchive` | **nominal**                      |
+| **Dépôt**      | `upload/<série>/<série>_partN.zip` — volumes de 3,5 Gio       | `createZipVolumes` | **interdit** (`zip64: "forbid"`) |
+
+Comportement fonctionnel dans `spec.md` (§ « Wizard "Sauvegarder les enregistrements découpés" » et § « Wizard "Créer les zips à déposer" »), wordings dans `ux.md`. Cette section documente le **comment** et surtout le **pourquoi**.
+
+Réalité produit qui cadre les décisions de la Phase 8 : des zips de **10–20 Go**. ZIP64 y est donc le chemin nominal et non un cas limite, le run dure plusieurs minutes (ETA obligatoire), et compresser fait gagner du temps de transfert. **La Phase 9 renverse cette contrainte pour le seul flux de dépôt** : le portail Vigie-Chiro refuse le ZIP64 (confirmé par l'utilisatrice ; aucune limite de taille imposée par ailleurs), donc la série de volumes doit prouver qu'elle n'en écrit jamais — cf. § « Série de volumes » plus bas. Les deux sorties coexistent : le gros zip reste l'objet de sauvegarde (« dans trois ans, un client redemande les données de son étude » — un objet unique, nommé par le préfixe de l'étude, restaurable sans recoller de morceaux), la série est ce qu'on dépose.
 
 ### ADR — writer ZIP maison
 
 **Contexte** : produire une archive zip lisible par le portail Vigie-Chiro, le Finder, Windows et Info-ZIP, à partir de milliers de fichiers WAV, depuis un binaire `bun --compile` autonome.
 
-| Option                       | Pour                                                                                                                     | Contre                                                                                                                                                                                                           |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Writer maison (choisi)**   | Zéro dépendance, contrôle total de l'ordre d'écriture et de la vérification, `node:zlib` fait tout le travail difficile. | ~400 lignes de format binaire à tester. Mitigé : le sous-ensemble ZIP écrit est figé depuis 1993 et l'interface est étroite (5 modules purs + 1 orchestrateur), donc réversible.                                 |
-| `yazl` / `archiver` (npm)    | Prêt à l'emploi.                                                                                                         | Casse la règle « zéro dépendance runtime » pour un format qui ne bouge plus. Aucun ne propose la vérification post-écriture contre un plan, qui est le point dur ici — il faudrait la coder par-dessus.          |
-| `spawn zip` (Info-ZIP / CLI) | Le plus court à écrire.                                                                                                  | Fait de `zip` une **dépendance de correction** : absent → la feature ne marche pas. Précédent explicite avec sox (§ « Pipeline B ») : un binaire externe est un **accélérateur optionnel**, jamais un prérequis. |
-| `tar` / `tar.gz`             | Trivial à produire.                                                                                                      | Impasse pour la cible : double-clic inutilisable sur Windows, et le dépôt Vigie-Chiro attend un zip. Le format est imposé par l'aval, pas choisi.                                                                |
+| Option                       | Pour                                                                                                                                                                                                                                                                                                                                                                                                       | Contre                                                                                                                                                                                                                                                                                                             |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Writer maison (choisi)**   | **Raison décisive** : posséder le chemin d'écriture _et_ celui de vérification. Aucune lib ne vérifie l'archive produite contre le plan demandé, or c'est la précondition du futur flow destructif. Accessoirement : contrôle de l'ordre d'écriture (`sync` avant verify), seuils ZIP64 injectables — donc un chemin ZIP64 testable en CI sans fixture de 4 Go, alors qu'il est ici le chemin **nominal**. | **~1 200 lignes de source + ~2 100 de tests** (mesuré, pas estimé). L'économie réelle face à `yazl` se limite à `zipFormat.ts` + `createZipArchive.ts` : `verifyZipArchive` aurait été écrit de toute façon. Mitigé : le sous-ensemble ZIP écrit est figé depuis 1993 et l'interface est étroite, donc réversible. |
+| `yazl` / `archiver` (npm)    | Prêt à l'emploi.                                                                                                                                                                                                                                                                                                                                                                                           | Casse la règle « zéro dépendance runtime » pour un format qui ne bouge plus. Aucun ne propose la vérification post-écriture contre un plan, qui est le point dur ici — il faudrait la coder par-dessus.                                                                                                            |
+| `spawn zip` (Info-ZIP / CLI) | Le plus court à écrire.                                                                                                                                                                                                                                                                                                                                                                                    | Fait de `zip` une **dépendance de correction** : absent → la feature ne marche pas. Précédent explicite avec sox (§ « Pipeline B ») : un binaire externe est un **accélérateur optionnel**, jamais un prérequis.                                                                                                   |
+| `tar` / `tar.gz`             | Trivial à produire.                                                                                                                                                                                                                                                                                                                                                                                        | Impasse pour la cible : double-clic inutilisable sur Windows, et le dépôt Vigie-Chiro attend un zip. Le format est imposé par l'aval, pas choisi.                                                                                                                                                                  |
 
 **Conclusion** : le writer maison est le seul choix qui préserve à la fois « binaire autonome », « zéro dépendance » et la garantie de complétude vérifiable — cette dernière étant la brique sur laquelle reposera la future suppression de `processed/`.
 
 ### Découpage des modules
 
-| Module                | Rôle                                                                                                                                                                                                                                                         |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `crc32.ts`            | CRC-32 incrémental (table de 256, `CRC32_INITIAL` / `crc32Update` / `crc32Final`). Maison pour rester incrémental et testable ; couture évidente vers `zlib.crc32` si un profil le justifiait — improbable, deflate domine le coût.                          |
-| `zipFormat.ts`        | **Builders binaires purs**, zéro I/O : LFH (30 o), entrée de central directory (46 o), EOCD (22 o), ZIP64 EOCD (56 o) + locator (20 o), extra field ZIP64, `toDosDateTime`. Ce que `createZipArchive` pose sur le disque et ce que `verifyZipArchive` relit. |
-| `planArchive.ts`      | `ARCHIVED_DIRNAME`/`buildArchivedDir`, `buildArchiveName(date)` (pur), `resolveArchiveFileName` (collision `-2`…`-99`), `scanProcessedForArchive` (Result tagué `no-processed` / `empty-processed` / `scan-error` / `aborted` / `ok`).                       |
-| `createZipArchive.ts` | Orchestration : `.tmp` → boucle d'entrées (LFH, deflate, patch) → central directory → EOCD → `sync` → verify → `close` → rename. Émet `ArchiveProgressEvent`.                                                                                                |
-| `verifyZipArchive.ts` | Relecture indépendante du fichier produit : complétude contre le plan, structure, CRC.                                                                                                                                                                       |
+| Module                | Rôle                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crc32.ts`            | CRC-32 incrémental (table de 256, `CRC32_INITIAL` / `crc32Update` / `crc32Final`). Maison pour rester incrémental et testable ; couture évidente vers `zlib.crc32` si un profil le justifiait — improbable, deflate domine le coût.                                                                                                                                                            |
+| `zipFormat.ts`        | **Builders binaires purs**, zéro I/O : LFH (30 o), entrée de central directory (46 o), EOCD (22 o), ZIP64 EOCD (56 o) + locator (20 o), extra field ZIP64, `toDosDateTime`. Ce que `createZipArchive` pose sur le disque et ce que `verifyZipArchive` relit.                                                                                                                                   |
+| `planArchive.ts`      | `ARCHIVED_DIRNAME`/`buildArchivedDir`, `formatDateStamp` (le `YYYYMMDD` partagé par les deux name builders), `buildArchiveName(date, prefix?)` (pur), `collisionNameCandidates` (générateur `-2`…`-99`, source unique de la règle), `resolveFreeName`/`resolveArchiveFileName`, `scanProcessedForArchive` (Result tagué `no-processed` / `empty-processed` / `scan-error` / `aborted` / `ok`). |
+| `planUpload.ts`       | `UPLOAD_DIRNAME`/`buildUploadDir`, `buildSeriesDirName(date, prefix?)` (→ `Car…_20260814` ou `depot_20260814`), `buildVolumeFileName(série, i, total)` (pas de suffixe si `total === 1`, zéro-padding dynamique au-delà de 9), `buildStagingDirName(série, pid)`. Purs.                                                                                                                        |
+| `deflateBound.ts`     | Borne **inconditionnelle** de taille de sortie deflate (cf. § dédié) — sert à décider si la prochaine entrée tient encore dans le volume courant.                                                                                                                                                                                                                                              |
+| `maxVolumeBytes.ts`   | Plafond par volume : 3,5 Gio par défaut, `CHIRO_MAX_VOLUME_BYTES` **clampé dur** dans `[1 Mio, MAX_UINT32 − 64 Mio]`.                                                                                                                                                                                                                                                                          |
+| `createZipArchive.ts` | Orchestration d'**un** zip : `.tmp` → boucle d'entrées (LFH, deflate, patch) → central directory → EOCD → `sync` → verify → `close` → rename → `fsync` du répertoire. Émet `ArchiveProgressEvent`. Options `maxBytes` (→ `volume-full`) et `zip64: "allow" \| "forbid"`.                                                                                                                       |
+| `createZipVolumes.ts` | Orchestration d'une **série** : staging caché, bascule dynamique de volume, vérification de complétude de la série, nommage `partN` et commit par un `rename` unique, `cleanOrphanStagingDirs`. Émet `VolumeProgressEvent`.                                                                                                                                                                    |
+| `verifyZipArchive.ts` | Relecture indépendante du fichier produit : complétude contre le plan, structure, CRC.                                                                                                                                                                                                                                                                                                         |
 
-Côté UI, `screens/archive/useArchiveRun.ts` porte le cycle de vie (résolution du nom, `AbortController`, `runningRef`, `logSession` v3) et `useArchiveProgressState.ts` le throttle d'affichage — même répartition que `useVigieProcessRun` / `useProgressState`.
+Côté UI, `screens/archive/useArchiveRun.ts` porte le cycle de vie (résolution du nom, `AbortController`, `runningRef`, `logSession`) et `useArchiveProgressState.ts` le throttle d'affichage — même répartition que `useVigieProcessRun` / `useProgressState`. Le hook est **mode-agnostique** : il reçoit un triplet injecté (`runner`, `resolveTargetName`, `buildSessionEvent`) construit par `backupBehavior.ts` ou `packageBehavior.ts`, et `app.tsx` choisit lequel au routage. C'est l'extension d'un précédent qui existait déjà (le hook recevait `createZipArchive` en prop) : sept modules qui branchent sur une chaîne `mode`, c'est le drapeau qui prolifère. Le `mode` survit uniquement dans le JSX, près du rendu de la copie qu'il conditionne, et `errorMessages` reçoit un **libellé de dossier** (`"archived"` / `"upload"`) plutôt que le mode — une valeur ne peut pas engendrer de branches.
 
 ### Format binaire écrit
 
@@ -675,7 +723,7 @@ Côté UI, `screens/archive/useArchiveRun.ts` porte le cycle de vie (résolution
 
 ### ZIP64 conditionnel
 
-Chemin nominal sur les vrais volumes, donc testé en CI et non « au cas où ».
+Chemin nominal **du flux sauvegarde** sur les vrais volumes, donc testé en CI et non « au cas où ». Le flux de dépôt, lui, pose `zip64: "forbid"` et n'écrit jamais aucune de ces structures (§ « Garde-fou `zip64: "forbid"` »).
 
 - **Les local headers ne sont jamais ZIP64.** Une entrée ≥ 4 Gio est refusée à l'admission (`entry-too-large`) — garde inatteignable (les fichiers découpés font quelques Mo) mais qui garantit que les champs 32 bits du LFH suffisent toujours.
 - **Entrée de central directory** : si `localHeaderOffset` atteint le seuil, le champ offset est saturé à `0xFFFFFFFF`, la vraie valeur passe dans un extra field ZIP64 (tag `0x0001`, u64 seul), et `versionNeeded` passe à 45 **pour cette entrée uniquement** — les autres entrées et tous les LFH restent à 20.
@@ -695,21 +743,107 @@ Chaque étape a une raison d'être à sa place :
 - **`close()` puis `rename` en dernier** : le nom final n'apparaît dans `archived/` qu'une fois le contenu vérifié. Le rename passe par `renameWithFallback` (fallback `EXDEV`, partagé avec le flow rename).
 - N'importe quel échec en route → `unlink` du `.tmp` + Result tagué. **Aucun zip partiel n'existe jamais**, ce qui est exactement ce que promet le wording d'erreur (« Aucun fichier zip n'a été créé »).
 
-Le `.tmp` porte le **PID** dans son nom (`<zip>.<pid>.tmp`). Le pré-nettoyage des `.tmp` orphelins (run précédent tué) ne supprime que ceux dont le PID ne correspond plus à un process vivant — une instance concurrente de chiro n'est jamais sabotée. Même pattern que `safeFsOps.ts`.
+Le `.tmp` porte le **PID** dans son nom (`<zip>.<pid>.tmp`). Le pré-nettoyage des `.tmp` orphelins (run précédent tué) ne supprime que ceux dont le PID ne correspond plus à un process vivant — une instance concurrente de chiro n'est jamais sabotée. **Convention différente de `safeFsOps.ts`**, qui utilise un UUID court : lui n'a pas besoin de distinguer un résidu mort d'un tmp en vol, l'archive si. Deux conventions volontaires, pas un oubli.
 
 ### Vérification post-écriture — `verifyZipArchive`
 
-Relit le `.tmp` comme le ferait un tiers, trois couches, la moins chère d'abord :
+Relit le `.tmp` avant le rename, trois couches, la moins chère d'abord. Ce n'est **pas** un lecteur indépendant (il assume l'EOCD à `taille - 22` au lieu de le chercher à rebours) : l'indépendance vient de `externalTools.test.ts`, qui confronte la sortie à trois extracteurs réels.
 
-1. **Complétude contre le plan** — égalité **d'ensembles** `{name, uncompressedSize}` entre les entrées effectivement écrites et le central directory relu. C'est la garantie sur laquelle reposera la suppression de `processed/` ; elle est impossible à rétrofitter proprement plus tard, d'où sa présence dès la v1 non-destructive.
+1. **Complétude** — en deux temps, et l'ordre compte. D'abord `createZipArchive` compare l'ensemble des noms **demandés par l'appelant** (`opts.entries`) à ceux réellement écrits : sans ça la vérification serait auto-référentielle, une entrée silencieusement sautée disparaissant à la fois de l'archive _et_ de la référence, avec toutes les couches au vert. Ensuite `verifyZipArchive` compare `{name, uncompressedSize}` au central directory relu. C'est la garantie sur laquelle reposera la suppression de `processed/`.
 2. **Structure** — EOCD (et ZIP64 EOCD + locator si saturé) parsables, central directory parcourable, puis pour chaque entrée : signature et nom relus **au `localHeaderOffset` annoncé**, **les 12 octets patchés du LFH comparés au CD** (attrape un pwrite off-by-N sur n'importe quelle entrée, pour un coût d'I/O négligeable), et **contiguïté** : `offset[i] + 30 + nameBytesLen[i] + compressedSize[i] === offset[i+1]`, le dernier tombant exactement sur `cdOffset`.
-3. **Données** — `crcMode: "spot" | "full"`. `"spot"` (utilisé aujourd'hui) inflate et recalcule le CRC de 3 entrées représentatives (première, milieu, dernière). `"full"` fait toutes les entrées : c'est **un mot à changer**, réservé au futur flow destructif où le coût d'une corruption non détectée devient irréversible.
+3. **Données** — `crcMode: "spot" | "full"`. `"spot"` (utilisé aujourd'hui) inflate et recalcule le CRC de 3 entrées représentatives (première, milieu, dernière). `"full"` fait toutes les entrées, pour le futur flow destructif où une corruption non détectée devient irréversible. **Attention au faux-semblant** : le mode existe côté typage, mais `verifyZipArchive` n'a ni `AbortSignal` ni progression. En `full` sur 10–20 Go, la TUI resterait figée plusieurs minutes, Ctrl+C mort. Activer `full` suppose donc aussi : signal propagé, progression émise, et un état de vérification distinct dans la machine à états — pas juste un mot.
 
 Échec de n'importe quelle couche → `verify-failed`, `.tmp` supprimé, rien dans `archived/`.
 
+### Série de volumes (Phase 9)
+
+Le portail Vigie-Chiro refuse le ZIP64. Le zip unique de la Phase 8 est donc **indéposable** sur des volumes réels, et c'est le dépôt qui est la finalité de l'outil. `createZipVolumes` (`src/lib/archive/createZipVolumes.ts`) produit en plus une série de zips de 3,5 Gio, chacun **prouvé** sans ZIP64, publiée dans `upload/`. Le gros zip reste, pour la sauvegarde.
+
+#### Bascule dynamique sur la taille réelle, pas pré-partitionnement
+
+La décision structurante. Découper le lot **en amont** sur 3,5 Go de données _sources_ aurait produit des zips remplis au tiers (~1,1 Go) et 9 fichiers là où 3 suffisent, puisque le WAV ultrasonique compresse à ~36 %.
+
+À la place, `createZipArchive` gagne une option `maxBytes` : **avant** d'écrire chaque entrée, il compare `currentOffset` — la taille **réellement** accumulée sur le disque, compression comprise, plus les enregistrements de central directory déjà construits et la taille de l'EOCD — au plafond. Si l'entrée n'y tiendrait pas, il clôt proprement le volume (même `finalize` que la fin nominale, donc mêmes vérifications) et retourne `{kind:"volume-full", entriesWritten}`. L'orchestrateur reprend à l'entrée suivante dans un nouveau volume.
+
+La garantie « jamais ZIP64 » est ainsi **stricte** : `currentOffset` est la vérité du disque, jamais une estimation. La borne de compression (§ suivant) ne sert qu'à décider si la _prochaine_ entrée tient — s'y tromper coûte au pire un volume légèrement moins rempli, jamais un dépassement. La première entrée d'un volume passe toujours, quel que soit le plafond (une entrée seule plus grosse que le plafond est hors périmètre : les fichiers découpés font quelques Mo).
+
+Conséquences assumées, toutes visibles dans l'UI :
+
+- **Le nombre total de volumes est inconnu pendant le run.** `RunningView` affiche `Fichier zip 3` sans total (et masque la ligne tant qu'on est sur le premier volume, pour ne pas afficher un « Fichier zip 1 » absurde sur le cas mono-volume). La barre, elle, reste exacte : elle est pilotée par les octets **sources**, tous connus d'avance.
+- **Les noms définitifs `partN` sont attribués au commit**, quand N est enfin connu — gratuit, tout est déjà dans le staging sous des noms provisoires `volume-N.zip`.
+
+#### Borne de compression conservatrice
+
+`deflateBound.ts` n'utilise **pas** la borne serrée de zlib (`n + (n>>12) + (n>>14) + (n>>25) + 13`). Vérifié empiriquement sur le `deflateRaw` de Bun, 10 configurations : cette formule n'est valide que pour `level ∈ {2..9}` **et** `windowBits: 15` **et** `memLevel: 8`. Elle est dépassée par `level: 1` (+456 Ko sur 8 Mio), `memLevel: 1`, `windowBits: 9` et leurs combinaisons — et le piège est concret, `level: 1` a été proposé en cours de session pour accélérer la compression.
+
+On utilise la borne **inconditionnelle** `n + ⌈(n+7)/8⌉ + ⌈(n+63)/64⌉ + 5` (+14 %), qui tient sur les 10 configurations, y compris les pires combinaisons. Son surcoût est sans effet ici puisqu'elle ne sert qu'à décider si la prochaine entrée tient : au pire un volume finit 14 % moins rempli sur sa dernière entrée, soit quelques mégaoctets. On échange une optimisation invisible contre l'immunité à toute une classe de régressions silencieuses. **Ne pas « optimiser » vers la formule serrée, et ne pas changer les options de `createDeflateRaw` sans re-vérifier.**
+
+`nameBytes` est toujours la longueur **en octets UTF-8** (`nameBytesOf`), jamais `String.length` — même règle que partout dans le module.
+
+#### Garde-fou `zip64: "forbid"`
+
+Le partitionnement empêche, le garde-fou **prouve**. Mode en chaîne plutôt que booléen négatif, cohérent avec `crcMode`. Trois points, du moins cher au plus tardif :
+
+1. **Garde 0**, en tête d'appel : `entries.length >= entryCountThreshold` → échec en millisecondes. C'est le seul déclencheur que le garde par entrée ne voit jamais. **Piège** : ce garde est **désactivé quand `maxBytes` est posé** — sous bascule dynamique, `opts.entries` est le lot _restant_ confié au volume, pas ce que ce volume écrira ; le comparer au seuil ferait échouer tout le flux de dépôt dès le premier `processed/` réel. Le contrôle est refait **par volume** dans la boucle d'admission (`cdRecords.length + 1 >= entryCountThreshold`), où le compte est celui du volume courant.
+2. Dans la boucle, juste après `const localHeaderOffset = currentOffset;` — échoue avant d'écrire le local file header.
+3. **Avant** la boucle d'écriture du central directory : `cdOffset` et `cdSize` y sont déjà connus, autant ne rien écrire quand on sait qu'on ne peut pas finir.
+
+Code `zip64-required`, chemin `failWith` existant donc `.tmp` unlinké. **Le flux sauvegarde ne pose pas le mode `forbid`** : ZIP64 y reste nominal. Le **câblage** est testé, pas seulement le garde : `createZipVolumes` forwarde `zip64Thresholds`, et un test l'appelle avec `{offset: 64}` en attendant `zip64-required` **et** un `upload/` vide. C'est le seul test qui rougit si l'assignation `zip64: "forbid"` saute lors d'un refactor.
+
+#### ADR — un dossier de staging plutôt que N renames
+
+```
+upload/.Car340581-2026-Pass1-A1_20260814.<pid>.tmpdir/   ← volumes écrits + vérifiés ici
+        ↓ un rename(2), même parent donc jamais EXDEV
+upload/Car340581-2026-Pass1-A1_20260814/                 ← apparaît d'un coup, complet
+    ├── Car340581-2026-Pass1-A1_20260814_part1.zip
+    ├── Car340581-2026-Pass1-A1_20260814_part2.zip
+    └── Car340581-2026-Pass1-A1_20260814_part3.zip
+```
+
+**Option retenue** : un staging caché, publié par **un seul `rename`**. Commit en 1 syscall — aucune fenêtre pendant laquelle `upload/` contient une série à moitié écrite, ce qui est exactement ce que promet l'écran (« Les fichiers zip n'y apparaîtront qu'à la toute fin, tous ensemble »). Un dossier daté par run supprime au passage l'ambiguïté « lesquels dois-je déposer ? » quand un dépôt précédent traîne. **Option écartée** : renommer les N volumes un par un dans `upload/` en fin de run — N fenêtres d'incohérence, et une série partielle indiscernable d'une série complète pour l'utilisatrice.
+
+Détails qui ne sont pas des détails :
+
+- **La collision se résout au commit, en boucle**, jamais à l'aperçu. `rename(2)` sur un répertoire cible non vide échoue `ENOTEMPTY` (il n'écrase pas, contrairement au cas fichier) : deux terminaux lancés le même jour verraient sinon le second perdre 15 minutes de calcul. La boucle consomme `collisionNameCandidates` (`-2`..`-99`, la même source que le flux sauvegarde), puis `collision-exhausted`.
+- **`rename` nu**, jamais `renameWithFallback` : son repli EXDEV fait un `copyFile`, structurellement faux sur un répertoire.
+- **Suffixe `.tmpdir`, pas `.tmp`** : `ORPHAN_TMP_REGEX` (`createZipArchive.ts`) matcherait `.tmp` et appellerait `unlink()` sur un répertoire — échec avalé par le `.catch()`, nettoyage silencieusement inopérant.
+- **Nom de volume dérivé du nom _avant_ collision** : `buildVolumeFileName` reçoit le `seriesDirName` d'origine, pas le nom finalement committé (qui peut porter `-2`). Le dossier porte la distinction, les fichiers n'ont pas à la répéter.
+
+#### Nettoyage des staging orphelins
+
+`cleanOrphanStagingDirs(uploadDir)` est appelé **au constat** — l'écran affiche déjà « Analyse du dossier… » — jamais au run, où il figerait l'UI juste après l'Entrée.
+
+- Seules les entrées **directes** de `upload/` matchant `^\.(.+)\.(\d+)\.tmpdir$` sont candidates, `lstat` + `isDirectory()` (ne jamais suivre un lien).
+- **Liveness PID _plus_ garde d'âge (> 24 h)** : les PID sont recyclés ; un `kill -9` suivi d'une réattribution laisserait sinon un dossier **caché de plusieurs Go** que l'utilisatrice ne voit ni ne comprend. Un `EPERM` sur `process.kill(pid, 0)` compte comme « vivant » (process d'un autre utilisateur).
+- **Suppression fichier par fichier des seuls noms attendus** (`*.zip`, `*.tmp`) puis `rmdir` — **jamais `recursive: true`**. C'est la première suppression de répertoire du module, sur un chemin dérivé du dossier de l'utilisatrice. Un `ENOTEMPTY` au `rmdir` fait renoncer plutôt qu'écraser du contenu inconnu.
+- Best-effort de bout en bout : aucune erreur ne remonte à l'appelant.
+
+Le staging du run **en cours**, lui, est détruit par `rm(recursive, force)` sur tout chemin de sortie non-`ok` (abort, erreur, complétude en échec) : ici le chemin vient d'être fabriqué par le module lui-même dans la même fonction, il n'y a pas d'inconnu à protéger.
+
+#### Complétude de la série
+
+`createZipArchive` ancre déjà la complétude sur les entrées _demandées par l'appelant_, sans quoi la vérification serait auto-référentielle. La série reproduit le problème d'un cran plus haut : chaque volume vérifie sa propre tranche contre sa propre tranche, et **rien ne vérifierait que l'union des tranches couvre la source**. C'est pourtant la série qui porte la promesse « déposez ces fichiers, vous avez tout », et c'est sur elle que s'appuiera la future suppression de `processed/`.
+
+Avant le commit : somme des `entryCount` retournés par chaque volume `===` `entries.length`, **et** égalité ensembliste des noms contre l'entrée. Échec → staging détruit, `verify-failed`. Quelques lignes.
+
+#### Progression en coordonnées globales
+
+`ArchiveProgressEvent` **ne change pas**. `createZipVolumes` enveloppe le `onProgress` de chaque volume et réécrit `entryIndex` / `totalBytesRead` en coordonnées **globales** : la base est la somme des tailles _planifiées_ des volumes déjà clos, jamais « le dernier `totalBytesRead` observé » (qui se remet à zéro au volume suivant et provoquerait un double comptage). Un seul événement supplémentaire, `{kind:"volume-start", volumeIndex}`, déclaré dans `createZipVolumes.ts` et pas dans le writer — qui ne l'émet jamais.
+
+Ça fonctionne sans toucher au hook parce que `useArchiveProgressState` **ignore `event.totalEntries`** et lit `entries.length` de ses props. C'est écrit dans le code : quelqu'un qui « corrigerait » le ré-offset en propageant `totalEntries` casserait l'affichage. La chaîne if/else du hook est devenue un `switch` exhaustif avec garde `never`.
+
+#### `fsync` de répertoire (dette Phase 8 soldée)
+
+Un `fsync` de fichier rend son _contenu_ durable, mais le `rename` final modifie le **répertoire**, dont l'entrée peut rester en cache. Après une coupure de courant, on peut donc avoir les octets sur le disque sans que le dossier sache qu'ils s'appellent `…zip`. Mesuré : **0,12 ms** (0,07 ms sur `/usr/bin`, très peuplé) — le coût est nul, la dette est soldée.
+
+- `createZipArchive` : `fsync` du répertoire parent après son rename final.
+- `createZipVolumes` : `fsync` du staging **avant** de le renommer (rend durables les noms des volumes qu'il contient), puis `fsync` d'`upload/` après le rename. Deux appels pour toute la série.
+- **Best-effort, remonté dans le Result** (`durable: boolean`) plutôt qu'échec du run : le zip est valide et renommé, faire échouer serait absurde. Mais le futur flux destructif devra exiger `durable === true` avant de supprimer quoi que ce soit — c'est exactement ce que demandait la précondition n° 2 de `roadmap.md`, désormais levée.
+
 ### Invariants
 
-- **Non-destructivité structurelle** : aucun `unlink`, `rename` ou `write` sur un chemin sous `processed/` dans tout le module. Les seules écritures vivent dans `archived/` (le `.tmp`, puis son rename). Même construction que `processWavFiles` (§ « Non-destructivité — invariants garantis »).
+- **Non-destructivité structurelle** : aucun `unlink`, `rename` ou `write` sur un chemin sous `processed/` dans tout le module. Les seules écritures vivent dans les répertoires de sortie — `archived/` (le `.tmp`, puis son rename) et `upload/` (le staging `.tmpdir`, ses volumes, puis le rename de commit). Depuis la Phase 9 le module **supprime** des choses (staging du run, staging orphelins), mais uniquement des chemins qu'il a lui-même fabriqués sous `upload/`, jamais une entrée de `processed/` : c'est cette frontière-là que le module garantit, pas « aucune suppression ». Même construction que `processWavFiles` (§ « Non-destructivité — invariants garantis »).
 - **No-throw** : toutes les fonctions publiques rendent un Result tagué (`ok` / `aborted` / `error(code)`). Les codes bruts restent dans `lib/` ; la traduction française vit dans `screens/archive/errorMessages.ts`, adossé au `fsErrorMessages.ts` partagé.
 - **Filtre d'admission unique** : `isVisibleNonTmpEntry` est exporté par `scanDirectory.ts` et consommé à la fois par `checkProcessedDirConflict` (flow Découper) et `scanProcessedForArchive`. Une divergence entre « ce que le découpage considère comme un `processed/` peuplé » et « ce que le zip embarque » serait structurellement invisible en review — même raisonnement que l'extraction de `batchPlan`.
 - **TOCTOU borné** : chaque entrée est re-`stat`ée **juste avant** son `open()`, et un écart entre la taille attendue et les octets réellement lus donne `file-changed`. La fenêtre passe de « scan → run » (minutes) à quelques microsecondes.
@@ -718,17 +852,19 @@ Relit le `.tmp` comme le ferait un tiers, trois couches, la moins chère d'abord
 ### Limites connues et acceptées
 
 - **Symlinks silencieusement exclus** : le scan filtre sur `Dirent.isFile()`, faux pour un lien. Un `processed/` peuplé de liens produirait un zip vide sans explication. Cas jugé inexistant chez la cible (le dossier est produit par chiro lui-même) ; à traiter si un usage avancé émerge.
-- **Deux instances de chiro dans le même dossier à la même minute** : les `.tmp` sont distincts (PID), mais les deux runs résolvent le même nom final libre et le second `rename` peut écraser le premier zip. Accepté : non-destructif pour `processed/`, et le scénario suppose deux terminaux sur le même dossier à la même minute.
-- **Pas de `fsync` du répertoire `archived/`** : après le rename, l'entrée de répertoire n'est pas forcée sur le disque. Sans conséquence tant que le flow est non-destructif (au pire, une coupure d'alimentation fait perdre le zip et `processed/` est toujours là). **C'est une précondition à implémenter avant toute suppression de `processed/`** : supprimer les sources en se fiant à un rename non durable, c'est risquer de tout perdre sur un crash. Dette identifiée, pas un oubli.
+- **Deux instances de chiro dans le même dossier le même jour** (le nom est daté au jour depuis la Phase 9, plus à la minute) : les `.tmp` sont distincts (PID), mais côté **sauvegarde** les deux runs résolvent le même nom final libre et le second `rename` peut écraser le premier zip. Accepté : non-destructif pour `processed/`, et le scénario suppose deux terminaux sur le même dossier. Côté **dépôt**, ce cas est couvert : la collision est résolue au commit, par un vrai `rename` en boucle, pas par un pré-test d'existence.
+- **`fsync` du répertoire de sortie : fait** depuis la Phase 9 (§ « `fsync` de répertoire »), dans les deux flux, best-effort et remonté en `durable`. La précondition correspondante de la suppression de `processed/` est levée.
 - **Vérification en mode `spot`** : une corruption isolée au milieu d'une entrée non échantillonnée passerait le contrôle de CRC (elle serait tout de même attrapée par les contrôles structurels et de contiguïté). `crcMode: "full"` est la réponse, à activer en même temps que le flow destructif.
 - **Noms accentués : le writer est fidèle, les extracteurs macOS ne le sont pas.** Le nom est écrit avec les octets UTF-8 exacts renvoyés par `readdir` et le flag `0x0800` est posé — vérifié : Python relit `'été_000.wav'` à l'identique, contenu compris. En revanche l'`unzip` livré par Apple (Info-ZIP 6.00, 2009) ignore ce flag et échoue à extraire un tel nom, et `bsdtar` le renormalise en NFD à l'extraction (le nom extrait diffère alors octet à octet de l'original, à l'œil il est identique). Rien à corriger côté chiro, et sans effet en pratique : les noms produits par le flow de préfixage sont purement ASCII (`Car340581-2026-Pass1-A1-PaRec…`). À garder en tête si un jour un point d'écoute accentué devient possible.
 - **`--self-test` n'est volontairement pas étendu au zip.** Ce flag existe pour prouver ce que seul le **binaire compilé** peut casser : résolution d'asset dans `/$bunfs/`, worker bundlé, rendu Ink non-interactif. Le module archive n'a ni asset embarqué ni worker — il n'exerce aucun de ces pièges, et sa couverture unitaire (dont trois extracteurs réels) est bien plus forte. Ne pas l'y ajouter « par symétrie » : ça allongerait la CI sans rien tester de plus.
 
 ### Tests
 
-- **Purs** : `crc32` (vecteur `"123456789"` → `0xCBF43926`, incrémental ≡ one-shot) ; `zipFormat` octet par octet (tailles fixes, saturation par champ, `versionNeeded` conditionnel, `toDosDateTime` sur 1979 / 1980 / 2107 / 2108 / `NaN`) ; `planArchive` (filtres, tri, collisions).
+- **Purs** : `crc32` (vecteur `"123456789"` → `0xCBF43926`, incrémental ≡ one-shot) ; `zipFormat` octet par octet (tailles fixes, saturation par champ, `versionNeeded` conditionnel, `toDosDateTime` sur 1979 / 1980 / 2107 / 2108 / `NaN`) ; `planArchive` (filtres, tri, collisions) ; `planUpload` (nommage daté, cas N=1 sans suffixe, zéro-padding au-delà de 9 volumes et tri lexicographique correct, `.tmpdir` jamais `.tmp`) ; `deflateBound` ; `maxVolumeBytes` sur entrées hostiles (`"999999999999"`, `"abc"`, `"-1"`, notation scientifique) — la propriété testée est « le résultat reste strictement sous `MAX_UINT32` pour **toute** entrée ».
 - **Round-trip** : un reader de test (`__tests__/zipTestReader.ts`, parse du CD + `inflateRaw`) compare les octets restitués aux sources. Fixtures : nominal, nom accentué NFC **et** NFD, fichier de taille 0, abort en cours de run (aucun `.tmp` résiduel), `file-changed`, séquence de progression, `verify-failed` sur un zip volontairement mutilé (via le hook `corruptBeforeVerifyForTests`, seam explicite plutôt que mock du système de fichiers).
 - **ZIP64** : seuils injectés, bout en bout, validé par `unzip -t`.
+- **Absence de ZIP64 — « la preuve »** (`noZip64.test.ts`) : 40 entrées volontairement **incompressibles** (digests SHA-256 enchaînés — du WAV compresserait et masquerait tout) découpées en plusieurs volumes sous `maxBytes`. Pour chaque volume : `versionNeeded === 20` partout, `extraLength === 0`, ni ZIP64 EOCD ni locator — détecté **structurellement** (les 20 octets qui précèdent l'EOCD), **jamais** par recherche de signature, un flux deflate pouvant contenir `50 4B 06 06`. Plus l'égalité stricte du layout et l'union des entrées = ensemble source exactement.
+- **Série** (`createZipVolumes.test.ts`) : nominal, cas N=1 sans suffixe `part`, atomicité (abort ou fichier disparu → `upload/` **vide**), câblage `zip64Thresholds` → `zip64-required` + `upload/` vide, collision au commit → `-2`, ré-offset de progression (un `volume-start` par volume, `entryIndex` globalement monotone, `bytes-read` final = total), et `cleanOrphanStagingDirs` (PID vivant/mort, garde d'âge 24 h, symlink jamais suivi, `ENOTEMPTY` → renoncement).
 - **Golden** : contenus, `mtime` et date figés, `TZ` épinglé via `vi.stubEnv` — les timestamps DOS sont en heure locale, sans quoi le test passerait en France et échouerait sur un runner en UTC.
 - **Extracteurs réels** (`externalTools.test.ts`) : `unzip -t`, `python3 -m zipfile -t`, `bsdtar -tf` — trois implémentations indépendantes. Skip silencieux si l'outil manque en local, **échec dur si absent en CI** (un skip silencieux sur un runner serait une couverture fantôme).
 

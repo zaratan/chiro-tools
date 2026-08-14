@@ -1,29 +1,32 @@
 import { render } from "ink-testing-library";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { formatBytes } from "../../../lib/format/bytes.js";
-import { ResultScreen } from "../ResultScreen.js";
-import type { ArchiveRunOutcome } from "../useArchiveRun.js";
+import { formatBytes } from "../../../format/bytes.js";
+import { ResultScreen, type BackupRunOutcome } from "../ResultScreen.js";
 
 /** Wait for Ink's key-flush (≥ 80ms). */
 const settle = (): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, 80));
 
-type OkOutcome = Extract<ArchiveRunOutcome, { kind: "ok" }>;
+type OkOutcome = Extract<BackupRunOutcome, { kind: "backup-ok" }>;
 
 describe("ArchiveResultScreen — success", () => {
   const buildOkOutcome = (entryCount: number): OkOutcome => ({
-    kind: "ok",
-    zipPath: "/tmp/chiro-demo/archived/processed_202601011230.zip",
+    kind: "backup-ok",
+    zipPath: "/tmp/chiro-demo/archived/processed_20260101.zip",
     zipBytes: 12345,
     entryCount,
     durationMs: 4200,
   });
 
-  it("shows the plural count, the relative zip path, the size, and the Vigie-Chiro hand-off line", () => {
+  it("shows the plural count, the relative zip path, the size, and the backup-copy hand-off wording", () => {
     const outcome = buildOkOutcome(3);
     const { lastFrame } = render(
-      <ResultScreen outcome={outcome} onBackToMenu={() => undefined} />,
+      <ResultScreen
+        cwd="/tmp/chiro-demo"
+        outcome={outcome}
+        onBackToMenu={() => undefined}
+      />,
     );
 
     const frame = lastFrame() ?? "";
@@ -31,6 +34,13 @@ describe("ArchiveResultScreen — success", () => {
     expect(frame).toContain(`./archived/${path.basename(outcome.zipPath)}`);
     expect(frame).toContain(formatBytes(outcome.zipBytes));
     expect(frame).toContain(
+      "Ce fichier est votre copie de sauvegarde : gardez-le de côté.",
+    );
+    expect(frame).toContain(
+      "« Créer les zips à déposer sur Vigie-Chiro » dans le menu.",
+    );
+    // The old, now-false claim must be gone.
+    expect(frame).not.toContain(
       "Vous pouvez maintenant déposer ce fichier sur Vigie-Chiro.",
     );
   });
@@ -38,7 +48,11 @@ describe("ArchiveResultScreen — success", () => {
   it("uses the singular form for a single entry", () => {
     const outcome = buildOkOutcome(1);
     const { lastFrame } = render(
-      <ResultScreen outcome={outcome} onBackToMenu={() => undefined} />,
+      <ResultScreen
+        cwd="/tmp/chiro-demo"
+        outcome={outcome}
+        onBackToMenu={() => undefined}
+      />,
     );
 
     const frame = lastFrame() ?? "";
@@ -53,7 +67,11 @@ describe("ArchiveResultScreen — success", () => {
   it("calls onBackToMenu on Entrée", async () => {
     const onBackToMenu = vi.fn();
     const { stdin } = render(
-      <ResultScreen outcome={buildOkOutcome(2)} onBackToMenu={onBackToMenu} />,
+      <ResultScreen
+        cwd="/tmp/chiro-demo"
+        outcome={buildOkOutcome(2)}
+        onBackToMenu={onBackToMenu}
+      />,
     );
 
     stdin.write("\r");
@@ -64,11 +82,15 @@ describe("ArchiveResultScreen — success", () => {
 });
 
 describe("ArchiveResultScreen — aborted", () => {
-  const abortedOutcome: ArchiveRunOutcome = { kind: "aborted" };
+  const abortedOutcome: BackupRunOutcome = { kind: "aborted" };
 
   it("shows the cancellation message and confirms no zip was created", () => {
     const { lastFrame } = render(
-      <ResultScreen outcome={abortedOutcome} onBackToMenu={() => undefined} />,
+      <ResultScreen
+        cwd="/tmp/chiro-demo"
+        outcome={abortedOutcome}
+        onBackToMenu={() => undefined}
+      />,
     );
 
     const frame = lastFrame() ?? "";
@@ -79,7 +101,11 @@ describe("ArchiveResultScreen — aborted", () => {
   it("calls onBackToMenu on Entrée", async () => {
     const onBackToMenu = vi.fn();
     const { stdin } = render(
-      <ResultScreen outcome={abortedOutcome} onBackToMenu={onBackToMenu} />,
+      <ResultScreen
+        cwd="/tmp/chiro-demo"
+        outcome={abortedOutcome}
+        onBackToMenu={onBackToMenu}
+      />,
     );
 
     stdin.write("\r");

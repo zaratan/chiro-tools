@@ -106,6 +106,22 @@ describeWithTool(
       });
       expect(proc.status).toBe(0);
     });
+
+    it("reports extract_version 20 for every entry", () => {
+      const script = [
+        "import sys, zipfile",
+        "zf = zipfile.ZipFile(sys.argv[1])",
+        "ok = all(i.extract_version == 20 for i in zf.infolist())",
+        "print('EXTRACT_VERSION_OK' if ok else 'EXTRACT_VERSION_BAD')",
+      ].join("\n");
+      const proc = spawnSync(bin, ["-c", script, zipPath], {
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      expect(proc.status).toBe(0);
+      expect((proc.stdout?.toString("utf8") ?? "").trim()).toBe(
+        "EXTRACT_VERSION_OK",
+      );
+    });
   },
 );
 

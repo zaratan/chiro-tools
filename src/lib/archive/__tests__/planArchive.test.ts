@@ -7,7 +7,9 @@ import {
   ARCHIVED_DIRNAME,
   buildArchivedDir,
   buildArchiveName,
+  collisionNameCandidates,
   resolveArchiveFileName,
+  resolveFreeName,
   scanProcessedForArchive,
 } from "../planArchive.js";
 
@@ -24,16 +26,22 @@ describe("buildArchivedDir / ARCHIVED_DIR_DISPLAY", () => {
 });
 
 describe("buildArchiveName", () => {
-  it("formats as processed_YYYYMMDDHHMM.zip in local time, zero-padded", () => {
+  it("formats as processed_YYYYMMDD.zip in local time, zero-padded", () => {
     expect(buildArchiveName(new Date(2026, 7, 12, 14, 30))).toBe(
-      "processed_202608121430.zip",
+      "processed_20260812.zip",
     );
   });
 
-  it("zero-pads single-digit month, day, hour, and minute", () => {
+  it("zero-pads single-digit month and day", () => {
     expect(buildArchiveName(new Date(2026, 0, 2, 3, 4))).toBe(
-      "processed_202601020304.zip",
+      "processed_20260102.zip",
     );
+  });
+
+  it("uses the given prefix instead of processed when provided", () => {
+    expect(
+      buildArchiveName(new Date(2026, 7, 14), "Car340581-2026-Pass1-A1"),
+    ).toBe("Car340581-2026-Pass1-A1_20260814.zip");
   });
 });
 
@@ -74,6 +82,33 @@ describe("resolveArchiveFileName", () => {
     }
     const result = await resolveArchiveFileName(tmpDir, "processed_x.zip");
     expect(result).toEqual({ kind: "collision-exhausted" });
+  });
+
+  it("is the same function as resolveFreeName (generalized in 9.B)", () => {
+    expect(resolveArchiveFileName).toBe(resolveFreeName);
+  });
+
+  it("resolves a bare name with no extension (a directory name)", async () => {
+    await mkdir(path.join(tmpDir, "depot_20260814"));
+    const result = await resolveFreeName(tmpDir, "depot_20260814");
+    expect(result).toEqual({ kind: "ok", fileName: "depot_20260814-2" });
+  });
+});
+
+describe("collisionNameCandidates", () => {
+  it("yields the base name first, then -2..-99 suffixes before the extension", () => {
+    const candidates = [...collisionNameCandidates("processed_x.zip")];
+    expect(candidates[0]).toBe("processed_x.zip");
+    expect(candidates[1]).toBe("processed_x-2.zip");
+    expect(candidates.at(-1)).toBe("processed_x-99.zip");
+    expect(candidates).toHaveLength(99);
+  });
+
+  it("appends the suffix directly when the base name has no extension", () => {
+    const candidates = [...collisionNameCandidates("depot_20260814")];
+    expect(candidates[0]).toBe("depot_20260814");
+    expect(candidates[1]).toBe("depot_20260814-2");
+    expect(candidates.at(-1)).toBe("depot_20260814-99");
   });
 });
 

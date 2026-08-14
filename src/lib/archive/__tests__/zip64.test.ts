@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -110,6 +110,138 @@ describe("createZipArchive — injected ZIP64 offset threshold, end to end", () 
       });
       expect(proc.status).toBe(0);
     }
+  });
+});
+
+const tmpFilesIn = async (dir: string): Promise<string[]> => {
+  try {
+    return (await readdir(dir)).filter((f) => f.endsWith(".tmp"));
+  } catch {
+    return [];
+  }
+};
+
+describe("createZipArchive — zip64: forbid", () => {
+  it("fails with zip64-required when an injected offset threshold would be crossed, leaving no .tmp and no zip", async () => {
+    const entries: ArchiveEntryStat[] = [];
+    for (const name of ["a.wav", "b.wav", "c.wav"]) {
+      const abs = path.join(sourceDir, name);
+      await writeFile(abs, `content of ${name}`);
+      const stats = await stat(abs);
+      entries.push({ name, size: stats.size, mtime: stats.mtime });
+    }
+    const zipPath = path.join(archivedDir, "processed_forbidoffset.zip");
+
+    const result = await createZipArchive({
+      sourceDir,
+      entries,
+      zipPath,
+      zip64: "forbid",
+      zip64Thresholds: { offset: 64 },
+    });
+
+    expect(result).toEqual({ kind: "error", code: "zip64-required" });
+    await expect(stat(zipPath)).rejects.toThrow();
+    expect(await tmpFilesIn(archivedDir)).toEqual([]);
+  });
+
+  it("fails with zip64-required via the entry-count guard, which the per-entry offset guard can never see", async () => {
+    const entries: ArchiveEntryStat[] = [];
+    for (let i = 0; i < 4; i++) {
+      const name = `f${i.toString()}.wav`;
+      const abs = path.join(sourceDir, name);
+      await writeFile(abs, `payload ${i.toString()}`);
+      const stats = await stat(abs);
+      entries.push({ name, size: stats.size, mtime: stats.mtime });
+    }
+    const zipPath = path.join(archivedDir, "processed_forbidcount.zip");
+
+    const result = await createZipArchive({
+      sourceDir,
+      entries,
+      zipPath,
+      zip64: "forbid",
+      zip64Thresholds: { entryCount: 3 },
+    });
+
+    expect(result).toEqual({ kind: "error", code: "zip64-required" });
+    await expect(stat(zipPath)).rejects.toThrow();
+    expect(await tmpFilesIn(archivedDir)).toEqual([]);
+  });
+
+  it("splits into multiple volumes under maxBytes instead of failing guard 0 against the whole remaining entry pool", async () => {
+    // Reviewer repro: 10 entries, entryCountThreshold: 4, maxBytes small
+    // enough that each volume only ever holds ~2 entries. Guard 0 must not
+    // see `opts.entries.length` (10, the whole remaining pool handed to
+    // every volume) and fail immediately — each volume's own entry count
+    // stays well under the threshold.
+    const entries: ArchiveEntryStat[] = [];
+    for (let i = 0; i < 10; i++) {
+      const name = `f${i.toString()}.wav`;
+      const abs = path.join(sourceDir, name);
+      await writeFile(abs, `x${i.toString()}`);
+      const stats = await stat(abs);
+      entries.push({ name, size: stats.size, mtime: stats.mtime });
+    }
+
+    let remaining: ArchiveEntryStat[] = entries;
+    let volumeIndex = 1;
+    const maxEntryCountSeen: number[] = [];
+
+    for (;;) {
+      const zipPath = path.join(
+        archivedDir,
+        `processed_forbidmaxbytes_vol${volumeIndex.toString()}.zip`,
+      );
+      const result = await createZipArchive({
+        sourceDir,
+        entries: remaining,
+        zipPath,
+        zip64: "forbid",
+        zip64Thresholds: { entryCount: 4 },
+        maxBytes: 1500,
+      });
+
+      expect(result.kind).not.toBe("error");
+      if (result.kind === "error") {
+        throw new Error(`unexpected error: ${result.code}`);
+      }
+      if (result.kind === "ok") {
+        maxEntryCountSeen.push(result.entryCount);
+        break;
+      }
+      if (result.kind !== "volume-full") {
+        throw new Error(`unexpected result: ${JSON.stringify(result)}`);
+      }
+      maxEntryCountSeen.push(result.entryCount);
+      remaining = remaining.slice(result.entriesWritten);
+      volumeIndex++;
+    }
+
+    expect(volumeIndex).toBeGreaterThan(1);
+    for (const count of maxEntryCountSeen) {
+      expect(count).toBeLessThan(4);
+    }
+  });
+
+  it("is a no-op when nothing would actually trigger ZIP64", async () => {
+    const entries: ArchiveEntryStat[] = [];
+    for (const name of ["a.wav", "b.wav"]) {
+      const abs = path.join(sourceDir, name);
+      await writeFile(abs, `content of ${name}`);
+      const stats = await stat(abs);
+      entries.push({ name, size: stats.size, mtime: stats.mtime });
+    }
+    const zipPath = path.join(archivedDir, "processed_forbidnoop.zip");
+
+    const result = await createZipArchive({
+      sourceDir,
+      entries,
+      zipPath,
+      zip64: "forbid",
+    });
+
+    expect(result.kind).toBe("ok");
   });
 });
 

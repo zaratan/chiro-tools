@@ -12,7 +12,6 @@ import {
   EOCD_SIGNATURE,
   LFH_FIXED_SIZE,
   LOCAL_FILE_HEADER_SIGNATURE,
-  MAX_UINT16,
   MAX_UINT32,
   readZip64ExtraFieldOffset,
   ZIP64_EOCD_LOCATOR_SIGNATURE,
@@ -35,6 +34,7 @@ export type ReadZipEntry = {
   uncompressedSize: number;
   localHeaderOffset: number;
   versionNeeded: number;
+  extraLength: number;
   data: Buffer;
 };
 
@@ -43,6 +43,11 @@ export type ReadZipResult = {
   entryCount: number;
   cdOffset: number;
   cdSize: number;
+  hasZip64Eocd: boolean;
+  hasZip64Locator: boolean;
+  /** The classic EOCD's fields as read off disk, before any ZIP64
+   * resolution — lets tests assert a volume was never saturated. */
+  rawEocd: { entryCount: number; cdSize: number; cdOffset: number };
 };
 
 /** Reads and fully parses a ZIP produced by `createZipArchive`, inflating
@@ -57,27 +62,36 @@ export const readZip = async (zipPath: string): Promise<ReadZipResult> => {
     throw new Error("EOCD signature not found at expected offset");
   }
 
-  let entryCount = buf.readUInt16LE(eocdOffset + 10);
-  let cdSize = buf.readUInt32LE(eocdOffset + 12);
-  let cdOffset = buf.readUInt32LE(eocdOffset + 16);
+  const rawEocd = {
+    entryCount: buf.readUInt16LE(eocdOffset + 10),
+    cdSize: buf.readUInt32LE(eocdOffset + 12),
+    cdOffset: buf.readUInt32LE(eocdOffset + 16),
+  };
 
-  const isSaturated =
-    entryCount === MAX_UINT16 ||
-    cdSize === MAX_UINT32 ||
-    cdOffset === MAX_UINT32;
+  // Structural detection only — never scan the file for the ZIP64 magic
+  // bytes, since a deflate stream can contain them by coincidence. The
+  // locator, if present, sits at a fixed offset immediately before the
+  // classic EOCD; only trust it once its own signature checks out.
+  const locatorOffset = eocdOffset - ZIP64_LOCATOR_FIXED_SIZE;
+  const hasZip64Locator =
+    locatorOffset >= 0 &&
+    buf.readUInt32LE(locatorOffset) === ZIP64_EOCD_LOCATOR_SIGNATURE;
 
-  if (isSaturated) {
-    const locatorOffset = eocdOffset - ZIP64_LOCATOR_FIXED_SIZE;
-    if (buf.readUInt32LE(locatorOffset) !== ZIP64_EOCD_LOCATOR_SIGNATURE) {
-      throw new Error("ZIP64 locator signature mismatch");
-    }
+  let hasZip64Eocd = false;
+  let entryCount = rawEocd.entryCount;
+  let cdSize = rawEocd.cdSize;
+  let cdOffset = rawEocd.cdOffset;
+  if (hasZip64Locator) {
     const zip64EocdOffset = Number(buf.readBigUInt64LE(locatorOffset + 8));
-    if (buf.readUInt32LE(zip64EocdOffset) !== ZIP64_EOCD_SIGNATURE) {
-      throw new Error("ZIP64 EOCD signature mismatch");
+    hasZip64Eocd =
+      zip64EocdOffset >= 0 &&
+      zip64EocdOffset + 4 <= buf.length &&
+      buf.readUInt32LE(zip64EocdOffset) === ZIP64_EOCD_SIGNATURE;
+    if (hasZip64Eocd) {
+      entryCount = Number(buf.readBigUInt64LE(zip64EocdOffset + 32));
+      cdSize = Number(buf.readBigUInt64LE(zip64EocdOffset + 40));
+      cdOffset = Number(buf.readBigUInt64LE(zip64EocdOffset + 48));
     }
-    entryCount = Number(buf.readBigUInt64LE(zip64EocdOffset + 32));
-    cdSize = Number(buf.readBigUInt64LE(zip64EocdOffset + 40));
-    cdOffset = Number(buf.readBigUInt64LE(zip64EocdOffset + 48));
   }
 
   const entries: ReadZipEntry[] = [];
@@ -141,11 +155,20 @@ export const readZip = async (zipPath: string): Promise<ReadZipResult> => {
       uncompressedSize,
       localHeaderOffset,
       versionNeeded,
+      extraLength: extraLen,
       data,
     });
 
     pos += CD_FIXED_SIZE + nameLen + extraLen + commentLen;
   }
 
-  return { entries, entryCount, cdOffset, cdSize };
+  return {
+    entries,
+    entryCount,
+    cdOffset,
+    cdSize,
+    hasZip64Eocd,
+    hasZip64Locator,
+    rawEocd,
+  };
 };

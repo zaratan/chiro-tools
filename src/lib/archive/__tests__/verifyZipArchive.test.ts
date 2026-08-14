@@ -114,6 +114,7 @@ describe("verifyZipArchive — happy path", () => {
       zipBytes: EOCD_FIXED_SIZE,
       entryCount: 0,
       durationMs: expect.any(Number) as number,
+      durable: expect.any(Boolean) as boolean,
     });
     const verifyResult = await verifyZipArchive(zipPath, [], {
       crcMode: "spot",
