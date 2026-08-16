@@ -43,13 +43,6 @@ const FIRST_COLLISION_SUFFIX = 2;
 export type ResolveFreeNameResult =
   { kind: "ok"; fileName: string } | { kind: "collision-exhausted" };
 
-/** Kept as an alias so pre-9.B call sites/imports keep compiling unchanged —
- * same type as {@link ResolveFreeNameResult}. Not `@deprecated`: it isn't
- * slated for removal, `useArchiveRun.ts` (single-zip backup flow) keeps
- * using this name deliberately, and `@deprecated` would flag every one of
- * its call sites as a lint error. */
-export type ResolveArchiveFileNameResult = ResolveFreeNameResult;
-
 /**
  * Yields `baseName` itself, then `-2` through `-99` suffixes inserted before
  * its extension — or appended directly when `baseName` has none, e.g. a bare
@@ -57,7 +50,7 @@ export type ResolveArchiveFileNameResult = ResolveFreeNameResult;
  * those). The single source of truth for chiro's collision-suffix rule:
  * `resolveFreeName` below consumes it for access-based lookups, and
  * `createZipVolumes`'s commit step (9.B) consumes it directly to drive a
- * loop of real `rename` attempts instead — see D2 in the phase-9 plan for
+ * loop of real `rename` attempts instead for
  * why a directory-to-directory commit can't be resolved by pre-checking
  * existence. The range is generous — `collision-exhausted` exists for
  * no-throw exhaustiveness, not because it's expected to be reached.
@@ -103,10 +96,8 @@ export const resolveFreeName = async (
   return { kind: "collision-exhausted" };
 };
 
-/** Kept as an alias so pre-9.B call sites (`useArchiveRun.ts`) keep
- * importing a name specific to their use case — same function as
- * {@link resolveFreeName}. Not `@deprecated`, see the note on
- * {@link ResolveArchiveFileNameResult}. */
+/** Alias of {@link resolveFreeName} for `backupBehavior.ts`, where the
+ * use-case-specific name reads better at the call site. */
 export const resolveArchiveFileName = resolveFreeName;
 
 export type ArchiveEntryStat = { name: string; size: number; mtime: Date };

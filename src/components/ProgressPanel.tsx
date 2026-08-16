@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import { renderBar } from "../format/progress.js";
 import { Footer } from "./Footer.js";
+import { fitPath } from "../format/path.js";
 
 export type ProgressPanelProps = {
   cwd: string;
@@ -20,7 +21,7 @@ export const ProgressPanel = ({
   reassuranceLines,
 }: ProgressPanelProps): React.JSX.Element => (
   <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-    <Text>📁 {cwd}</Text>
+    <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
     <Box marginTop={1}>
       <Text>{title}</Text>
     </Box>

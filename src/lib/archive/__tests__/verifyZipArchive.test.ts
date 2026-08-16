@@ -20,6 +20,8 @@ import {
   CD_FIXED_SIZE,
   CRC_FIELD_OFFSET,
   EOCD_FIXED_SIZE,
+  ZIP64_EOCD_FIXED_SIZE,
+  ZIP64_LOCATOR_FIXED_SIZE,
   LFH_FIXED_SIZE,
   MAX_UINT16,
   MAX_UINT32,
@@ -80,6 +82,38 @@ const patchBytes = async (
   const fh = await open(filePath, "r+");
   try {
     await fh.write(bytes, 0, bytes.length, offset);
+  } finally {
+    await fh.close();
+  }
+};
+
+/**
+ * Reads the real central-directory offset the way any ZIP64-aware reader
+ * must: the classic EOCD saturates its field to 0xFFFFFFFF once the archive
+ * needs ZIP64, and the true value then lives in the ZIP64 EOCD that the
+ * locator points at. Reading the classic field blindly yields 0xFFFFFFFF and
+ * sends a caller writing far past the end of the file.
+ */
+const readRealCdOffset = async (zipPath: string): Promise<number> => {
+  const stats = await stat(zipPath);
+  const fh = await open(zipPath, "r");
+  try {
+    const eocdBuf = Buffer.alloc(EOCD_FIXED_SIZE);
+    await fh.read(eocdBuf, 0, EOCD_FIXED_SIZE, stats.size - EOCD_FIXED_SIZE);
+    const shortOffset = eocdBuf.readUInt32LE(16);
+    if (shortOffset !== 0xffffffff) return shortOffset;
+
+    const locatorBuf = Buffer.alloc(ZIP64_LOCATOR_FIXED_SIZE);
+    await fh.read(
+      locatorBuf,
+      0,
+      ZIP64_LOCATOR_FIXED_SIZE,
+      stats.size - EOCD_FIXED_SIZE - ZIP64_LOCATOR_FIXED_SIZE,
+    );
+    const zip64EocdOffset = Number(locatorBuf.readBigUInt64LE(8));
+    const zip64Buf = Buffer.alloc(ZIP64_EOCD_FIXED_SIZE);
+    await fh.read(zip64Buf, 0, ZIP64_EOCD_FIXED_SIZE, zip64EocdOffset);
+    return Number(zip64Buf.readBigUInt64LE(48));
   } finally {
     await fh.close();
   }
@@ -199,12 +233,7 @@ describe("verifyZipArchive — central directory parsing", () => {
     // fixture's own single-entry archive lays things out: LFH(30+name) +
     // deflated payload. Simplest robust anchor: read the EOCD's cdOffset
     // field directly.
-    const stats = await stat(zipPath);
-    const fh = await open(zipPath, "r");
-    const eocdBuf = Buffer.alloc(EOCD_FIXED_SIZE);
-    await fh.read(eocdBuf, 0, EOCD_FIXED_SIZE, stats.size - EOCD_FIXED_SIZE);
-    const cdOffset = eocdBuf.readUInt32LE(16);
-    await fh.close();
+    const cdOffset = await readRealCdOffset(zipPath);
 
     await patchBytes(zipPath, cdOffset, Buffer.from([0xff, 0xff, 0xff, 0xff]));
     const result = await verifyZipArchive(zipPath, plan, { crcMode: "spot" });
@@ -239,12 +268,7 @@ describe("verifyZipArchive — central directory parsing", () => {
 
   it("fails with cd-truncated when a CD entry's declared name length overruns the CD buffer", async () => {
     const { zipPath, plan } = await buildRealArchive([["a.wav", "content"]]);
-    const stats = await stat(zipPath);
-    const fh = await open(zipPath, "r");
-    const eocdBuf = Buffer.alloc(EOCD_FIXED_SIZE);
-    await fh.read(eocdBuf, 0, EOCD_FIXED_SIZE, stats.size - EOCD_FIXED_SIZE);
-    const cdOffset = eocdBuf.readUInt32LE(16);
-    await fh.close();
+    const cdOffset = await readRealCdOffset(zipPath);
 
     // The fixed 46-byte CD header still fits, but claiming a name far longer
     // than the (unchanged, small) `cdSize` leaves no room for it.
@@ -342,11 +366,10 @@ describe("verifyZipArchive — ZIP64", () => {
       ],
       { zip64Thresholds: { offset: 1 } }, // forces entry 1+ into the ZIP64 offset path
     );
-    const stats = await stat(zipPath);
+    // The classic EOCD's offset field is saturated here (the archive needs
+    // ZIP64), so the real one comes from the ZIP64 EOCD via the locator.
+    const cdOffset = await readRealCdOffset(zipPath);
     const fh = await open(zipPath, "r");
-    const eocdBuf = Buffer.alloc(EOCD_FIXED_SIZE);
-    await fh.read(eocdBuf, 0, EOCD_FIXED_SIZE, stats.size - EOCD_FIXED_SIZE);
-    const cdOffset = eocdBuf.readUInt32LE(16);
 
     // Walk to the second CD entry (first one starts at cdOffset) to find its
     // ZIP64 extra field's 2-byte tag, then corrupt it.
@@ -538,5 +561,25 @@ describe("verifyZipArchive — data integrity", () => {
     );
     const result = await verifyZipArchive(zipPath, plan, { crcMode: "full" });
     expect(result).toEqual({ kind: "verify-failed", reason: "read-error" });
+  });
+});
+
+describe("verifyZipArchive — hostile header", () => {
+  it("refuses a central directory that claims to run past the end of the file", async () => {
+    const { zipPath, plan } = await buildRealArchive([["a.wav", "content a"]]);
+    const stats = await stat(zipPath);
+
+    // Claim a 3 GiB central directory. Without the range check this becomes a
+    // `Buffer.alloc(3 GiB)` sized by the very file we are here to distrust —
+    // the try/catch keeps the no-throw contract but not against an OOM kill.
+    const hugeCdSize = Buffer.alloc(4);
+    hugeCdSize.writeUInt32LE(3 * 1024 * 1024 * 1024, 0);
+    await patchBytes(zipPath, stats.size - EOCD_FIXED_SIZE + 12, hugeCdSize);
+
+    const result = await verifyZipArchive(zipPath, plan, { crcMode: "spot" });
+    expect(result).toEqual({
+      kind: "verify-failed",
+      reason: "cd-out-of-range",
+    });
   });
 });

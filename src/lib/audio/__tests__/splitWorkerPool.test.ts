@@ -405,6 +405,53 @@ describe("splitWorkerPool", () => {
     expect(outcome.errored[0]?.reason).toBe("worker-died");
   }, 5000);
 
+  it("fails the still-queued files too when every worker dies, instead of hanging", async () => {
+    // The single-file tests above cannot reach `failRemainingQueue`: there is
+    // nothing left in the queue when the one file dies. With more files than
+    // workers, a death has to fail the *remaining* ones as well — otherwise
+    // `pendingFiles` never reaches 0 and the batch never resolves. That is
+    // the freeze class: no crash, no error screen, a progress bar that stops.
+    const crashingWorkerPath = path.join(tmpDir, "crash-all-worker.mjs");
+    await writeFile(
+      crashingWorkerPath,
+      [
+        'import { parentPort } from "node:worker_threads";',
+        "if (parentPort !== null) {",
+        '  parentPort.on("message", () => {',
+        '    throw new Error("boom");',
+        "  });",
+        "}",
+        "",
+      ].join("\n"),
+    );
+
+    // Two workers, six files: four are still queued when both die, which is
+    // the only way to reach `failRemainingQueue`. With the default worker
+    // count every file gets dispatched at once and the queue is empty.
+    process.env.CHIRO_WORKER_COUNT = "2";
+    const names = ["a.wav", "b.wav", "c.wav", "d.wav", "e.wav", "f.wav"];
+    for (const n of names) await writeWav(n, { durationSeconds: 1 });
+
+    const outcome = await runPool(
+      names,
+      tmpDir,
+      { mode: "preserve" },
+      { workerPath: crashingWorkerPath },
+    );
+
+    delete process.env.CHIRO_WORKER_COUNT;
+
+    expect(outcome.processed).toEqual([]);
+    expect(outcome.errored.map((e) => e.file).sort()).toEqual(
+      [...names].sort(),
+    );
+    // The four that never reached a worker must carry the queue-level reason,
+    // not the per-worker one — that is `failRemainingQueue` doing its job.
+    expect(
+      outcome.errored.filter((e) => e.reason === "no-workers-available").length,
+    ).toBeGreaterThan(0);
+  }, 15000);
+
   it("resolves with the file marked errored when a worker exits cleanly (code 0) mid-file instead of hanging forever", async () => {
     // A worker that calls process.exit(0) after receiving a file but before
     // ever posting file-done/file-error must still be treated as a death —

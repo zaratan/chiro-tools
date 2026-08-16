@@ -3,7 +3,12 @@ import type { FileHandle } from "node:fs/promises";
 import { mkdir, open, readdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { createDeflateRaw } from "node:zlib";
-import { extractErrorCode, renameWithFallback } from "../fs/safeFsOps.js";
+import {
+  extractErrorCode,
+  fsyncDirBestEffort,
+  isAliveProcess,
+  renameWithFallback,
+} from "../fs/safeFsOps.js";
 import { deflateBound } from "./deflateBound.js";
 import type { ArchiveEntryStat } from "./planArchive.js";
 import { CRC32_INITIAL, crc32Final, crc32Update } from "./crc32.js";
@@ -25,6 +30,24 @@ import {
 } from "./zipFormat.js";
 import { verifyZipArchive, type ArchivePlanEntry } from "./verifyZipArchive.js";
 
+/**
+ * `CreateZipArchiveResult` plus `"volume-full"`, returned only when the
+ * caller opts into `maxBytes`. A separate type, not a member of
+ * `CreateZipArchiveResult`, so a caller that never passes `maxBytes` cannot
+ * receive a variant it has no way to handle — see the overloads below.
+ */
+export type CreateZipArchiveVolumeResult =
+  | CreateZipArchiveResult
+  | {
+      kind: "volume-full";
+      entriesWritten: number;
+      zipPath: string;
+      zipBytes: number;
+      entryCount: number;
+      durationMs: number;
+      durable: boolean;
+    };
+
 const DEFLATE_LEVEL = 6;
 const READ_CHUNK_BYTES = 1024 * 1024;
 const ORPHAN_TMP_REGEX = /\.(\d+)\.tmp$/;
@@ -34,7 +57,12 @@ export type ArchiveProgressEvent =
       kind: "entry-start";
       entryIndex: number;
       entryName: string;
-      totalEntries: number;
+      // Deliberately no `totalEntries`: under `maxBytes` this call only ever
+      // knows its own remaining slice, so the number would be the volume's
+      // total, not the series'. It was emitted, wrong in one flow out of two,
+      // and kept harmless only by a comment in *another* file telling readers
+      // not to use it. A field nobody may read has no business existing —
+      // the screens carry the real total in their own props.
     }
   | { kind: "bytes-read"; totalBytesRead: number }
   | { kind: "entry-done"; entryIndex: number };
@@ -63,14 +91,9 @@ export type CreateZipArchiveOptions = {
    * to retry with the remaining entries at a new `zipPath`.
    */
   maxBytes?: number;
-  /**
-   * Test-only hook, called with the `.tmp` path right after every entry has
-   * been written but before `sync()`/verify — lets tests corrupt the file on
-   * disk to exercise the real verify-and-discard path end to end. Never set
-   * in production code. Mirrors the `workerPath`-override pattern used by
-   * `splitWorkerPool.ts` for the same reason: a narrow, explicit escape
-   * hatch beats mocking the filesystem.
-   */
+  /** Test-only: corrupts the `.tmp` between the last entry and `sync()`, so
+   * a test can exercise the real verify-and-discard path on a real damaged
+   * file rather than mocking the verifier. Never set in production. */
   corruptBeforeVerifyForTests?: (tmpPath: string) => Promise<void>;
 };
 
@@ -83,48 +106,17 @@ export type CreateZipArchiveResult =
       durationMs: number;
       /**
        * Whether the archived directory was fsync'd after the rename —
-       * best-effort, never fails the run either way. Optional in the type
-       * so existing call sites/literals that predate this field keep
-       * compiling; the real implementation always sets a real boolean.
+       * best-effort, never fails the run either way.
+       *
+       * Required, never optional: a boolean that guards a destructive
+       * decision must not be able to arrive as `undefined`, where
+       * `if (r.durable)` and `if (r.durable !== false)` read as opposites
+       * with nothing in the type to arbitrate.
        */
-      durable?: boolean;
+      durable: boolean;
     }
   | { kind: "aborted" }
   | { kind: "error"; code: string };
-
-/**
- * `CreateZipArchiveResult` plus `"volume-full"`, returned only when the
- * caller opts into `maxBytes`. Kept as a separate type (rather than adding
- * the member directly to `CreateZipArchiveResult`) so every existing call
- * site and test literal typed as `CreateZipArchiveResult` — none of which
- * pass `maxBytes` — keeps compiling unchanged; see the overloads below.
- */
-export type CreateZipArchiveVolumeResult =
-  | CreateZipArchiveResult
-  | {
-      kind: "volume-full";
-      entriesWritten: number;
-      zipPath: string;
-      zipBytes: number;
-      entryCount: number;
-      durationMs: number;
-      durable?: boolean;
-    };
-
-const isAliveProcess = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    // ESRCH: no such process — dead, safe to clean up.
-    // EPERM: exists but owned by another user — treat as alive, leave it.
-    return (
-      err instanceof Error &&
-      "code" in err &&
-      (err as { code: unknown }).code === "EPERM"
-    );
-  }
-};
 
 /**
  * Removes orphaned `.tmp` files left behind by a killed previous run. Only
@@ -155,27 +147,6 @@ export const cleanOrphanArchiveTmp = async (
 };
 
 const isAborted = (signal?: AbortSignal): boolean => signal?.aborted === true;
-
-/**
- * Best-effort fsync of a directory (e.g. after a rename lands a new file in
- * it) — never throws, `false` just means the durability guarantee wasn't
- * obtained. Purely a durability guarantee for a *future* destructive flow
- * (deleting `processed/` after archiving), not a correctness requirement
- * today: a failed fsync here never turns a successful rename into a failure.
- */
-const fsyncDirBestEffort = async (dir: string): Promise<boolean> => {
-  try {
-    const dirFh = await open(dir, "r");
-    try {
-      await dirFh.sync();
-    } finally {
-      await dirFh.close();
-    }
-    return true;
-  } catch {
-    return false;
-  }
-};
 
 type DeflateEntryResult =
   | {
@@ -404,7 +375,12 @@ export async function createZipArchive(
     const finalize = async (
       expectedNames: ReadonlySet<string>,
     ): Promise<
-      | { kind: "ok"; zipBytes: number; entryCount: number; durable: boolean }
+      | {
+          kind: "ok";
+          zipBytes: number;
+          entryCount: number;
+          durable: boolean;
+        }
       | { kind: "aborted" }
       | { kind: "error"; code: string }
     > => {
@@ -412,9 +388,13 @@ export async function createZipArchive(
       const cdSize = cdRecords.reduce((sum, r) => sum + r.length, 0);
       const entryCount = cdRecords.length;
 
+      const saturation = {
+        entryCount: entryCountThreshold,
+        offset: offsetThreshold,
+      };
       const needsZip64 = needsZip64Eocd(
         { entryCount, cdSize, cdOffset },
-        { entryCount: entryCountThreshold, offset: offsetThreshold },
+        saturation,
       );
       if (zip64Mode === "forbid" && needsZip64) {
         // Guard 3 — nothing has been written to the CD/EOCD region yet.
@@ -442,7 +422,10 @@ export async function createZipArchive(
         offset += locator.length;
       }
 
-      const eocd = buildEndOfCentralDirectory({ entryCount, cdSize, cdOffset });
+      const eocd = buildEndOfCentralDirectory(
+        { entryCount, cdSize, cdOffset },
+        saturation,
+      );
       await targetFh.write(eocd, 0, eocd.length, offset);
       offset += eocd.length;
 
@@ -456,12 +439,12 @@ export async function createZipArchive(
         await opts.corruptBeforeVerifyForTests(tmpPath);
       }
 
-      // `planEntries` is built by the write loop, so verifying against it
-      // alone would be self-referential: an entry silently skipped above
-      // would be missing from BOTH the archive and the reference, and every
-      // check would still pass. Anchor completeness on what the caller
-      // asked for instead — this is the guarantee a future "delete
-      // processed/ after archiving" flow has to stand on.
+      // Anchored on what the caller asked for, never on `planEntries` alone:
+      // that array is built by the write loop, so comparing it to itself
+      // would pass even if an entry had been skipped. The loop above now
+      // iterates `entries()` rather than an index with an `undefined` guard,
+      // so no skip path remains — this check is what proves it stays that
+      // way.
       const archivedNames = new Set(planEntries.map((e) => e.name));
       const missing = [...expectedNames].filter((n) => !archivedNames.has(n));
       if (missing.length > 0 || archivedNames.size !== expectedNames.size) {
@@ -498,13 +481,15 @@ export async function createZipArchive(
       }
 
       const durable = await fsyncDirBestEffort(path.dirname(opts.zipPath));
-      return { kind: "ok", zipBytes: offset, entryCount, durable };
+      return {
+        kind: "ok",
+        zipBytes: offset,
+        entryCount,
+        durable,
+      };
     };
 
-    for (let index = 0; index < opts.entries.length; index++) {
-      const entry = opts.entries[index];
-      if (entry === undefined) continue;
-
+    for (const [index, entry] of opts.entries.entries()) {
       if (isAborted(signal)) return await abortRun();
 
       const nameBytes = nameBytesOf(entry.name);
@@ -557,7 +542,6 @@ export async function createZipArchive(
         kind: "entry-start",
         entryIndex: index,
         entryName: entry.name,
-        totalEntries: opts.entries.length,
       });
 
       const absSource = path.join(opts.sourceDir, entry.name);

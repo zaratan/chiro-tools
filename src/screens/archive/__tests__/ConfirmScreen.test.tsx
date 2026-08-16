@@ -3,12 +3,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { formatBytes } from "../../../format/bytes.js";
 import type { SessionEvent } from "../../../types.js";
 import { ConfirmScreen } from "../ConfirmScreen.js";
 import type {
   ArchiveRunner,
   ArchiveRunnerResult,
   ArchiveRunOutcome,
+  BackupOkResult,
   BuildRunSessionEvent,
   ResolveTargetName,
 } from "../useArchiveRun.js";
@@ -40,7 +42,7 @@ const sampleEntries = [
 const sampleTotalBytes = 12;
 
 const stubSessionEvent: SessionEvent = {
-  schema_version: 3,
+  schema_version: 5,
   ts: "2026-01-01T00:00:00.000Z",
   version: "test",
   cwd: "/tmp",
@@ -52,14 +54,16 @@ const stubSessionEvent: SessionEvent = {
     total_bytes: 0,
     zip_bytes: 0,
     duration_ms: 0,
+    durable: true,
   },
 };
-const buildSessionEvent: BuildRunSessionEvent = () => stubSessionEvent;
+const buildSessionEvent: BuildRunSessionEvent<BackupOkResult> = () =>
+  stubSessionEvent;
 
 const okResolveTargetName: ResolveTargetName = () =>
   Promise.resolve({ name: "processed_20260101.zip", alreadyExists: false });
 
-const neverCalled: ArchiveRunner = () => {
+const neverCalled: ArchiveRunner<BackupOkResult> = () => {
   throw new Error("runner must not be called before Entrée");
 };
 
@@ -68,15 +72,15 @@ const neverCalled: ArchiveRunner = () => {
  * immediately with `result`.
  */
 const makeRecordingRunner = (
-  result: ArchiveRunnerResult,
+  result: ArchiveRunnerResult<BackupOkResult>,
 ): {
-  runner: ArchiveRunner;
+  runner: ArchiveRunner<BackupOkResult>;
   getCapturedSignal: () => AbortSignal | undefined;
 } => {
   const signalBox: { current: AbortSignal | undefined } = {
     current: undefined,
   };
-  const runner: ArchiveRunner = (opts) => {
+  const runner: ArchiveRunner<BackupOkResult> = (opts) => {
     signalBox.current = opts.signal;
     return Promise.resolve(result);
   };
@@ -89,19 +93,20 @@ const makeRecordingRunner = (
  * passed in (e.g. on Ctrl+C) before deciding how the run ends.
  */
 const makeManualRunner = (): {
-  runner: ArchiveRunner;
+  runner: ArchiveRunner<BackupOkResult>;
   getSignal: () => AbortSignal | undefined;
-  resolve: (result: ArchiveRunnerResult) => void;
+  resolve: (result: ArchiveRunnerResult<BackupOkResult>) => void;
 } => {
   const signalBox: { current: AbortSignal | undefined } = {
     current: undefined,
   };
   const resolveBox: {
-    current: ((result: ArchiveRunnerResult) => void) | undefined;
+    current:
+      ((result: ArchiveRunnerResult<BackupOkResult>) => void) | undefined;
   } = { current: undefined };
-  const runner: ArchiveRunner = (opts) => {
+  const runner: ArchiveRunner<BackupOkResult> = (opts) => {
     signalBox.current = opts.signal;
-    return new Promise<ArchiveRunnerResult>((resolve) => {
+    return new Promise<ArchiveRunnerResult<BackupOkResult>>((resolve) => {
       resolveBox.current = resolve;
     });
   };
@@ -123,13 +128,13 @@ afterEach(async () => {
 });
 
 const renderConfirmScreen = (
-  runner: ArchiveRunner,
+  runner: ArchiveRunner<BackupOkResult>,
   options?: {
     mode?: "backup" | "package";
     totalBytes?: number;
     resolveTargetName?: ResolveTargetName;
     runningRef?: { current: boolean };
-    onComplete?: (outcome: ArchiveRunOutcome) => void;
+    onComplete?: (outcome: ArchiveRunOutcome<BackupOkResult>) => void;
     onBack?: () => void;
   },
 ) =>
@@ -250,20 +255,19 @@ describe("ArchiveConfirmScreen — preview, package mode", () => {
     });
     await waitForPreview(lastFrame);
 
-    expect(lastFrame() ?? "").toContain(
-      "Un dossier de dépôt existe déjà dans ./upload/",
-    );
+    expect(lastFrame() ?? "").toContain("Un dossier de dépôt existe déjà ici");
   });
 });
 
 describe("ArchiveConfirmScreen — Entrée triggers the run", () => {
   it("calls the runner then onComplete with the backup-ok outcome", async () => {
-    const okResult: ArchiveRunnerResult = {
+    const okResult: ArchiveRunnerResult<BackupOkResult> = {
       kind: "backup-ok",
       zipPath: "/tmp/whatever/processed_20260101.zip",
       zipBytes: 999,
       entryCount: sampleEntries.length,
       durationMs: 42,
+      durable: true,
     };
     const { runner } = makeRecordingRunner(okResult);
     const onComplete = vi.fn();
@@ -430,4 +434,62 @@ describe("ArchiveConfirmScreen — Ctrl+C during running enters the cleaning sta
     // Let the in-flight run settle so nothing dangles past the test.
     resolve({ kind: "aborted" });
   });
+});
+
+/**
+ * Asserts the size line survived on one rendered row, *content* included.
+ *
+ * The first version of this check asserted `toHaveLength(1)` on the lines
+ * containing "au plus", plus `endsWith("│")`. Both are vacuous: Ink pads
+ * every row inside the box to its full width, so the border is always there,
+ * and a wrapped tail does not contain "au plus" so the count stays 1. It
+ * passed on the very regression it was written to lock. The only thing that
+ * discriminates is checking that the row still carries the value.
+ */
+const assertSizeLineIntact = (frame: string, totalBytes: number): void => {
+  const row = frame.split("\n").find((l) => l.includes("au plus"));
+  expect(row).toBeDefined();
+  const content = (row ?? "").replace(/^│\s?/, "").replace(/\s*│$/, "");
+  expect(content.endsWith(formatBytes(totalBytes))).toBe(true);
+};
+
+describe("ArchiveConfirmScreen — aligned lines never wrap", () => {
+  /**
+   * Column-aligned lines are the ones that must fit: a wrap orphans the tail
+   * onto the left margin, under a block whose whole point is the alignment.
+   * Prose may wrap freely — the rule is deliberately not "every line ≤ 66".
+   *
+   * Asserted through a real render rather than by measuring a string, so the
+   * check covers what `formatBytes` actually produces at each magnitude. The
+   * regression this locks: appending "— souvent moins, le zip compresse" put
+   * the deposit flow's size line at 67 columns for 66 usable, in *every*
+   * reachable case, and no reading caught it.
+   */
+  const SIZES = [1023, 1_048_575, 1_500_000_000, 3_000_000_000];
+
+  it.each(SIZES)(
+    "keeps the size line on one rendered line at %i bytes (package)",
+    async (totalBytes) => {
+      const resolveTargetName: ResolveTargetName = () =>
+        Promise.resolve({ name: "depot_20260101", alreadyExists: true });
+      const { lastFrame } = renderConfirmScreen(neverCalled, {
+        mode: "package",
+        totalBytes,
+        resolveTargetName,
+      });
+      await waitForPreview(lastFrame);
+
+      assertSizeLineIntact(lastFrame() ?? "", totalBytes);
+    },
+  );
+
+  it.each(SIZES)(
+    "keeps the size line on one rendered line at %i bytes (backup)",
+    async (totalBytes) => {
+      const { lastFrame } = renderConfirmScreen(neverCalled, { totalBytes });
+      await waitForPreview(lastFrame);
+
+      assertSizeLineIntact(lastFrame() ?? "", totalBytes);
+    },
+  );
 });

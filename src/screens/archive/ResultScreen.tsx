@@ -5,14 +5,10 @@ import { PROCESSED_DIR_DISPLAY } from "../../lib/audio/batchPlan.js";
 import { ARCHIVED_DIR_DISPLAY } from "../../lib/archive/planArchive.js";
 import { formatBytes } from "../../format/bytes.js";
 import { formatDuration } from "../../format/duration.js";
-import type { ArchiveRunOutcome } from "./useArchiveRun.js";
+import type { ArchiveRunOutcome, BackupOkResult } from "./useArchiveRun.js";
 
-/** The backup flow's own outcomes — never `package-ok` (that's
- * `UploadResultScreen`'s territory). */
-export type BackupRunOutcome = Extract<
-  ArchiveRunOutcome,
-  { kind: "backup-ok" } | { kind: "aborted" }
->;
+/** The backup flow's own outcomes. */
+export type BackupRunOutcome = ArchiveRunOutcome<BackupOkResult>;
 
 export type ArchiveResultScreenProps = {
   cwd: string;

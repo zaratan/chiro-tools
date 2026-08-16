@@ -1,9 +1,8 @@
-import { randomUUID } from "node:crypto";
 import {
   copyFile as defaultCopyFile,
+  open,
   rename as defaultRename,
   unlink as defaultUnlink,
-  writeFile as defaultWriteFile,
 } from "node:fs/promises";
 
 export type RenameFsLike = {
@@ -12,21 +11,12 @@ export type RenameFsLike = {
   unlink: (file: string) => Promise<void>;
 };
 
-export type WriteFsLike = RenameFsLike & {
-  writeFile: (file: string, data: Uint8Array) => Promise<void>;
-};
-
 export type SafeFsResult = { kind: "ok" } | { kind: "error"; code: string };
 
 const defaultRenameFs: RenameFsLike = {
   rename: defaultRename,
   copyFile: defaultCopyFile,
   unlink: defaultUnlink,
-};
-
-const defaultWriteFs: WriteFsLike = {
-  ...defaultRenameFs,
-  writeFile: (file, data) => defaultWriteFile(file, data),
 };
 
 export const extractErrorCode = (err: unknown): string => {
@@ -87,47 +77,38 @@ export const renameWithFallback = async (
 };
 
 /**
- * Writes a buffer to `targetPath` atomically: writes to a unique tmp
- * (`targetPath + ".<uuid8>.tmp"`), then renames. On EXDEV (cross-device,
- * typical with SD-card → home dir), falls back to copyFile + unlink of the
- * tmp.
+ * Whether a PID currently belongs to a running process. Used to tell a
+ * leftover temp file/directory from one a live chiro instance is still
+ * writing to.
  *
- * The random suffix avoids races if two chiro instances write into the same
- * destination directory (e.g., user opens two terminals on the same cwd).
- * The orphan-tmp pre-clean in the caller matches the `.tmp` suffix whatever
- * the suffix contains. Note `lib/archive` uses a *PID* suffix instead: it
- * needs to tell a dead run's leftovers from a live instance's in-flight tmp,
- * which a random suffix cannot express.
- *
- * Never throws. Returns a tagged Result.
- *
- * On failure mid-flow (tmp written but rename failed), the tmp is unlinked
- * best-effort (errors ignored — orphan tmp pre-clean is the caller's job).
+ * `EPERM` counts as alive: the process exists but belongs to another user.
  */
-export const writeFileAtomic = async (
-  targetPath: string,
-  data: Uint8Array,
-  options?: { signal?: AbortSignal; fs?: WriteFsLike },
-): Promise<SafeFsResult> => {
-  if (options?.signal?.aborted === true) {
-    return { kind: "error", code: "ABORT_ERR" };
-  }
-
-  const fs = options?.fs ?? defaultWriteFs;
-  const tmpPath = `${targetPath}.${randomUUID().slice(0, 8)}.tmp`;
-
+export const isAliveProcess = (pid: number): boolean => {
   try {
-    await fs.writeFile(tmpPath, data);
-  } catch (writeErr) {
-    return { kind: "error", code: extractErrorCode(writeErr) };
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return extractErrorCode(err) === "EPERM";
   }
+};
 
-  const renameResult = await renameWithFallback(tmpPath, targetPath, options);
-  if (renameResult.kind === "error") {
-    // best-effort cleanup of orphan tmp — errors ignored
-    fs.unlink(tmpPath).catch(() => undefined);
-    return renameResult;
+/**
+ * Best-effort `fsync` of a directory — never throws; `false` just means the
+ * durability guarantee was not obtained. A file `fsync` makes its *contents*
+ * durable, but a rename changes the *directory*, whose entry can stay in
+ * cache: after a power cut the bytes can be on disk without the folder
+ * knowing their name.
+ */
+export const fsyncDirBestEffort = async (dir: string): Promise<boolean> => {
+  try {
+    const dirFh = await open(dir, "r");
+    try {
+      await dirFh.sync();
+    } finally {
+      await dirFh.close();
+    }
+    return true;
+  } catch {
+    return false;
   }
-
-  return { kind: "ok" };
 };

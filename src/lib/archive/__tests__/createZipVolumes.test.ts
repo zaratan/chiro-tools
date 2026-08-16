@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readdir,
@@ -262,6 +263,69 @@ describe("createZipVolumes — staging residue", () => {
     expect(seriesFiles).not.toContain("volume-7.zip");
   });
 
+  it("reports staging-stuck when a leftover staging dir cannot be cleared", async () => {
+    // Root bypasses directory permissions, so the residue would be removed
+    // and the branch never taken.
+    if (process.getuid?.() === 0) return;
+
+    process.env.CHIRO_MAX_VOLUME_BYTES = MULTI_VOLUME_CAP;
+    const entries = await buildEntries(2);
+    const stagingPath = path.join(
+      uploadDir,
+      buildStagingDirName("depot_20260814", process.pid),
+    );
+    await mkdir(stagingPath, { recursive: true });
+    await writeFile(path.join(stagingPath, "volume-1.zip"), "stale");
+    // r-x: children can be listed but not unlinked, so the best-effort
+    // cleanup fails silently and the retry mkdir hits EEXIST again.
+    await chmod(stagingPath, 0o500);
+
+    const result = await createZipVolumes({
+      sourceDir,
+      entries,
+      uploadDir,
+      seriesDirName: "depot_20260814",
+    });
+
+    await chmod(stagingPath, 0o700);
+
+    expect(result.kind).toBe("error");
+    if (result.kind !== "error") throw new Error("type narrowing");
+    // Not `mkdir:EEXIST`: that message blames `upload/` (which is fine) and
+    // classifies as transient, so every retry would fail identically on a
+    // directory she cannot see.
+    expect(result.code).toBe("staging-stuck");
+  });
+
+  it("tolerates a .DS_Store appearing in the staging dir mid-run", async () => {
+    process.env.CHIRO_MAX_VOLUME_BYTES = MULTI_VOLUME_CAP;
+    const entries = await buildEntries(3);
+    const stagingPath = path.join(
+      uploadDir,
+      buildStagingDirName("depot_20260814", process.pid),
+    );
+
+    let injected = false;
+    const result = await createZipVolumes({
+      sourceDir,
+      entries,
+      uploadDir,
+      seriesDirName: "depot_20260814",
+      onProgress: (event) => {
+        if (injected || event.kind !== "volume-start") return;
+        injected = true;
+        // The Finder drops this the moment she opens upload/ to watch the
+        // run. It is not a volume and cannot be mistaken for one.
+        writeFileSync(path.join(stagingPath, ".DS_Store"), "finder");
+      },
+    });
+
+    expect(injected).toBe(true);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") throw new Error("type narrowing");
+    expect(result.volumes).toHaveLength(3);
+  });
+
   it("refuses to publish when the staging dir gains an unexpected file mid-run", async () => {
     process.env.CHIRO_MAX_VOLUME_BYTES = MULTI_VOLUME_CAP;
     const entries = await buildEntries(3);
@@ -454,13 +518,17 @@ describe("cleanOrphanStagingDirs", () => {
     await mkdir(uploadDir, { recursive: true });
     const realDir = path.join(tmpDir, "real-target");
     await mkdir(realDir);
-    await writeFile(path.join(realDir, "keep.txt"), "keep me");
+    // A `.zip`, not a `.txt`: the conservative removal only ever unlinks
+    // `.zip`/`.tmp`, so a `.txt` payload is protected by that filter and the
+    // symlink guard is never exercised. This name is one the cleaner would
+    // happily delete if it followed the link.
+    await writeFile(path.join(realDir, "depot_part1.zip"), "keep me");
     const linkName = ".depot_20260814.999999999.tmpdir";
     await symlink(realDir, path.join(uploadDir, linkName));
 
     await cleanOrphanStagingDirs(uploadDir);
 
-    expect(await readdir(realDir)).toEqual(["keep.txt"]);
+    expect(await readdir(realDir)).toEqual(["depot_part1.zip"]);
   });
 
   it("gives up (leaves the dir in place) when unexpected content blocks rmdir", async () => {
@@ -483,11 +551,14 @@ describe("cleanOrphanStagingDirs", () => {
     // A subdirectory is not a name this module ever creates inside staging
     // — left alone, so rmdir fails ENOTEMPTY and the whole thing is left in
     // place rather than force-deleted.
-    await mkdir(path.join(dirPath, "unexpected-subdir"));
+    // A file, not a directory: `unlink` cannot remove a directory anyway, so
+    // `rmdir` failed with or without the name filter and the test proved
+    // nothing. A stray file is what the filter actually has to refuse.
+    await writeFile(path.join(dirPath, "notes.txt"), "not ours");
 
     await cleanOrphanStagingDirs(uploadDir);
 
     expect(await readdir(uploadDir)).toEqual([name]);
-    expect(await readdir(dirPath)).toEqual(["unexpected-subdir"]);
+    expect(await readdir(dirPath)).toEqual(["notes.txt"]);
   });
 });

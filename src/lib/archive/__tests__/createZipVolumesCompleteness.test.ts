@@ -6,28 +6,19 @@ import type { ArchiveEntryStat } from "../planArchive.js";
 import type { CreateZipArchiveVolumeResult } from "../createZipArchive.js";
 
 /**
- * The series-completeness guard (D5) is unreachable through the public API
- * while the writer is correct — which is precisely why it was untested:
- * disabling it with `if (false && …)` left the whole suite green. It is the
- * only thing between a bookkeeping bug in the volume loop and a published
- * series that silently omits recordings, and it is what the future
- * destructive flow is meant to rely on before deleting anything.
- *
- * So the writer is mocked here to lie about its counts. Nothing else in the
- * module is stubbed: the staging, the rename loop and the commit all run for
- * real, which is what makes the "no series is published" half of each
- * assertion meaningful.
+ * The series-level checks cannot be reached through the public API while the
+ * writer is correct, so the writer is mocked here to lie about its counts.
+ * Nothing else is stubbed: staging, rename loop and commit all run for real,
+ * which is what makes the "nothing was published" half of each assertion
+ * mean something.
  */
 type MockedWriter = (opts: {
   zipPath: string;
 }) => Promise<CreateZipArchiveVolumeResult>;
 
-const createZipArchiveMock = vi.hoisted(() =>
-  // Typed on the narrow slice of the writer's contract this file exercises,
-  // rather than left as `any`: the point of these tests is that the counts
-  // are wrong, so the *shape* had better be right.
-  vi.fn<MockedWriter>(),
-);
+// Typed rather than left as `any`: these tests make the counts wrong on
+// purpose, so the shape had better be right.
+const createZipArchiveMock = vi.hoisted(() => vi.fn<MockedWriter>());
 
 // `createZipVolumes` imports exactly one runtime value from this module —
 // everything else it takes is a type, erased at runtime — so there is nothing
@@ -67,11 +58,7 @@ const buildEntries = async (count: number): Promise<ArchiveEntryStat[]> => {
   return entries;
 };
 
-/**
- * Only the counts vary between cases, so the mechanical fields are filled in
- * here — a real (dummy) volume on disk so the rename loop and commit run for
- * real, plus the bookkeeping the orchestrator never reads back.
- */
+/** Writes a real (dummy) volume so the rename loop and commit can run. */
 type WriterOutcome =
   | { kind: "ok"; entryCount: number; durable: boolean }
   | {
@@ -158,9 +145,7 @@ describe("createZipVolumes — series completeness guard", () => {
   });
 
   it("propagates a false durable from any single volume", async () => {
-    // `durable` is load-bearing for the future destructive flow, which must
-    // require `true` before deleting anything. A single non-durable volume
-    // has to sink the whole series' flag.
+    // One non-durable volume has to sink the whole series' flag.
     const entries = await buildEntries(2);
     createZipArchiveMock
       .mockImplementationOnce(

@@ -5,7 +5,7 @@ import path from "node:path";
 import { WaveFile } from "wavefile";
 import { buildChunkName, buildOutDir } from "../audio/batchPlan.js";
 import { processWavFiles } from "../audio/processWavFiles.js";
-import { detectSox } from "../audio/soxFastPath.js";
+import { detectSox } from "../audio/detectSox.js";
 import { CHIRO_VERSION } from "../../version.js";
 
 export type SelfTestResult =

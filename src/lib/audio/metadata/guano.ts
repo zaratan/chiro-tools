@@ -37,10 +37,26 @@ const formatTimezoneOffset = (date: Date): string => {
   return `${sign}${padTwo(Math.floor(abs / 60))}:${padTwo(abs % 60)}`;
 };
 
+/**
+ * ISO 8601 with the `T` separator, as the GUANO spec mandates — and as
+ * Kaleidoscope writes it. Verified byte for byte against
+ * `test-data/real_process_teensy/…_000_Processed.wav`:
+ *
+ *     GUANO  Timestamp:2026-05-07T21:11:06+02:00
+ *     wamd             2026-05-07 21:11:06+02:00
+ *
+ * The two chunks genuinely differ; `formatWamdTimestamp` keeps the space on
+ * purpose. chiro wrote a space in both until this was caught.
+ *
+ * The earlier space form did reach the portal successfully, but by
+ * tolerance rather than conformance: every downstream tool (Chirosuf,
+ * Tadarida) is built against Kaleidoscope output, so `T` is the form they
+ * are guaranteed to parse.
+ */
 const formatGuanoTimestamp = (date: Date): string => {
   const datePart = `${String(date.getFullYear())}-${padTwo(date.getMonth() + 1)}-${padTwo(date.getDate())}`;
   const timePart = `${padTwo(date.getHours())}:${padTwo(date.getMinutes())}:${padTwo(date.getSeconds())}`;
-  return `${datePart} ${timePart}${formatTimezoneOffset(date)}`;
+  return `${datePart}T${timePart}${formatTimezoneOffset(date)}`;
 };
 
 const buildContent = (meta: GuanoMeta): string => {

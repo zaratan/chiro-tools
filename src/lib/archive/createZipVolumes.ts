@@ -1,7 +1,6 @@
 import {
   lstat,
   mkdir,
-  open,
   readdir,
   rename,
   rm,
@@ -9,7 +8,11 @@ import {
   unlink,
 } from "node:fs/promises";
 import path from "node:path";
-import { extractErrorCode } from "../fs/safeFsOps.js";
+import {
+  extractErrorCode,
+  fsyncDirBestEffort,
+  isAliveProcess,
+} from "../fs/safeFsOps.js";
 import {
   collisionNameCandidates,
   type ArchiveEntryStat,
@@ -64,7 +67,7 @@ export type CreateZipVolumesResult =
       entryCount: number;
       totalZipBytes: number;
       durationMs: number;
-      /** Best-effort — see D4 bis in the phase-9 plan. `true` only if both
+      /** Best-effort. `true` only if both
        * the staging-dir fsync (before commit) and the `uploadDir` fsync
        * (after commit) succeeded. */
       durable: boolean;
@@ -73,24 +76,6 @@ export type CreateZipVolumesResult =
   | { kind: "error"; code: string };
 
 const isAborted = (signal?: AbortSignal): boolean => signal?.aborted === true;
-
-/** Best-effort fsync of a directory — mirrors `createZipArchive.ts`'s
- * private helper of the same shape; kept as a separate small copy rather
- * than importing it, since this sub-phase deliberately leaves
- * `createZipArchive.ts` untouched. */
-const fsyncDirBestEffort = async (dir: string): Promise<boolean> => {
-  try {
-    const dirFh = await open(dir, "r");
-    try {
-      await dirFh.sync();
-    } finally {
-      await dirFh.close();
-    }
-    return true;
-  } catch {
-    return false;
-  }
-};
 
 const sumSizes = (entries: readonly ArchiveEntryStat[]): number =>
   entries.reduce((sum, e) => sum + e.size, 0);
@@ -102,11 +87,9 @@ const sumSizes = (entries: readonly ArchiveEntryStat[]): number =>
  * `totalBytesRead` shifts by the sum of *entry sizes* of those same prior
  * volumes — never by the last `totalBytesRead` observed, which would double
  * count once a volume's own count resets to 0 at the start of the next
- * `createZipArchive` call. This works without touching
- * `useArchiveProgressState` because that hook already ignores
- * `event.totalEntries` and reads `entries.length` from its own props — do
- * not "fix" that by propagating a totalEntries here; it would silently
- * break the global count.
+ * `createZipArchive` call. No total has to be re-offset: the event carries
+ * none since the phase-9 review removed `totalEntries`, and
+ * `useArchiveProgressState` reads `entries.length` from its own props.
  */
 const reoffsetProgress = (
   entryIndexBase: number,
@@ -146,8 +129,7 @@ const emitVolumeStart = (
 /**
  * Creates a series of ZIP64-free volumes of `entries` (read from
  * `sourceDir`), each capped at `maxVolumeBytes()`, published as a dated
- * directory under `uploadDir`. See D1/D2/D5/D6 in the phase-9 plan for the
- * full rationale; summary of the flow:
+ * directory under `uploadDir`. Summary of the flow:
  *
  * 1. Write volumes one at a time into a hidden per-run staging directory,
  *    advancing to a new volume on `"volume-full"`.
@@ -204,8 +186,16 @@ export const createZipVolumes = async (
     await removeDirRecursiveBestEffort(stagingDirPath);
     try {
       await mkdir(stagingDirPath);
-    } catch (retryErr) {
-      return { kind: "error", code: `mkdir:${extractErrorCode(retryErr)}` };
+    } catch {
+      // The cleanup above is best-effort and swallows its own failure, so a
+      // second EEXIST means the residue is still there and we could not
+      // remove it. Reporting `mkdir:EEXIST` would be doubly wrong: the
+      // message would blame the target directory (which exists and is fine),
+      // and the code would classify as transient — so every retry would
+      // re-run the cleanup that just failed, identically, forever, on a
+      // directory she cannot see because its name starts with a dot. Its own
+      // code, definitive, naming the thing to delete.
+      return { kind: "error", code: "staging-stuck" };
     }
   }
 
@@ -218,7 +208,6 @@ export const createZipVolumes = async (
     provisionalPath: string;
     zipBytes: number;
     entryCount: number;
-    names: string[];
   };
   const provisionalVolumes: ProvisionalVolume[] = [];
 
@@ -265,7 +254,7 @@ export const createZipVolumes = async (
       return { kind: "error", code: result.code };
     }
 
-    overallDurable = overallDurable && result.durable === true;
+    overallDurable = overallDurable && result.durable;
 
     if (result.kind === "volume-full") {
       const writtenSlice = remaining.slice(0, result.entriesWritten);
@@ -273,7 +262,6 @@ export const createZipVolumes = async (
         provisionalPath,
         zipBytes: result.zipBytes,
         entryCount: result.entryCount,
-        names: writtenSlice.map((e) => e.name),
       });
       entriesWrittenSoFar += result.entriesWritten;
       bytesOfClosedVolumes += sumSizes(writtenSlice);
@@ -287,29 +275,23 @@ export const createZipVolumes = async (
       provisionalPath,
       zipBytes: result.zipBytes,
       entryCount: result.entryCount,
-      names: remaining.map((e) => e.name),
     });
     break;
   }
 
-  // D5 — completeness of the series, anchored on `opts.entries` (never on
-  // the loop's own bookkeeping alone): the reported entry counts must sum to
-  // exactly `entries.length`, AND the union of names handed into each volume
-  // must equal the source name set exactly. Each volume's own `entryCount`
-  // and archived-name set are already independently verified against what
-  // that call was asked to write by `createZipArchive`'s own `finalize`, so
-  // this closes the remaining gap: nothing so far checked that the *union*
-  // of volumes covers the *whole* series.
+  // Each volume has already proven it holds exactly the slice it was handed
+  // (`createZipArchive`'s own completeness check, itself confirmed against
+  // the re-read central directory by `verifyZipArchive`). What no volume can
+  // see is whether the slices this loop handed out add up: a bug in the
+  // `entriesWritten` arithmetic would give every volume a consistent story
+  // and still drop a recording. Comparing the counts is the whole check —
+  // comparing the *names* would not add anything, since the loop derives
+  // them from the same slicing it is being audited on.
   const totalEntryCount = provisionalVolumes.reduce(
     (sum, v) => sum + v.entryCount,
     0,
   );
-  const writtenNames = new Set(provisionalVolumes.flatMap((v) => v.names));
-  const sourceNames = new Set(opts.entries.map((e) => e.name));
-  const namesMatch =
-    writtenNames.size === sourceNames.size &&
-    [...sourceNames].every((n) => writtenNames.has(n));
-  if (totalEntryCount !== opts.entries.length || !namesMatch) {
+  if (totalEntryCount !== opts.entries.length) {
     await removeDirRecursiveBestEffort(stagingDirPath);
     return { kind: "error", code: "verify-failed" };
   }
@@ -352,10 +334,17 @@ export const createZipVolumes = async (
     await removeDirRecursiveBestEffort(stagingDirPath);
     return { kind: "error", code: "verify-failed" };
   }
+  // Only `.zip` entries: the whole point is that no *stale volume* ships with
+  // the series, and a stale volume is a zip. Rejecting any unexpected name
+  // would also fail the run on a `.DS_Store` the Finder drops the moment she
+  // opens `upload/` to watch progress — destroying the staging and costing
+  // fifteen minutes, under a message about completeness. Filtering keeps the
+  // whole safety property and drops that entire class of false positive.
   const expectedFiles = new Set(finalVolumes.map((v) => v.fileName));
+  const stagedZips = stagedFiles.filter((name) => name.endsWith(".zip"));
   const filesMatch =
-    stagedFiles.length === expectedFiles.size &&
-    stagedFiles.every((name) => expectedFiles.has(name));
+    stagedZips.length === expectedFiles.size &&
+    stagedZips.every((name) => expectedFiles.has(name));
   if (!filesMatch) {
     await removeDirRecursiveBestEffort(stagingDirPath);
     return { kind: "error", code: "verify-failed" };
@@ -399,21 +388,6 @@ export const createZipVolumes = async (
 
 const STAGING_ORPHAN_REGEX = /^\.(.+)\.(\d+)\.tmpdir$/;
 const ORPHAN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-
-const isAliveProcess = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    // ESRCH: no such process — dead, safe to clean up.
-    // EPERM: exists but owned by another user — treat as alive, leave it.
-    return (
-      err instanceof Error &&
-      "code" in err &&
-      (err as { code: unknown }).code === "EPERM"
-    );
-  }
-};
 
 /**
  * Removes a staging directory's contents by name, one file at a time, never

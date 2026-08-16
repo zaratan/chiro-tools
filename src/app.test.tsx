@@ -28,6 +28,28 @@ const TEENSY_FILES = [
   "PaRecPR1925645_20260507_210011.wav",
 ];
 
+/**
+ * Polls until `text` shows up, instead of sleeping a fixed budget.
+ *
+ * The step this replaced allowed 500 ms for a real worker-pool batch that
+ * measures 114-295 ms here — a ×1.7 margin, which a loaded 2-vCPU CI runner
+ * eats. The suite failed roughly one run in eight, on a different test each
+ * time: the classic "just re-run it" flake.
+ */
+const waitForText = async (
+  lastFrame: () => string | undefined,
+  text: string,
+  timeoutMs = 10_000,
+): Promise<void> => {
+  const start = Date.now();
+  while (!(lastFrame() ?? "").includes(text)) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`waitForText: "${text}" never appeared`);
+    }
+    await new Promise((r) => setTimeout(r, 20));
+  }
+};
+
 describe("App — end-to-end", () => {
   let tmpDir: string;
 
@@ -64,7 +86,9 @@ describe("App — end-to-end", () => {
 
     // --- Constat ---
     const constatFrame = lastFrame() ?? "";
-    expect(constatFrame).toContain(tmpDir);
+    // The header truncates long paths and keeps the tail — that is what
+    // identifies the folder for her. Assert on what is actually shown.
+    expect(constatFrame).toContain(path.basename(tmpDir));
     // 3 wav files found
     expect(constatFrame).toContain("enregistrements .wav trouvés");
 
@@ -265,7 +289,7 @@ describe("App — end-to-end", () => {
     await new Promise((r) => setTimeout(r, 200));
 
     // --- Constat ---
-    expect(lastFrame() ?? "").toContain(tmpDir);
+    expect(lastFrame() ?? "").toContain(path.basename(tmpDir));
     expect(lastFrame() ?? "").toContain("prêt");
 
     // Continue → Form
@@ -288,7 +312,7 @@ describe("App — end-to-end", () => {
 
     // Launch process
     stdin.write("\r");
-    await new Promise((r) => setTimeout(r, 500));
+    await waitForText(lastFrame, "Terminé");
 
     // --- Result ---
     expect(lastFrame() ?? "").toContain("Terminé");
@@ -464,7 +488,9 @@ describe("App — end-to-end", () => {
 
       // --- Constat ---
       const constatFrame = lastFrame() ?? "";
-      expect(constatFrame).toContain(tmpDir);
+      // The header truncates long paths and keeps the tail — that is what
+      // identifies the folder for her. Assert on what is actually shown.
+      expect(constatFrame).toContain(path.basename(tmpDir));
       expect(constatFrame).toContain(
         "3 enregistrements trouvés dans ./processed/",
       );
@@ -479,7 +505,7 @@ describe("App — end-to-end", () => {
 
       // Launch the real zip creation
       stdin.write("\r");
-      await new Promise((r) => setTimeout(r, 500));
+      await waitForText(lastFrame, "Terminé");
 
       // --- Result ---
       const resultFrame = lastFrame() ?? "";
@@ -537,7 +563,9 @@ describe("App — end-to-end", () => {
       // No `processed/` here — the no-processed guidance still shows cwd
       // and names the "processed" folder it's looking for.
       const constatFrame = lastFrame() ?? "";
-      expect(constatFrame).toContain(tmpDir);
+      // The header truncates long paths and keeps the tail — that is what
+      // identifies the folder for her. Assert on what is actually shown.
+      expect(constatFrame).toContain(path.basename(tmpDir));
       expect(constatFrame).toContain("processed");
 
       // Échap → back to the menu
@@ -587,7 +615,7 @@ describe("App — end-to-end", () => {
       await writeFile(path.join(processedDir, "a.wav"), "content a");
 
       const failingCreateZipArchive: CreateZipArchiveFn = () =>
-        Promise.resolve({ kind: "error", code: "ENOSPC" });
+        Promise.resolve({ kind: "error" as const, code: "ENOSPC" });
 
       const { stdin, lastFrame } = render(
         <App
@@ -634,7 +662,7 @@ describe("App — end-to-end", () => {
 
       const afterEscapeFrame = lastFrame() ?? "";
       expect(afterEscapeFrame).not.toContain("chiro — outils Vigie-Chiro");
-      expect(afterEscapeFrame).toContain(tmpDir);
+      expect(afterEscapeFrame).toContain(path.basename(tmpDir));
     });
   });
 
@@ -677,7 +705,9 @@ describe("App — end-to-end", () => {
 
       // --- Constat ---
       const constatFrame = lastFrame() ?? "";
-      expect(constatFrame).toContain(tmpDir);
+      // The header truncates long paths and keeps the tail — that is what
+      // identifies the folder for her. Assert on what is actually shown.
+      expect(constatFrame).toContain(path.basename(tmpDir));
       expect(constatFrame).toContain(
         "3 enregistrements trouvés dans ./processed/",
       );
@@ -697,7 +727,7 @@ describe("App — end-to-end", () => {
 
       // Launch the real upload-series creation
       stdin.write("\r");
-      await new Promise((r) => setTimeout(r, 500));
+      await waitForText(lastFrame, "Terminé");
 
       // --- Result ---
       const resultFrame = lastFrame() ?? "";
@@ -758,7 +788,9 @@ describe("App — end-to-end", () => {
       await new Promise((r) => setTimeout(r, 200));
 
       const constatFrame = lastFrame() ?? "";
-      expect(constatFrame).toContain(tmpDir);
+      // The header truncates long paths and keeps the tail — that is what
+      // identifies the folder for her. Assert on what is actually shown.
+      expect(constatFrame).toContain(path.basename(tmpDir));
       expect(constatFrame).toContain("processed");
 
       stdin.write("\x1b");
@@ -773,7 +805,7 @@ describe("App — end-to-end", () => {
       await writeFile(path.join(processedDir, "a.wav"), "content a");
 
       const failingCreateZipVolumes: CreateZipVolumesFn = () =>
-        Promise.resolve({ kind: "error", code: "ENOSPC" });
+        Promise.resolve({ kind: "error" as const, code: "ENOSPC" });
 
       const { stdin, lastFrame } = render(
         <App
@@ -813,7 +845,7 @@ describe("App — end-to-end", () => {
 
       const afterEscapeFrame = lastFrame() ?? "";
       expect(afterEscapeFrame).not.toContain("chiro — outils Vigie-Chiro");
-      expect(afterEscapeFrame).toContain(tmpDir);
+      expect(afterEscapeFrame).toContain(path.basename(tmpDir));
     });
   });
 });

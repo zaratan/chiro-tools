@@ -4,7 +4,6 @@ import type { TimeExpansionMode } from "../../types.js";
 export type SplitWavOptions = {
   mode: TimeExpansionMode;
   chunkSeconds: number;
-  signal?: AbortSignal;
 };
 
 export type EncodedChunk = {
@@ -23,7 +22,6 @@ export type SplitErrorCode =
 
 export type SplitWavYield =
   | { kind: "chunk"; chunk: EncodedChunk }
-  | { kind: "abort" }
   | { kind: "error"; code: SplitErrorCode };
 
 type WavFmt = {
@@ -83,8 +81,6 @@ const normalizeChannels = (
  * a lossless time expansion implemented as a header-only change.
  *
  * Yields chunks one at a time so the caller never holds N encoded chunks in
- * memory. The signal is checked twice per chunk: once before encoding and
- * once after yielding. The wavefile encode step on a 24-bit multichannel
  * slice is the largest CPU cost, so an early-abort check before encode is
  * worth the negligible overhead.
  *
@@ -137,14 +133,8 @@ export function* splitWavFile(
 
   const totalSamples = firstChannel.length;
   let index = 0;
-  const isAborted = (): boolean => opts.signal?.aborted === true;
 
   for (let offset = 0; offset < totalSamples; offset += chunkSamples) {
-    if (isAborted()) {
-      yield { kind: "abort" };
-      return;
-    }
-
     const end = Math.min(offset + chunkSamples, totalSamples);
     const sliceLength = end - offset;
     const slices = channels.map((ch) => ch.subarray(offset, end));
@@ -178,10 +168,5 @@ export function* splitWavFile(
     };
 
     index += 1;
-
-    if (isAborted()) {
-      yield { kind: "abort" };
-      return;
-    }
   }
 }

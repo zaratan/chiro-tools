@@ -61,6 +61,12 @@ export const planRenames = async (
   const sortedFiles = [...files].sort();
 
   // Track targets already claimed by an earlier operation in this plan.
+  // Keyed on the exact target name, deliberately: two sources differing only
+  // in case can only coexist on a case-*sensitive* filesystem, where their
+  // two targets coexist just as happily. Lowercasing the key would invent a
+  // collision that the filesystem does not have. The case-insensitive case is
+  // handled where it actually bites — `applyRenames` re-checks each target
+  // with `fs.access` immediately before renaming.
   const claimedTargets = new Set<string>();
 
   for (const filename of sortedFiles) {

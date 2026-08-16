@@ -139,12 +139,6 @@ const processFile = async (
       return;
     }
 
-    if (yielded.kind === "abort") {
-      await cleanupOrphanTmps(outDir, baseName);
-      post({ kind: "aborted" } satisfies WorkerOutMessage);
-      return;
-    }
-
     if (yielded.kind === "error") {
       post({
         kind: "file-error",

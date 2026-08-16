@@ -27,7 +27,7 @@ export type RunningViewHandles = {
 };
 
 export type RunningViewProps = {
-  /** Wording-only branch — behavior stays identical (phase-9 plan, D7). */
+  /** Wording-only branch — behavior stays identical. */
   mode: ArchiveFlowMode;
   cwd: string;
   entries: readonly ArchiveEntryStat[];
@@ -59,7 +59,7 @@ const TITLES: Record<ArchiveFlowMode, string> = {
 /**
  * `Dossier de sortie` differs per mode, and the package flow adds the
  * atomicity reminder here too — it's at T+6 min that she'd go looking in the
- * Finder, not at T=0 (phase-9 plan, wording § U-Running).
+ * Finder, not at T=0.
  */
 const REASSURANCE_LINES: Record<ArchiveFlowMode, readonly string[]> = {
   backup: [

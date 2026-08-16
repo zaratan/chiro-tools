@@ -65,6 +65,7 @@ export const useVigieProcessRun = ({
 }: UseVigieProcessRunOptions): UseVigieProcessRunResult => {
   const [state, setState] = useState<ConfirmState>({ kind: "loading" });
   const controllerRef = useRef<AbortController | null>(null);
+  const startedRef = useRef(false);
 
   // Stable ref to RunningView handles — set once via onMount callback.
   const runningHandlesRef = useRef<RunningViewHandles | null>(null);
@@ -100,6 +101,14 @@ export const useVigieProcessRun = ({
 
   const startProcess = async (): Promise<void> => {
     if (state.kind !== "preview") return;
+    // Synchronous latch, deliberately not state: `state` only flips to
+    // "running" several awaits in, so two Entrée events delivered in the same
+    // tick (key auto-repeat, impatient double-tap on a slow folder) would both
+    // pass a state-based guard. Two concurrent runs then `rm -rf` each other's
+    // sox scratch directory and `cleanPartialOutput` deletes chunks the other
+    // just wrote. Same latch as `useArchiveRun`.
+    if (startedRef.current) return;
+    startedRef.current = true;
     const { totalChunks, totalBytes } = state;
 
     const controller = new AbortController();

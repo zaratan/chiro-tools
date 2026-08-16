@@ -9,13 +9,12 @@ import type { ProgressEvent } from "../../types.js";
 import { useProgressState } from "./useProgressState.js";
 
 export const buildStatsLine = (
-  chunksWritten: number,
   elapsedMs: number,
   remainingMs: number | null,
   filesTotal: number,
 ): string => {
   const elapsedLabel = formatShortDuration(elapsedMs);
-  const base = `${chunksWritten.toString()} fichiers • Temps écoulé ${elapsedLabel}`;
+  const base = `Temps écoulé ${elapsedLabel}`;
   const remainingLabel = buildRemainingLabel(remainingMs, filesTotal);
   return remainingLabel === null ? base : `${base} • ${remainingLabel}`;
 };
@@ -69,7 +68,6 @@ export const RunningView = ({
   );
 
   const statsLine = buildStatsLine(
-    state.chunksWritten,
     state.elapsedMs,
     state.remainingMs,
     totalFiles,
@@ -78,7 +76,7 @@ export const RunningView = ({
   const counterLines =
     state.currentFileName !== null
       ? [
-          `  Fichier ${((state.currentFileIndex ?? 0) + 1).toString()} sur ${totalFiles.toString()}  •  ${state.currentFileName}`,
+          `  Fichier ${((state.currentFileIndex ?? 0) + 1).toString()} sur ${totalFiles.toString()}`,
         ]
       : [];
 

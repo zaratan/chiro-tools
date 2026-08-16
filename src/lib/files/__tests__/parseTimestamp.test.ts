@@ -56,3 +56,14 @@ describe("parseSourceTimestamp", () => {
     expect(ts).not.toBeNull();
   });
 });
+
+describe("parseSourceTimestamp — the anchor is what does the work", () => {
+  it("refuses a serial number that swallows the date when unanchored", () => {
+    // A naive /(\d{8})_(\d{6})/ matches "19256450_20260507" here and reads
+    // the serial as the date. Both tests named after this property passed
+    // with the naive regex; this input is what separates them.
+    expect(parseSourceTimestamp("PaRec19256450_20260507_211006.wav")).toEqual(
+      new Date(2026, 4, 7, 21, 10, 6),
+    );
+  });
+});

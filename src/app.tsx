@@ -4,7 +4,8 @@ import {
   processWavFiles as defaultProcessWavFiles,
   type SoxContext,
 } from "./lib/audio/processWavFiles.js";
-import { detectSox, type SoxAvailability } from "./lib/audio/soxFastPath.js";
+import { type SoxAvailability } from "./lib/audio/detectSox.js";
+import { detectSox } from "./lib/audio/detectSox.js";
 import { createZipArchive as defaultCreateZipArchive } from "./lib/archive/createZipArchive.js";
 import { createZipVolumes as defaultCreateZipVolumes } from "./lib/archive/createZipVolumes.js";
 import {
@@ -42,7 +43,11 @@ import {
   createPackageBehavior,
   type CreateZipVolumesFn,
 } from "./screens/archive/packageBehavior.js";
-import type { ArchiveRunOutcome } from "./screens/archive/useArchiveRun.js";
+import type {
+  ArchiveRunOutcome,
+  BackupOkResult,
+  PackageOkResult,
+} from "./screens/archive/useArchiveRun.js";
 import { FormScreen as ProcessFormScreen } from "./screens/vigie-process/FormScreen.js";
 import { ResultScreen as ProcessResultScreen } from "./screens/vigie-process/ResultScreen.js";
 import type {
@@ -54,14 +59,8 @@ import type {
 import type { ProcessResult } from "./lib/audio/processWavFiles.js";
 import { CHIRO_VERSION } from "./version.js";
 
-type BackupOutcome = Extract<
-  ArchiveRunOutcome,
-  { kind: "backup-ok" } | { kind: "aborted" }
->;
-type PackageOutcome = Extract<
-  ArchiveRunOutcome,
-  { kind: "package-ok" } | { kind: "aborted" }
->;
+type BackupOutcome = ArchiveRunOutcome<BackupOkResult>;
+type PackageOutcome = ArchiveRunOutcome<PackageOkResult>;
 
 type Screen =
   | { kind: "menu" }
@@ -171,7 +170,7 @@ export const App = ({
   const runningRef = useRef<boolean>(false);
 
   // The backup/package behavior triplets ("app.tsx choisit le triplet au
-  // routage" — phase-9 plan, D7), memoized so their closures keep a stable
+  // routage"), memoized so their closures keep a stable
   // identity across renders unrelated to this screen (e.g. the boot update
   // check resolving while the user sits on the confirmation screen) — a
   // fresh closure identity every render would otherwise re-trigger
@@ -464,7 +463,6 @@ export const App = ({
         resolveTargetName={backupBehavior.resolveTargetName}
         buildSessionEvent={backupBehavior.buildSessionEvent}
         onComplete={(outcome) => {
-          if (outcome.kind === "package-ok") return;
           setScreen({ kind: "archive:result", outcome });
         }}
         onBack={() => {
@@ -513,7 +511,6 @@ export const App = ({
         resolveTargetName={packageBehavior.resolveTargetName}
         buildSessionEvent={packageBehavior.buildSessionEvent}
         onComplete={(outcome) => {
-          if (outcome.kind === "backup-ok") return;
           setScreen({ kind: "package:result", outcome });
         }}
         onBack={() => {

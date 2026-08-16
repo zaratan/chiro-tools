@@ -26,3 +26,17 @@ describe("formatBytes", () => {
     expect(formatBytes(24.8 * 1024 ** 3)).toBe("24,8 Go");
   });
 });
+
+describe("formatBytes — boundaries", () => {
+  it("says « 1 octet » in the singular", () => {
+    expect(formatBytes(1)).toBe("1 octet");
+    expect(formatBytes(2)).toBe("2 octets");
+  });
+
+  it("never renders a rounded value that reads as the next bucket", () => {
+    // 1 048 570 is 1023,99… Ko: rounding it to "1024 Ko" shows a number no
+    // reader expects. Same at the Mo/Go boundary.
+    expect(formatBytes(1_048_570)).toBe("1 Mo");
+    expect(formatBytes(1024 ** 3 - 100)).toBe("1,0 Go");
+  });
+});

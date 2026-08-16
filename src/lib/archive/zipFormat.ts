@@ -232,9 +232,19 @@ export type EndOfCentralDirectoryParams = {
  * injectable (defaults are the real ZIP limits) so tests can exercise this
  * path without multi-GB or 65k-entry fixtures.
  */
+/** The saturation points a ZIP64 EOCD becomes necessary at. Overridable so
+ * the ZIP64 path — nominal for the 10-20 GB backup zip — is reachable in CI
+ * without a 4 GiB fixture. */
+export type Zip64Saturation = { entryCount: number; offset: number };
+
+export const REAL_ZIP64_SATURATION: Zip64Saturation = {
+  entryCount: MAX_UINT16,
+  offset: MAX_UINT32,
+};
+
 export const needsZip64Eocd = (
   params: EndOfCentralDirectoryParams,
-  thresholds: { entryCount: number; offset: number },
+  thresholds: Zip64Saturation,
 ): boolean =>
   params.entryCount >= thresholds.entryCount ||
   params.cdSize >= thresholds.offset ||
@@ -246,20 +256,32 @@ export const needsZip64Eocd = (
  * (`Math.min(v, MAX)`) rather than the whole record being swapped for a
  * placeholder: a non-ZIP64-aware reader can still read whatever fields do
  * fit (e.g. entry count under 0xFFFF with a saturated offset).
+ *
+ * Saturates against the *same* thresholds `needsZip64Eocd` decides with.
+ * Deciding with injected test thresholds while saturating against the real
+ * constants produces a record shape production never writes — a ZIP64 EOCD
+ * sitting above an unsaturated classic EOCD — so the reader path that
+ * follows the locator would never be exercised by any affordable test.
  */
 export const buildEndOfCentralDirectory = (
   params: EndOfCentralDirectoryParams,
+  thresholds: Zip64Saturation = REAL_ZIP64_SATURATION,
 ): Buffer => {
   const buf = Buffer.alloc(EOCD_FIXED_SIZE);
-  const cappedCount = Math.min(params.entryCount, MAX_UINT16);
+  const cappedCount =
+    params.entryCount >= thresholds.entryCount ? MAX_UINT16 : params.entryCount;
+  const cappedSize =
+    params.cdSize >= thresholds.offset ? MAX_UINT32 : params.cdSize;
+  const cappedOffset =
+    params.cdOffset >= thresholds.offset ? MAX_UINT32 : params.cdOffset;
 
   buf.writeUInt32LE(EOCD_SIGNATURE, 0);
   buf.writeUInt16LE(0, 4); // number of this disk
   buf.writeUInt16LE(0, 6); // disk where CD starts
   buf.writeUInt16LE(cappedCount, 8);
   buf.writeUInt16LE(cappedCount, 10);
-  buf.writeUInt32LE(Math.min(params.cdSize, MAX_UINT32), 12);
-  buf.writeUInt32LE(Math.min(params.cdOffset, MAX_UINT32), 16);
+  buf.writeUInt32LE(cappedSize, 12);
+  buf.writeUInt32LE(cappedOffset, 16);
   buf.writeUInt16LE(0, 20); // comment length — always empty
 
   return buf;

@@ -1,4 +1,4 @@
-import { open } from "node:fs/promises";
+import { open, readFile } from "node:fs/promises";
 
 const RIFF_MAGIC = "RIFF";
 const WAVE_MAGIC = "WAVE";
@@ -98,7 +98,6 @@ export const rewriteHeaderToStandardPcm = async (
   filePath: string,
   expand10x: boolean,
 ): Promise<void> => {
-  const { readFile } = await import("node:fs/promises");
   const src = await readFile(filePath);
 
   const parsed = parseChunks(src);

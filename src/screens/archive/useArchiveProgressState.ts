@@ -41,7 +41,7 @@ type ArchiveProgressAccumulator = {
  * `markFileDone`.
  *
  * Accepts `VolumeProgressEvent`, a superset of `ArchiveProgressEvent` adding
- * `volume-start` (phase-9 plan, D6) — the backup flow's runner never emits
+ * `volume-start` — the backup flow's runner never emits
  * it, so `volumeIndex` simply stays `null` there.
  *
  * Invariant: `entries` and `totalBytes` are captured at first render.

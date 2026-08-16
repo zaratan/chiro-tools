@@ -10,18 +10,15 @@ const collectChunks = (
   iter: Generator<SplitWavYield>,
 ): {
   chunks: EncodedChunk[];
-  aborted: boolean;
   error: string | null;
 } => {
   const chunks: EncodedChunk[] = [];
-  let aborted = false;
   let error: string | null = null;
   for (const y of iter) {
     if (y.kind === "chunk") chunks.push(y.chunk);
-    if (y.kind === "abort") aborted = true;
     if (y.kind === "error") error = y.code;
   }
-  return { chunks, aborted, error };
+  return { chunks, error };
 };
 
 describe("splitWavFile", () => {
@@ -178,49 +175,5 @@ describe("splitWavFile", () => {
       }
       expect(differCount).toBeGreaterThan(50);
     }
-  });
-
-  it("aborts before the first chunk if signal is already aborted", () => {
-    const wav = makeRampWav({ durationSeconds: 10 });
-    const controller = new AbortController();
-    controller.abort();
-
-    const result = collectChunks(
-      splitWavFile(wav, {
-        mode: "preserve",
-        chunkSeconds: 5,
-        signal: controller.signal,
-      }),
-    );
-
-    expect(result.aborted).toBe(true);
-    expect(result.chunks).toEqual([]);
-  });
-
-  it("aborts between chunks when signal fires mid-iteration", () => {
-    const wav = makeRampWav({
-      channels: 1,
-      sampleRate: 48000,
-      bitDepth: "16",
-      durationSeconds: 30, // many chunks expected
-    });
-    const controller = new AbortController();
-    let count = 0;
-    let aborted = false;
-
-    for (const y of splitWavFile(wav, {
-      mode: "preserve",
-      chunkSeconds: 5,
-      signal: controller.signal,
-    })) {
-      if (y.kind === "chunk") {
-        count += 1;
-        if (count === 2) controller.abort();
-      }
-      if (y.kind === "abort") aborted = true;
-    }
-
-    expect(aborted).toBe(true);
-    expect(count).toBe(2);
   });
 });

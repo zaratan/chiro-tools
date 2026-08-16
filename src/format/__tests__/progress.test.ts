@@ -18,6 +18,15 @@ describe("renderBar", () => {
     expect(renderBar(50)).toBe("█".repeat(20) + "░".repeat(20));
     expect(renderBar(25)).toBe("█".repeat(10) + "░".repeat(30));
   });
+
+  it("rounds rather than truncates on percentages that do not divide evenly", () => {
+    // 0, 25, 50 and 100 are all exact multiples of 1/40, so Math.round and
+    // Math.floor agree on every one of them — the previous cases held for
+    // either implementation. 24 % is 9.6 cells: rounding gives 10, truncating
+    // gives 9, and the bar visibly lags behind the percentage next to it.
+    expect(renderBar(24)).toBe("█".repeat(10) + "░".repeat(30));
+    expect(renderBar(99)).toBe("█".repeat(40) + "░".repeat(0));
+  });
 });
 
 describe("formatShortDuration", () => {

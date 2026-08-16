@@ -963,8 +963,9 @@ On va rassembler 720 enregistrements dans un fichier zip.
 
 Nom du fichier : Car340581-2026-Pass1-A1_20260814.zip
 Emplacement :    ./archived/
-Taille du zip :  au plus 1,4 Go — souvent moins, le zip compresse
+Taille du zip :  au plus 1,4 Go
 
+Souvent moins : un zip compresse.
 La date de création est dans le nom du fichier.
 Un zip existe déjà dans ./archived/ — celui-ci s'ajoutera à côté.
 Vos enregistrements restent dans ./processed/.
@@ -1065,21 +1066,24 @@ Table commune aux **deux** flux zip (`src/screens/archive/errorMessages.ts`). Le
 
 La colonne **Transitoire** est ce qui décide de l'affichage de `Entrée réessayer` (`isTransientArchiveError`) : proposer un réessai qui ne peut structurellement pas aboutir, à quelqu'un qui vient de perdre douze minutes, est la pire fuite de confiance possible. Tout code non listé comme définitif est traité comme transitoire — le défaut est celui qui laisse une action à faire.
 
-| Code interne          | Libellé FR                                                                                                                   | Transitoire ?             |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| `mkdir:<X>`           | `impossible de créer le sous-dossier « archived »` (ou `« upload »` — le libellé de dossier est un paramètre, pas un mode)   | oui                       |
-| `rename-volume:<X>`   | délègue au libellé du code système `<X>` (`ENOSPC` → `plus de place sur le disque…`)                                         | selon `<X>`               |
-| `ENOENT`              | `un enregistrement a changé ou disparu pendant la création du zip — réessayez`                                               | oui                       |
-| `file-changed`        | `un enregistrement a changé ou disparu pendant la création du zip — réessayez`                                               | oui                       |
-| `verify-failed`       | `chiro n'a pas pu vérifier que le zip était complet — il n'a pas été conservé, vos enregistrements sont intacts ; réessayez` | oui                       |
-| `collision-exhausted` | `trop de fichiers zip portent déjà ce nom — renommez ou rangez ceux du jour, puis réessayez`                                 | oui                       |
-| `EROFS`               | `ce disque est protégé en écriture — copiez les fichiers ailleurs puis relancez`                                             | **non** (voir ci-dessous) |
-| `entry-too-large`     | `un enregistrement est trop volumineux pour être mis dans le zip — transmettez le détail technique`                          | **non** (déterministe)    |
-| `zip64-required`      | `chiro n'a pas réussi à préparer des fichiers acceptés par Vigie-Chiro — transmettez le détail technique`                    | **non** (bug interne)     |
+| Code interne          | Libellé FR                                                                                                                                                 | Transitoire ?                                                 |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `mkdir:<X>`           | `impossible de créer le sous-dossier « archived »` (ou `« upload »` — le libellé de dossier est un paramètre, pas un mode)                                 | oui                                                           |
+| `rename-volume:<X>`   | délègue au libellé du code système `<X>` (`ENOSPC` → `plus de place sur le disque…`)                                                                       | selon `<X>` (préfixe traversé)                                |
+| `ENOENT`              | `un enregistrement a changé ou disparu pendant la création du zip — réessayez`                                                                             | oui                                                           |
+| `file-changed`        | `un enregistrement a changé ou disparu pendant la création du zip — réessayez`                                                                             | oui                                                           |
+| `verify-failed`       | `chiro n'a pas pu vérifier que le zip était complet — il n'a pas été conservé, vos enregistrements sont intacts ; réessayez`                               | oui                                                           |
+| `collision-exhausted` | `trop de fichiers zip portent déjà ce nom — renommez ou rangez ceux du jour, puis réessayez`                                                               | oui                                                           |
+| `staging-stuck`       | `un dossier de travail d'un essai précédent n'a pas pu être supprimé — il est caché dans « upload » et commence par un point ; supprimez-le puis relancez` | **non** (le réessai relance le nettoyage qui vient d'échouer) |
+| `EROFS`               | `ce disque est protégé en écriture — copiez les fichiers ailleurs puis relancez`                                                                           | **non** (voir ci-dessous)                                     |
+| `entry-too-large`     | `un enregistrement est trop volumineux pour être mis dans le zip — transmettez le détail technique`                                                        | **non** (déterministe)                                        |
+| `zip64-required`      | `chiro n'a pas réussi à préparer des fichiers acceptés par Vigie-Chiro — transmettez le détail technique`                                                  | **non** (bug interne)                                         |
 
 Les deux derniers codes n'appartiennent qu'au flux de dépôt en pratique. Leur libellé ne dit jamais « réessayez » et ne promet rien : il oriente vers le détail technique, c'est-à-dire vers son conjoint dev.
 
 **`rename-volume:<X>` doit rester délégué, jamais mappé à un libellé propre.** C'est un échec système ordinaire qui se trouve survenir pendant le nommage des volumes ; lui donner son propre message ferait perdre la ligne actionnable (« libérez de l'espace ») sur ce qui est le mode d'échec le plus probable d'un run long. Un `<X>` non reconnu retombe sur `null`, comme n'importe quel autre code inconnu.
+
+**Le classement transitoire/définitif regarde à travers les deux préfixes** (`mkdir:` et `rename-volume:`), le libellé non. La distinction n'est pas cosmétique : un volume monté en lecture seule échoue au **tout premier `mkdir`**, donc le code qui atteint l'écran est `mkdir:EROFS` — pas `EROFS`. Classer sur la chaîne brute faisait manquer à la liste des définitifs le cas exact pour lequel elle avait été écrite. Le libellé, lui, reste celui du dossier pour `mkdir:` : « impossible de créer le sous-dossier « upload » » nomme _où_ ça a échoué, ce qui lui est plus utile qu'un « permission refusée » générique.
 
 **`EROFS` est le seul code système classé définitif.** Son propre libellé lui dit de copier les fichiers ailleurs et de relancer : l'accompagner d'un `Entrée réessayer` fait se contredire l'écran, et un disque monté en lecture seule ne redevient pas inscriptible entre deux touches. `EACCES`/`EPERM` restent transitoires à dessein — une permission peut réellement être levée depuis l'extérieur sans rien déplacer, et leur libellé ne promet rien de concurrent.
 
@@ -1116,8 +1120,9 @@ Vigie-Chiro n'accepte pas les fichiers trop volumineux : vos
 enregistrements seront répartis en plusieurs fichiers zip, à déposer
 un par un sur le site.
 
+Souvent moins : un zip compresse.
 Les fichiers zip n'apparaîtront qu'à la fin, tous en même temps.
-Un dossier de dépôt existe déjà dans ./upload/ — celui-ci s'ajoutera à côté.
+Un dossier de dépôt existe déjà ici — celui-ci s'ajoutera à côté.
 Vos enregistrements restent dans ./processed/.
 Rien n'est déplacé ni supprimé.
 
@@ -1135,7 +1140,7 @@ Rien n'est déplacé ni supprimé.
 On va rassembler 720 enregistrements dans un fichier zip.
 
 Emplacement :      ./upload/Car340581-2026-Pass1-A1_20260814/
-Taille :           au plus 12,4 Go — souvent moins, le zip compresse
+Taille :           au plus 1,4 Go
 
 Le fichier zip n'apparaîtra qu'à la fin.
 …
@@ -1143,6 +1148,8 @@ Le fichier zip n'apparaîtra qu'à la fin.
 ```
 
 Tout passe au singulier, la phrase « Vigie-Chiro n'accepte pas… » **disparaît** (sans objet), et le footer aussi.
+
+**Le « souvent moins » vit sur sa propre ligne `dimColor`, pas dans la ligne de taille.** Accolé, il portait la ligne du flux dépôt à 67 colonnes pour 66 utiles — dans _tous_ les cas atteignables, puisque cette branche n'existe qu'en dessous du plafond — et « compresse » repartait à la marge gauche sous un bloc dont tout l'intérêt est l'alignement. C'est une nuance, pas une donnée : `dimColor` est de toute façon sa place. Règle générale : **les lignes alignées en colonnes ne doivent jamais wrapper** (contrainte dure, testée) ; la prose peut wrapper librement.
 
 **La taille annoncée est bornée par la source, pas par le plafond de volume.** Le plafond de 3,5 Go ne qualifie _chacun_ des fichiers que lorsqu'il y en a plusieurs ; sur un point d'écoute isolé de 1,4 Go, annoncer « au plus 3,5 Go » donne un chiffre **plus grand que la source qu'elle vient de lire au constat**, et contredit le flux sauvegarde qui, sur le même dossier, annonce « au plus 1,4 Go ». Deux entrées de menu ne doivent pas donner deux tailles incompatibles pour le même contenu.
 
@@ -1201,7 +1208,7 @@ Détail technique : rename-volume:ENOSPC
   Entrée réessayer   Échap revenir au début
 ```
 
-La ligne `(la création des fichiers zip reprend depuis le début)` et `Entrée réessayer` n'apparaissent **que pour les codes transitoires** (cf. table des codes, colonne dédiée). Sur un code définitif (`zip64-required`, `entry-too-large`, `EROFS`), il ne reste que `Échap revenir au début`.
+La ligne `(la création des fichiers zip reprend depuis le début)` et `Entrée réessayer` n'apparaissent **que pour les codes transitoires** (cf. table des codes, colonne dédiée). Sur un code définitif (`zip64-required`, `entry-too-large`, `EROFS`, `staging-stuck`), il ne reste que `Échap revenir au début`.
 
 Le titre et le hint de réessai disent « **fichiers zip** », pas « zips » : ce sont des phrases pleines, donc hors des deux exceptions assumées (libellé de menu et hint de footer, où le mot est isolé et contraint par la longueur). C'est aussi le seul écran qu'elle lit attentivement, après avoir perdu douze minutes — l'endroit où le jargon coûte le plus cher. Le titre fait 64 caractères, plus `⚠ ` : 66, soit exactement la largeur utile.
 

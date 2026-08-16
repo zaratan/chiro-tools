@@ -1,6 +1,23 @@
 import { mapKnownFsErrorCode } from "../fsErrorMessages.js";
 
 /**
+ * Both prefixed families wrap an ordinary filesystem code. Whether a failure
+ * can resolve itself on a retry is a property of that code alone — the
+ * operation it happened during says nothing about a read-only mount.
+ *
+ * Only the classification looks through the prefix; the *message* for
+ * `mkdir:` stays the folder one, which names where it failed.
+ */
+const PREFIXES_WRAPPING_AN_FS_CODE = ["mkdir:", "rename-volume:"];
+
+const stripFsCodePrefix = (code: string): string => {
+  for (const prefix of PREFIXES_WRAPPING_AN_FS_CODE) {
+    if (code.startsWith(prefix)) return code.slice(prefix.length);
+  }
+  return code;
+};
+
+/**
  * Maps a raw archive error code (as returned by `createZipArchive`/
  * `createZipVolumes`, or a setup-phase code produced by `useArchiveRun`
  * itself — `mkdir:<X>`, `collision-exhausted`) to a user-facing French
@@ -9,7 +26,7 @@ import { mapKnownFsErrorCode } from "../fsErrorMessages.js";
  * `dirLabel` is the sub-folder name to mention in the `mkdir:` message
  * (`"archived"` for the backup flow, `"upload"` for the upload-series flow)
  * — a value, not a mode: it can't grow its own branches the way a `mode`
- * flag threaded through every caller would (phase-9 plan, D7).
+ * flag threaded through every caller would.
  *
  * Returns `null` for an unrecognized code — callers on the run-error screen
  * use this to skip the message line entirely rather than show a guess.
@@ -23,11 +40,9 @@ export const mapKnownArchiveErrorCode = (
   if (code.startsWith("mkdir:")) {
     return `impossible de créer le sous-dossier « ${dirLabel} »`;
   }
-  // `rename-volume:<fsCode>` carries an ordinary filesystem failure that
-  // happens to occur while naming the volumes. Delegating to the bare code
-  // keeps the actionable line ("plus de place sur le disque…") instead of
-  // falling through to `null`, which makes the run-error screen drop the
-  // message entirely — on what is the most likely failure of a long run.
+  // Delegating to the bare code keeps the actionable line ("plus de place
+  // sur le disque…"); `null` would make the run-error screen drop the
+  // message entirely, on the most likely failure of a long run.
   if (code.startsWith("rename-volume:")) {
     return mapKnownArchiveErrorCode(
       code.slice("rename-volume:".length),
@@ -48,6 +63,8 @@ export const mapKnownArchiveErrorCode = (
       return "chiro n'a pas réussi à préparer des fichiers acceptés par Vigie-Chiro — transmettez le détail technique";
     case "collision-exhausted":
       return "trop de fichiers zip portent déjà ce nom — renommez ou rangez ceux du jour, puis réessayez";
+    case "staging-stuck":
+      return "un dossier de travail d'un essai précédent n'a pas pu être supprimé — il est caché dans « upload » et commence par un point ; supprimez-le puis relancez";
     default:
       return null;
   }
@@ -61,28 +78,28 @@ export const mapArchiveErrorCodeToMessage = (
   `erreur inattendue (code: ${code})`;
 
 /**
- * Codes that can never resolve themselves on a retry: `zip64-required` is an
- * internal bug (the guard tripped, no amount of retrying changes that),
- * `entry-too-large` is deterministic — the file is just too big, every
- * retry fails the same way — and `EROFS` describes a mount that will not
- * become writable between two key presses. That last one also contradicts
- * itself on screen: its own message tells her to copy the files elsewhere
- * and start again, while the footer offers to retry here.
+ * Codes a retry can never resolve. Offering `Entrée réessayer` to someone who
+ * just waited twelve minutes, for an attempt that cannot succeed, is the
+ * worst trust leak in the flow — so anything not listed here defaults to
+ * transient, which at least leaves her an action.
+ *
+ * - `zip64-required` — internal bug; the guard tripped.
+ * - `entry-too-large` — deterministic; the file is simply too big.
+ * - `EROFS` — a mount does not become writable between two key presses, and
+ *   its own message already tells her to copy the files elsewhere.
+ * - `staging-stuck` — a retry re-runs the cleanup that just failed.
  *
  * `EACCES`/`EPERM` stay transient on purpose: a permission really can be
- * fixed from outside (closing whatever holds the file) without moving
- * anything, and their message makes no competing promise.
- *
- * Everything else (disk full since freed, a file that moved, a transient
- * verify failure…) genuinely can succeed on a second attempt, so it defaults
- * to `true`: offering a retry that cannot possibly work, to someone who may
- * have just waited 12 minutes for the failure, is worse than not knowing.
+ * lifted from outside without moving anything.
  */
 const DEFINITIVE_ARCHIVE_ERROR_CODES = new Set([
   "zip64-required",
   "entry-too-large",
   "EROFS",
+  "staging-stuck",
 ]);
 
+/** A read-only mount surfaces as `mkdir:EROFS` — the first `mkdir` is what
+ * fails — never as a bare `EROFS`, hence the prefix stripping. */
 export const isTransientArchiveError = (code: string): boolean =>
-  !DEFINITIVE_ARCHIVE_ERROR_CODES.has(code);
+  !DEFINITIVE_ARCHIVE_ERROR_CODES.has(stripFsCodePrefix(code));

@@ -41,7 +41,10 @@ const classify = (outcome: RenameOutcome): Variant => {
   };
 };
 
-const TRUNCATE_PER_GROUP = 5;
+// Three, not five: on an 80×24 Terminal two groups of five scroll the title
+// and the summary off the top, leaving her a wall of filenames with no idea
+// what happened. The names only serve to be passed on.
+const TRUNCATE_PER_GROUP = 3;
 
 type ErrorGroup = {
   message: string;
@@ -102,9 +105,9 @@ export const ResultScreen = ({
         ) : null}
         <Box marginTop={1}>
           <Text>
-            Vous pouvez maintenant les découper, puis créer les zips à déposer
-            sur Vigie-Chiro.
+            {"Vous pouvez maintenant les découper, puis créer les fichiers"}
           </Text>
+          <Text>{"zip à déposer sur Vigie-Chiro."}</Text>
         </Box>
         <Footer hints={[{ key: "Entrée", label: "retour au menu" }]} />
       </Box>
@@ -134,9 +137,6 @@ export const ResultScreen = ({
         <Box flexDirection="column" marginTop={1}>
           <Text>
             {`  ${outcome.renamed.length.toString()} fichier${outcome.renamed.length > 1 ? "s déjà renommés (conservés en sécurité)" : " déjà renommé (conservé en sécurité)"}`}
-          </Text>
-          <Text>
-            {`  Il restait ${(outcome.skippedCollision.length + outcome.errored.length).toString()} fichier${outcome.skippedCollision.length + outcome.errored.length > 1 ? "s" : ""} à traiter.`}
           </Text>
         </Box>
         <Box marginTop={1}>

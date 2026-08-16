@@ -4,6 +4,7 @@ import { Footer } from "../../components/Footer.js";
 import { scanDirectory } from "../../lib/fs/scanDirectory.js";
 import { buildConstatCounts } from "../../lib/vigie-chiro/buildConstatCounts.js";
 import type { ConstatCounts } from "../../types.js";
+import { fitPath } from "../../format/path.js";
 
 type ScanState =
   | { kind: "loading" }
@@ -73,7 +74,7 @@ export const ConstatScreen = ({
   if (state.kind === "not-readable") {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1}>
           <Text color="yellow">⚠ Ce dossier ne peut pas être lu.</Text>
         </Box>
@@ -96,7 +97,7 @@ export const ConstatScreen = ({
   if (state.kind === "not-writable") {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1}>
           <Text color="yellow">⚠ Ce dossier est protégé en écriture.</Text>
         </Box>
@@ -115,7 +116,7 @@ export const ConstatScreen = ({
   if (state.kind === "scan-error") {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1}>
           <Text color="yellow">
             ⚠ Une erreur inattendue est survenue en lisant ce dossier.
@@ -144,7 +145,7 @@ export const ConstatScreen = ({
   if (counts.totalWav === 0) {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1}>
           <Text>Aucun enregistrement .wav trouvé dans ce dossier.</Text>
         </Box>
@@ -165,7 +166,7 @@ export const ConstatScreen = ({
 
   return (
     <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-      <Text>📁 {cwd}</Text>
+      <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
       <Box marginTop={1}>
         <Text color="green">✓ </Text>
         <Text>

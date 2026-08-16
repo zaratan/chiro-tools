@@ -1,10 +1,19 @@
 import path from "node:path";
-import type { CreateZipArchiveResult } from "../archive/createZipArchive.js";
+/**
+ * Only what the log actually records. Narrower than `CreateZipArchiveResult`
+ * on purpose: that type also carries `archivedNames`, a per-run manifest the
+ * journal has no business holding, and callers adapting into it would have to
+ * invent a value for a field nobody reads.
+ */
+export type ArchiveSessionOutcome =
+  | { kind: "ok"; zipPath: string; zipBytes: number; durable: boolean }
+  | { kind: "aborted" }
+  | { kind: "error"; code: string };
 import type { SessionEvent } from "../../types.js";
 import { CHIRO_VERSION } from "../../version.js";
 
 /**
- * Builds the v3 (`vigie-archive`) session log entry for a completed zip
+ * Builds the v5 (`vigie-archive`) session log entry for a completed zip
  * creation run, ready to hand to `logSession`.
  *
  * `durationMs` is supplied by the caller (`useArchiveRun`) rather than read
@@ -13,14 +22,14 @@ import { CHIRO_VERSION } from "../../version.js";
  * errored runs too, so the orchestrator times the whole attempt itself.
  */
 export const buildArchiveSessionEvent = (
-  result: CreateZipArchiveResult,
+  result: ArchiveSessionOutcome,
   entryCount: number,
   totalBytes: number,
   durationMs: number,
   cwd: string,
 ): SessionEvent => {
   const base = {
-    schema_version: 3 as const,
+    schema_version: 5 as const,
     ts: new Date().toISOString(),
     version: CHIRO_VERSION,
     cwd,
@@ -37,6 +46,7 @@ export const buildArchiveSessionEvent = (
         total_bytes: totalBytes,
         zip_bytes: result.zipBytes,
         duration_ms: durationMs,
+        durable: result.durable,
       },
     };
   }

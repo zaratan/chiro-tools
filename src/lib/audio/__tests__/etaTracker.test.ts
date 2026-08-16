@@ -101,3 +101,18 @@ describe("etaTracker", () => {
     expect(remaining).toBe(0);
   });
 });
+
+describe("estimateRemainingMs — double-counted bytes", () => {
+  it("never returns a negative estimate when bytesDone overshoots the total", () => {
+    // Real path: the sox fast-path marks file 1 done, its spot-check then
+    // fails, and the whole batch replays through the worker pool — which
+    // marks file 1 done a second time.
+    const t = createETATracker(300, 0);
+    markFileDone(t, 200, 1_000);
+    markFileDone(t, 200, 2_000);
+
+    const remaining = estimateRemainingMs(t, 2_000);
+    expect(remaining).not.toBeNull();
+    expect(remaining ?? -1).toBeGreaterThanOrEqual(0);
+  });
+});

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Footer } from "../../components/Footer.js";
 import { buildOutDir } from "../../lib/audio/batchPlan.js";
 import { formatBytes } from "../../format/bytes.js";
+import { fitPath } from "../../format/path.js";
 import {
   checkProcessedDirConflict,
   scanDirectory as scanWavDirectory,
@@ -131,7 +132,7 @@ export const ConstatScreen = ({
   if (state.kind === "not-readable") {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1}>
           <Text color="yellow">⚠ Ce dossier ne peut pas être lu.</Text>
         </Box>
@@ -143,7 +144,7 @@ export const ConstatScreen = ({
   if (state.kind === "not-writable") {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1}>
           <Text color="yellow">⚠ Ce dossier est protégé en écriture.</Text>
         </Box>
@@ -165,7 +166,7 @@ export const ConstatScreen = ({
   if (state.kind === "scan-error") {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1}>
           <Text color="yellow">
             ⚠ Une erreur inattendue est survenue en lisant ce dossier.
@@ -185,7 +186,7 @@ export const ConstatScreen = ({
   if (state.kind === "no-wav") {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1}>
           <Text>Aucun enregistrement .wav trouvé dans ce dossier.</Text>
         </Box>
@@ -207,7 +208,7 @@ export const ConstatScreen = ({
   if (state.kind === "processed-conflict") {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1}>
           <Text color="yellow">
             ⚠ Un dossier « processed » existe déjà ici.
@@ -234,7 +235,7 @@ export const ConstatScreen = ({
   if (state.kind === "insufficient-disk") {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1}>
           <Text color="yellow">
             ⚠ Pas assez d'espace disque pour cette opération.
@@ -255,7 +256,7 @@ export const ConstatScreen = ({
   // state.kind === "ready"
   return (
     <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-      <Text>📁 {cwd}</Text>
+      <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
       <Box marginTop={1}>
         <Text color="green">✓ </Text>
         <Text>

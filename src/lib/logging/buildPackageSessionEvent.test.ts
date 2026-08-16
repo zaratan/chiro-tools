@@ -160,3 +160,33 @@ describe("buildPackageSessionEvent", () => {
     expect(new Date(event.ts).toISOString()).toBe(event.ts);
   });
 });
+
+describe("buildPackageSessionEvent — durable is the runner's, not a constant", () => {
+  // Same reason as the archive builder: every existing case passes and
+  // expects `true`, so a hard-coded `true` would satisfy them all. `durable`
+  // is what a future destructive flow stands on; it must be shown to travel.
+  it.each([true, false])("carries durable=%s into the event", (durable) => {
+    const event = buildPackageSessionEvent(
+      {
+        kind: "ok",
+        seriesDirPath: "/tmp/x/upload/depot_20260814",
+        seriesDirName: "depot_20260814",
+        volumes: [
+          { fileName: "depot_20260814.zip", zipBytes: 1, entryCount: 1 },
+        ],
+        entryCount: 1,
+        totalZipBytes: 1,
+        durationMs: 1,
+        durable,
+      },
+      1,
+      1,
+      1,
+      "/tmp/x",
+      1024,
+    );
+    if (event.schema_version !== 4) throw new Error("type narrowing");
+    if (event.result.status !== "ok") throw new Error("type narrowing");
+    expect(event.result.durable).toBe(durable);
+  });
+});

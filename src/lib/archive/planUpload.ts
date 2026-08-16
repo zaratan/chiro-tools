@@ -14,7 +14,7 @@ export const buildUploadDir = (cwd: string): string =>
  * publishes into `upload/`: `{prefix}_YYYYMMDD`, no extension — it's a
  * directory, not a file. `prefix` defaults to `"depot"` (the honest
  * fallback when `extractCommonPrefix` can't find one unique Vigie-Chiro
- * prefix across the batch — see D2 bis in the phase-9 plan). Same
+ * prefix across the batch). Same
  * `formatDateStamp` as `buildArchiveName`, so both name builders agree on
  * what "today" looks like.
  */

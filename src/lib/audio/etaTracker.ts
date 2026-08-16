@@ -79,6 +79,11 @@ export const estimateRemainingMs = (
   if (windowBytes === 0 || windowDurationMs === 0) return null;
 
   const bytesPerMs = windowBytes / windowDurationMs;
-  const bytesRemaining = t.bytesTotal - t.bytesDone;
+  // Clamped: the sox fast-path emits `file-done` for the first file *before*
+  // its spot-check runs, and a failed spot-check replays the whole batch
+  // through the worker pool, which emits `file-done` for that file again.
+  // `bytesDone` then overshoots `bytesTotal` and the screen shows
+  // "Encore environ -1 min" to someone who did nothing wrong.
+  const bytesRemaining = Math.max(0, t.bytesTotal - t.bytesDone);
   return bytesRemaining / bytesPerMs;
 };

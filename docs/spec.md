@@ -459,11 +459,12 @@ En plus des codes de la table A-Confirmation (tous atteignables ici), le flux de
 | Code                   | Cause                                                                                                                                                                            | Transitoire ?  |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
 | `zip64-required`       | Un des trois gardes `zip64: "forbid"` s'est déclenché. **Bug interne** — inatteignable tant que le plafond de volume tient (d'où le clamp de l'env).                             | non            |
-| `rename-volume:<code>` | Échec du renommage d'un volume en son nom `partN` **à l'intérieur** du staging. Délégué au libellé de `<code>`, donc transitoire ou non selon lui.                               | selon `<code>` |
+| `rename-volume:<code>` | Échec du renommage d'un volume en son nom `partN` **à l'intérieur** du staging. Délégué au libellé de `<code>` ; le classement traverse aussi le préfixe.                        | selon `<code>` |
 | `verify-failed`        | Complétude de la série en échec, dans un sens ou dans l'autre : une entrée manque, ou le staging contient un fichier que le run n'a pas écrit → staging détruit, `upload/` vide. | oui            |
 | `collision-exhausted`  | 99 dossiers de série du même nom déjà présents dans `upload/`.                                                                                                                   | oui            |
+| `staging-stuck`        | Un staging d'un essai précédent n'a pas pu être supprimé (droits, verrou). Le réessai relancerait le même nettoyage.                                                             | non            |
 
-`isTransientArchiveError` est la source de vérité : **définitifs** = `zip64-required`, `entry-too-large`, `EROFS` ; tout le reste est transitoire et se voit proposer `Entrée réessayer`. Proposer un réessai qui ne peut structurellement pas aboutir, à quelqu'un qui vient de perdre douze minutes, est la pire fuite de confiance du flux.
+`isTransientArchiveError` est la source de vérité : **définitifs** = `zip64-required`, `entry-too-large`, `EROFS`, `staging-stuck` ; tout le reste est transitoire et se voit proposer `Entrée réessayer`. Proposer un réessai qui ne peut structurellement pas aboutir, à quelqu'un qui vient de perdre douze minutes, est la pire fuite de confiance du flux.
 
 Il n'existe **pas** de code `entry-too-large-for-volume` : une entrée plus grosse que le plafond part seule dans son propre volume, qui dépasse alors `maxVolumeBytes()`. C'est délibéré — refuser bloquerait tout le dépôt pour un fichier — et le garde `index > 0` de la boucle d'admission empêche la boucle infinie. La spec a décrit ce code pendant toute la Phase 9 alors qu'il n'a jamais existé dans le code.
 
@@ -584,13 +585,13 @@ Pour les sessions de découpage, `schema_version: 2`. Format aligné avec v1 (ti
 
 **v1 reste byte-stable** : tout reader jq existant qui filtre sur `.action == "vigie-prefix"` ou `.schema_version == 1` continue à fonctionner. Un snapshot test (`src/lib/logging/log.test.ts`) asserte caractère par caractère le format v1 pour empêcher toute dérive silencieuse.
 
-### Schéma v3 — sessions `vigie-archive` (Phase 8)
+### Schéma v5 — sessions `vigie-archive` (Phase 8, révisé)
 
-`schema_version: 3`, `action: "vigie-archive"`. **Pas de champ `input`** : le flow zip n'a rien que l'utilisatrice choisisse. `result` est une **union discriminée sur `status`** — `ok` seul porte le nom et la taille du zip produit, mais les trois variantes portent les compteurs connus avant le run, pour qu'un échec reste diagnosticable :
+`schema_version: 5`, `action: "vigie-archive"`. **Pas de champ `input`** : le flow zip n'a rien que l'utilisatrice choisisse. `result` est une **union discriminée sur `status`** — `ok` seul porte le nom, la taille du zip produit et `durable`, mais les trois variantes portent les compteurs connus avant le run, pour qu'un échec reste diagnosticable :
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 5,
   "ts": "2026-08-13T15:44:12.004Z",
   "version": "0.4.0",
   "cwd": "/Users/.../Vigie-2026-A1",
@@ -601,7 +602,8 @@ Pour les sessions de découpage, `schema_version: 2`. Format aligné avec v1 (ti
     "entry_count": 720,
     "total_bytes": 1503238553,
     "zip_bytes": 541165879,
-    "duration_ms": 54120
+    "duration_ms": 54120,
+    "durable": true
   }
 }
 ```
@@ -648,7 +650,9 @@ Pour les sessions de découpage, `schema_version: 2`. Format aligné avec v1 (ti
 - `status: "aborted"` → `max_volume_bytes`, `entry_count`, `total_bytes`, `duration_ms`.
 - `status: "error"` → idem + `error_code` (le code brut, pas le libellé français).
 
-**v3 reste inchangé** : le flux sauvegarde continue d'écrire `vigie-archive`. `schema_version` est un identifiant de **forme d'événement** (une par `action`), pas un compteur de révision : v3 et v4 sont deux actions différentes ajoutées coup sur coup, pas deux révisions du même événement.
+`schema_version` est un identifiant de **forme d'événement** (une par `action`), pas un compteur de révision : v3 et v4 étaient deux actions différentes ajoutées coup sur coup, pas deux révisions du même événement.
+
+**v3 est retiré, remplacé par v5.** Le flux sauvegarde continue d'écrire `vigie-archive`, mais sa forme a gagné `durable` — donc, exactement comme la règle ci-dessus l'exige, un **nouveau numéro** plutôt qu'un champ ajouté à v3 (et surtout pas un « v3.1 »). Les entrées v3 déjà sur disque gardent leur forme ; rien ne les relit — `SessionEvent` est un type d'**écriture**, il liste les formes que chiro émet aujourd'hui. La raison du numéro neuf est étroite et suffisante : une ligne portant `schema_version: 5` a exactement les champs que v5 déclare, donc tout consommateur aval (jq, un futur export) branche sur le numéro au lieu de sonder la présence d'un champ.
 
 ## Versioning
 

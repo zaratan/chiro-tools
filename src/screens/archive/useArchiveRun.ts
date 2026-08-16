@@ -13,7 +13,7 @@ export type { ArchivedVolume, VolumeProgressEvent };
 
 /**
  * Which destination a Confirmation/Constat/RunningView instance is wired
- * for. Copy-only discriminant (phase-9 plan, D7): every screen branches on
+ * for. Copy-only discriminant: every screen branches on
  * it purely for wording, never for behavior — behavior is always the
  * injected `runner`/`resolveTargetName`/`buildSessionEvent` triplet.
  */
@@ -27,6 +27,10 @@ export type BackupOkResult = {
   zipBytes: number;
   entryCount: number;
   durationMs: number;
+  /** Carried through to the session log. The backup zip — not the deposit
+   * series — is the artifact a future "upload then delete the source" flow
+   * would act on, so this is the flow that most needs the guarantee. */
+  durable: boolean;
 };
 
 /** Result of the multi-volume upload-series flow (`createZipVolumes`,
@@ -43,24 +47,31 @@ export type PackageOkResult = {
 };
 
 /**
- * Discriminated union covering every shape a run can end in — the "no
- * optional fields" contract from the phase-9 plan (D7): a `backup-ok` result
- * never has `volumes`, a `package-ok` result never has `zipPath`, so a caller
- * that narrows on `kind` gets full type safety instead of chasing
- * `undefined` checks.
+ * The two ways a run can fail. Shared by both flows on purpose: neither
+ * carries anything that would identify which one produced it, which is
+ * exactly why the session-event builder has to be injected rather than
+ * inferred from `kind`.
  */
-export type ArchiveRunnerResult =
-  | BackupOkResult
-  | PackageOkResult
-  | { kind: "aborted" }
-  | { kind: "error"; code: string };
+export type ArchiveRunFailure =
+  { kind: "aborted" } | { kind: "error"; code: string };
+
+/**
+ * A run's outcome, parameterized by the flow's own success shape, so each
+ * consumer only ever sees its own — mis-wiring is a compile error rather
+ * than a branch nothing can reach.
+ *
+ * The `${string}-ok` constraint is load-bearing: it keeps the success shapes
+ * disjoint from `"aborted"`/`"error"`, so narrowing on `kind` still works.
+ */
+export type ArchiveOkResult = { kind: `${string}-ok` };
+
+export type ArchiveRunnerResult<TOk extends ArchiveOkResult> =
+  TOk | ArchiveRunFailure;
 
 /** The non-error outcomes `useArchiveRun` hands to `onComplete` — an
  * "error" outcome is handled internally as `run-error` state instead. */
-export type ArchiveRunOutcome = Extract<
-  ArchiveRunnerResult,
-  { kind: "backup-ok" } | { kind: "package-ok" } | { kind: "aborted" }
->;
+export type ArchiveRunOutcome<TOk extends ArchiveOkResult> =
+  TOk | { kind: "aborted" };
 
 export type ResolvedNamePreview = { name: string; alreadyExists: boolean };
 
@@ -78,26 +89,25 @@ export type ResolveTargetName = () => Promise<ResolvedNamePreview>;
 /**
  * The injected "runner": wraps either `createZipArchive` (backup) or
  * `createZipVolumes` (package) behind one shared shape, so `useArchiveRun`
- * never has to know which one it's driving — see D7 in the phase-9 plan.
+ * never has to know which one it's driving.
  * `entries` is passed at call time (not baked into the closure) so a retry
  * always uses the exact same batch the screen was shown for.
  */
-export type ArchiveRunner = (opts: {
+export type ArchiveRunner<TOk extends ArchiveOkResult> = (opts: {
   entries: readonly ArchiveEntryStat[];
   signal: AbortSignal;
   onProgress: (event: VolumeProgressEvent) => void;
-}) => Promise<ArchiveRunnerResult>;
+}) => Promise<ArchiveRunnerResult<TOk>>;
 
 /**
- * The injected session-log builder. Takes the full `ArchiveRunnerResult`
- * union (not just this mode's own "ok" variant) because the "aborted"/
+ * The injected session-log builder. Takes this flow's own success shape plus
+ * the shared failures — never the other flow's success. The "aborted"/
  * "error" branches carry no information distinguishing which flow produced
- * them — only the closure built by `createBackupBehavior`/
- * `createPackageBehavior` knows that, which is exactly why this is injected
- * rather than inferred from `result.kind` alone.
+ * them, which is exactly why this is injected rather than inferred from
+ * `result.kind` alone.
  */
-export type BuildRunSessionEvent = (
-  result: ArchiveRunnerResult,
+export type BuildRunSessionEvent<TOk extends ArchiveOkResult> = (
+  result: ArchiveRunnerResult<TOk>,
   entryCount: number,
   totalBytes: number,
   durationMs: number,
@@ -115,7 +125,7 @@ export type ArchiveConfirmState =
        * its staging directory (possibly several GiB) before returning
        * "aborted" — 10 to 60 s on an external disk — during which the last
        * known progress would otherwise stay frozen on screen with Ctrl+C
-       * appearing inert, indistinguishable from a crash (phase-9 plan, D8).
+       * appearing inert, indistinguishable from a crash.
        * Harmless for the backup flow, whose abort path only unlinks a
        * single `.tmp` file: the state is entered and left again almost
        * immediately there.
@@ -124,19 +134,19 @@ export type ArchiveConfirmState =
     }
   | { kind: "run-error"; code: string };
 
-export type UseArchiveRunOptions = {
+export type UseArchiveRunOptions<TOk extends ArchiveOkResult> = {
   cwd: string;
   entries: readonly ArchiveEntryStat[];
   totalBytes: number;
   /** Mutated during the run; consulted by the App-level Ctrl+C handler. */
   runningRef: React.RefObject<boolean>;
   /** Injected — see {@link ArchiveRunner}. */
-  runner: ArchiveRunner;
+  runner: ArchiveRunner<TOk>;
   /** Injected — see {@link ResolveTargetName}. */
   resolveTargetName: ResolveTargetName;
   /** Injected — see {@link BuildRunSessionEvent}. */
-  buildSessionEvent: BuildRunSessionEvent;
-  onComplete: (outcome: ArchiveRunOutcome) => void;
+  buildSessionEvent: BuildRunSessionEvent<TOk>;
+  onComplete: (outcome: ArchiveRunOutcome<TOk>) => void;
 };
 
 export type UseArchiveRunResult = {
@@ -161,12 +171,12 @@ export type UseArchiveRunResult = {
  * of ConfirmScreen so the screen stays display + navigation only. Mirrors
  * `useVigieProcessRun`.
  *
- * Deliberately mode-agnostic (phase-9 plan, D7): it knows nothing about
+ * Deliberately mode-agnostic: it knows nothing about
  * "backup" vs "package" — that distinction lives entirely in which
  * `runner`/`resolveTargetName`/`buildSessionEvent` triplet the caller
  * injects. `app.tsx` picks the triplet at routing time.
  */
-export const useArchiveRun = ({
+export const useArchiveRun = <TOk extends ArchiveOkResult>({
   cwd,
   entries,
   totalBytes,
@@ -175,7 +185,7 @@ export const useArchiveRun = ({
   resolveTargetName,
   buildSessionEvent,
   onComplete,
-}: UseArchiveRunOptions): UseArchiveRunResult => {
+}: UseArchiveRunOptions<TOk>): UseArchiveRunResult => {
   const [state, setState] = useState<ArchiveConfirmState>({ kind: "loading" });
   const controllerRef = useRef<AbortController | null>(null);
   const runningHandlesRef = useRef<RunningViewHandles | null>(null);
@@ -226,7 +236,7 @@ export const useArchiveRun = ({
 
     const startedAt = performance.now();
 
-    let result: ArchiveRunnerResult;
+    let result: ArchiveRunnerResult<TOk>;
     try {
       result = await runner({
         entries,

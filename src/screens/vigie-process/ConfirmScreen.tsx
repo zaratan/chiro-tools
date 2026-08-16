@@ -6,6 +6,7 @@ import { formatDuration } from "../../format/duration.js";
 import type { ProcessInput } from "../../types.js";
 import { mapKnownProcessErrorCode } from "./errorMessages.js";
 import { RunningView } from "./RunningView.js";
+import { fitPath } from "../../format/path.js";
 import {
   useVigieProcessRun,
   type ProcessWavFilesFn,
@@ -106,7 +107,7 @@ export const ConfirmScreen = ({
     const knownMessage = mapKnownProcessErrorCode(state.code);
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1}>
           <Text color="yellow">
             ⚠ Une erreur est survenue pendant le découpage.
@@ -131,7 +132,7 @@ export const ConfirmScreen = ({
   // state.kind === "preview"
   return (
     <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-      <Text>📁 {cwd}</Text>
+      <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
       <Box marginTop={1} flexDirection="column">
         <Text>
           {`On va découper ${wavFiles.length.toString()} enregistrement${

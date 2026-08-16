@@ -11,12 +11,21 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanPartialOutput, detectSox, runSoxBatch } from "../soxFastPath.js";
+import { cleanPartialOutput, runSoxBatch } from "../soxFastPath.js";
+import { detectSox } from "../detectSox.js";
+import { spawnSync } from "node:child_process";
 import { makeRampWav } from "./fixtures.js";
 
 // ---------------------------------------------------------------------------
 // Helpers for fake sox scripts
 // ---------------------------------------------------------------------------
+
+/** The real binary, when present — the corrupting fixture wraps it. */
+const REAL_SOX: string | null = (() => {
+  const r = spawnSync("which", ["sox"], { encoding: "utf8" });
+  const out = r.stdout.trim();
+  return r.status === 0 && out !== "" ? out : null;
+})();
 
 const makeFakeSox = async (
   dir: string,
@@ -487,4 +496,108 @@ describe("runSoxBatch", () => {
       expect(chunkFiles).toEqual(["second_000.wav"]);
     }, 30_000);
   });
+
+  it("clears a .sox-tmp-* left by a killed run before starting", async () => {
+    // `finally` clears its own on a normal exit, but not on kill -9. The
+    // constat hides dotted entries, so nothing else reports these — and
+    // prefixing the recordings changes every base name, which stops a later
+    // run from ever reclaiming one.
+    const outDir = path.join(tmpDir, "processed");
+    await mkdir(path.join(outDir, ".sox-tmp-ghost"), { recursive: true });
+    await writeFile(path.join(outDir, ".sox-tmp-ghost", "000.wav"), "stale");
+
+    await writeWav("source.wav", {
+      sampleRate: 48000,
+      durationSeconds: 6,
+      bitDepth: "16",
+      channels: 1,
+    });
+
+    await runSoxBatch(fakeSoxFail, ["source.wav"], tmpDir, {
+      mode: "preserve",
+    });
+
+    expect(await readdir(outDir)).not.toContain(".sox-tmp-ghost");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Spot-check — the guarantee the whole fast-path rests on
+// ---------------------------------------------------------------------------
+
+/**
+ * A sox wrapper that runs the real binary, then corrupts the middle of the
+ * second chunk it produced.
+ *
+ * The spot-check compares 100 samples from the *middle* of the 1st, middle
+ * and last chunk; corrupting near a chunk's start would sail straight
+ * through. That is the assumed cost of a "spot" rather than a full compare,
+ * and it is why this fixture aims at the middle.
+ */
+const makeCorruptingSox = async (dir: string): Promise<string> => {
+  if (REAL_SOX === null) throw new Error("guarded by skipIf");
+  const p = path.join(dir, "corrupting-sox.sh");
+  await writeFile(
+    p,
+    `#!/bin/sh
+"${REAL_SOX}" "$@" || exit $?
+outdir=$(dirname "$2")
+target=$(ls "$outdir" | grep '^raw' | sort | sed -n '2p')
+[ -z "$target" ] && exit 0
+sz=$(wc -c < "$outdir/$target")
+printf '\\x7f\\x7f' | dd of="$outdir/$target" bs=1 seek=$((sz / 2)) conv=notrunc status=none
+exit 0
+`,
+  );
+  await chmod(p, 0o755);
+  return p;
+};
+
+describe("runSoxBatch — byte-identity spot-check", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(path.join(tmpdir(), "chiro-sox-spot-"));
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it.skipIf(REAL_SOX === null)(
+    "falls back and publishes nothing when sox output differs from wavefile's",
+    async () => {
+      // This is the guarantee that justifies shipping a 22x faster pipeline.
+      // Without it, a sox that silently produces different bytes would ship
+      // corrupted recordings — and until this test existed, deleting the
+      // comparison left the whole suite green.
+      const wavPath = path.join(tmpDir, "source.wav");
+      await writeFile(
+        wavPath,
+        makeRampWav({
+          channels: 1,
+          sampleRate: 48000,
+          bitDepth: "16",
+          // 120 s = three 50 s chunks, so the spot-check's "middle" is
+          // chunk 2 — exactly the one the fixture corrupts. A shorter file
+          // yields a single chunk and nothing to aim at.
+          durationSeconds: 120,
+        }),
+      );
+      const corrupting = await makeCorruptingSox(tmpDir);
+
+      const result = await runSoxBatch(corrupting, ["source.wav"], tmpDir, {
+        mode: "preserve",
+      });
+
+      expect(result.kind).toBe("fallback");
+      if (result.kind !== "fallback") throw new Error("type narrowing");
+      expect(result.reason).toContain("spot-check");
+
+      // And nothing corrupted was left behind for the pool to trip over.
+      const outDir = path.join(tmpDir, "processed");
+      const produced = await readdir(outDir).catch(() => [] as string[]);
+      expect(produced.filter((f) => f.endsWith(".wav"))).toEqual([]);
+    },
+  );
 });

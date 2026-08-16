@@ -11,6 +11,7 @@ import {
   type ArchiveRunner,
   type ArchiveRunnerResult,
   type ArchiveRunOutcome,
+  type BackupOkResult,
   type UseArchiveRunOptions,
 } from "../useArchiveRun.js";
 
@@ -36,7 +37,7 @@ const sampleEntries = [
 const sampleTotalBytes = 4;
 
 const stubSessionEvent: SessionEvent = {
-  schema_version: 3,
+  schema_version: 5,
   ts: "2026-01-01T00:00:00.000Z",
   version: "test",
   cwd: "/tmp",
@@ -48,6 +49,7 @@ const stubSessionEvent: SessionEvent = {
     total_bytes: 0,
     zip_bytes: 0,
     duration_ms: 0,
+    durable: true,
   },
 };
 
@@ -67,7 +69,9 @@ type HookControls = {
 // a bare `let` doesn't narrow correctly here.
 const controlsBox: { current: HookControls | null } = { current: null };
 
-const TestComponent = (props: UseArchiveRunOptions): React.JSX.Element => {
+const TestComponent = (
+  props: UseArchiveRunOptions<BackupOkResult>,
+): React.JSX.Element => {
   const { state, startArchive, abort, retry } = useArchiveRun(props);
   controlsBox.current = { state, startArchive, abort, retry };
   return <Text>ok</Text>;
@@ -85,15 +89,15 @@ const getControls = (): HookControls => {
  * `{ kind: "aborted" }`. Mirrors vigie-process's `makeAbortAwareStub`.
  */
 const makeAbortAwareRunnerStub = (): {
-  runner: ArchiveRunner;
+  runner: ArchiveRunner<BackupOkResult>;
   getSignal: () => AbortSignal | undefined;
 } => {
   const signalBox: { current: AbortSignal | undefined } = {
     current: undefined,
   };
-  const runner: ArchiveRunner = (opts) => {
+  const runner: ArchiveRunner<BackupOkResult> = (opts) => {
     signalBox.current = opts.signal;
-    return new Promise<ArchiveRunnerResult>((resolve) => {
+    return new Promise<ArchiveRunnerResult<BackupOkResult>>((resolve) => {
       const resolveAborted = (): void => {
         resolve({ kind: "aborted" });
       };
@@ -119,9 +123,9 @@ afterEach(async () => {
 });
 
 const renderHook = (
-  runner: ArchiveRunner,
+  runner: ArchiveRunner<BackupOkResult>,
   runningRef: { current: boolean },
-  onComplete: (outcome: ArchiveRunOutcome) => void,
+  onComplete: (outcome: ArchiveRunOutcome<BackupOkResult>) => void,
 ) =>
   render(
     <TestComponent
@@ -140,14 +144,16 @@ describe("useArchiveRun — runningRef lifecycle", () => {
   it("is true synchronously once startArchive is called, and false again on success", async () => {
     const runningRef = { current: false };
     const onComplete = vi.fn();
-    const okResult: ArchiveRunnerResult = {
+    const okResult: ArchiveRunnerResult<BackupOkResult> = {
       kind: "backup-ok",
       zipPath: path.join(tmpDir, "processed_20260101.zip"),
       zipBytes: 4,
       entryCount: sampleEntries.length,
       durationMs: 1,
+      durable: true,
     };
-    const runner: ArchiveRunner = () => Promise.resolve(okResult);
+    const runner: ArchiveRunner<BackupOkResult> = () =>
+      Promise.resolve(okResult);
 
     renderHook(runner, runningRef, onComplete);
     await waitUntil(() => getControls().state.kind === "preview");
@@ -189,7 +195,8 @@ describe("useArchiveRun — runningRef lifecycle", () => {
   it("abort() is a no-op outside of the running state", async () => {
     const runningRef = { current: false };
     const onComplete = vi.fn();
-    const runner: ArchiveRunner = () => Promise.resolve({ kind: "aborted" });
+    const runner: ArchiveRunner<BackupOkResult> = () =>
+      Promise.resolve({ kind: "aborted" });
 
     renderHook(runner, runningRef, onComplete);
     await waitUntil(() => getControls().state.kind === "preview");
@@ -204,7 +211,7 @@ describe("useArchiveRun — defensive error handling", () => {
   it("goes to run-error without crashing when the runner rejects (thrown, not a Result)", async () => {
     const runningRef = { current: false };
     const onComplete = vi.fn();
-    const runner: ArchiveRunner = () => {
+    const runner: ArchiveRunner<BackupOkResult> = () => {
       throw new Error("boom, no .code");
     };
 
@@ -236,14 +243,16 @@ describe("useArchiveRun — session logging is best-effort", () => {
   it("completes successfully and reaches onComplete regardless of the real session-log write", async () => {
     const runningRef = { current: false };
     const onComplete = vi.fn();
-    const okResult: ArchiveRunnerResult = {
+    const okResult: ArchiveRunnerResult<BackupOkResult> = {
       kind: "backup-ok",
       zipPath: path.join(tmpDir, "processed_20260101.zip"),
       zipBytes: 4,
       entryCount: sampleEntries.length,
       durationMs: 1,
+      durable: true,
     };
-    const runner: ArchiveRunner = () => Promise.resolve(okResult);
+    const runner: ArchiveRunner<BackupOkResult> = () =>
+      Promise.resolve(okResult);
 
     renderHook(runner, runningRef, onComplete);
     await waitUntil(() => getControls().state.kind === "preview");
@@ -262,7 +271,7 @@ describe("useArchiveRun — session logging is best-effort", () => {
     const runningRef = { current: false };
     const onComplete = vi.fn();
     let starts = 0;
-    const runner: ArchiveRunner = async () => {
+    const runner: ArchiveRunner<BackupOkResult> = async () => {
       starts++;
       await new Promise<void>((r) => setTimeout(r, 30));
       return {
@@ -271,6 +280,7 @@ describe("useArchiveRun — session logging is best-effort", () => {
         zipBytes: 4,
         entryCount: sampleEntries.length,
         durationMs: 1,
+        durable: true,
       };
     };
 
@@ -297,7 +307,7 @@ describe("useArchiveRun — retry", () => {
         alreadyExists: false,
       });
     };
-    const runner: ArchiveRunner = () =>
+    const runner: ArchiveRunner<BackupOkResult> = () =>
       Promise.resolve({ kind: "error", code: "ENOSPC" });
 
     render(

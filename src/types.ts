@@ -150,6 +150,9 @@ export type ArchiveResultSerialized =
       total_bytes: number;
       zip_bytes: number;
       duration_ms: number;
+      /** Directory fsync confirmed after the final rename. Mirrors
+       * `PackageResultSerialized`; the field that made this event v5. */
+      durable: boolean;
     }
   | {
       status: "aborted";
@@ -209,20 +212,34 @@ export type PackageResultSerialized =
  * schema 1) can ignore v2+ entries safely. The `action` field is also
  * available as a secondary discriminant.
  *
- * `schema_version` identifies an event *shape* — one per `action` — not a
- * schema revision counter: v3 (`vigie-archive`) and v4 (`vigie-package`) are
- * different actions that happen to have been added back to back, not two
- * revisions of the same event. A future change to `vigie-archive`'s shape
- * needs its own new version number, not "v3.1" folded into v3 nor
- * borrowing v4 (already taken by `vigie-package`).
+ * `schema_version` identifies an event *shape*, not a schema revision
+ * counter. The exact rule: **one shape = one number; an `action` may hold
+ * several over time, only one of them current.** v3 (`vigie-archive`) and v4
+ * (`vigie-package`) were different actions added back to back, not two
+ * revisions of the same event — and v5 is `vigie-archive` again with a
+ * changed shape, which is why it took a fresh number rather than "v3.1" or
+ * a field folded into v3.
+ *
+ * This union is a *write* type: it lists the shapes chiro emits today.
+ * Retired shapes are not representable here — a reader, if one is ever
+ * needed, carries its own type covering the historical forms.
  *
  * v1 — `vigie-prefix` rename sessions. Wire format must remain byte-stable.
  * v2 — `vigie-process` split-and-expand sessions.
- * v3 — `vigie-archive` zip-creation sessions. No `input` field — the run
- * has nothing user-chosen to record (unlike v1/v2's form input).
+ * v3 — `vigie-archive` zip-creation sessions, **retired**: superseded by v5.
+ * No longer written; entries already on disk keep this shape.
  * v4 — `vigie-package` Vigie-Chiro upload-series sessions (chiro prepares
  * volumes, it doesn't upload — "vigie-upload" is deliberately left free for
  * a future real Glacier upload feature).
+ * v5 — `vigie-archive`, same action as v3 plus `durable`. A new number
+ * rather than a field added to v3, as the rule above requires. The reason is
+ * *not* that some future reader will need to tell "fsync confirmed" from
+ * "field absent": the flow that deletes `processed/` runs in-process right
+ * after the upload, with the boolean in hand — it will never parse
+ * `sessions.jsonl` to decide whether to erase 25 GB. The reason is narrower
+ * and sufficient: a line whose `schema_version` is 5 has exactly the fields
+ * v5 declares, so anything reading the journal downstream (jq, a future
+ * export) can branch on the number alone instead of probing for a field.
  */
 export type SessionEvent =
   | {
@@ -244,7 +261,7 @@ export type SessionEvent =
       result: ProcessResultSerialized;
     }
   | {
-      schema_version: 3;
+      schema_version: 5;
       ts: string;
       version: string;
       cwd: string;

@@ -24,6 +24,7 @@ export type ApplyRenamesFn = (
   options?: ApplyOptions,
 ) => Promise<RenameOutcome>;
 import { CHIRO_VERSION } from "../../version.js";
+import { fitPath } from "../../format/path.js";
 
 type ConfirmState =
   | { kind: "loading" }
@@ -104,6 +105,7 @@ export const ConfirmScreen = ({
   const prefix = buildPrefix(input);
   const [state, setState] = useState<ConfirmState>({ kind: "loading" });
   const controllerRef = useRef<AbortController | null>(null);
+  const startedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -152,6 +154,12 @@ export const ConfirmScreen = ({
   });
 
   const startRename = async (plan: RenamePlan) => {
+    // Synchronous latch, not state: two Entrée events in the same tick would
+    // otherwise both start a rename, and the second sees every target already
+    // taken by the first — a Result screen full of EEXIST errors on a
+    // rename that in fact succeeded. Same latch as `useArchiveRun`.
+    if (startedRef.current) return;
+    startedRef.current = true;
     const controller = new AbortController();
     controllerRef.current = controller;
     runningRef.current = true;
@@ -205,7 +213,7 @@ export const ConfirmScreen = ({
     const knownMessage = mapKnownErrorCode(state.rawCode);
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1}>
           <Text color="yellow">
             ⚠ Une erreur est survenue pendant le renommage.
@@ -249,8 +257,8 @@ export const ConfirmScreen = ({
 
   return (
     <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-      <Text>📁 {cwd}</Text>
-      {plan.operations.length === 0 ? (
+      <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
+      {plan.operations.length === 0 && alreadyCount > 0 ? (
         <Box marginTop={1}>
           <Text color="cyan">
             ℹ Tous les fichiers ({alreadyCount.toString()}) sont déjà au bon
@@ -277,7 +285,7 @@ export const ConfirmScreen = ({
             ))}
             {remaining > 0 ? (
               <Text dimColor>
-                {`  Les ${remaining.toString()} autres suivent le même format (seul l'horodatage change).`}
+                {`  Les ${remaining.toString()} autres suivent le même format.`}
               </Text>
             ) : null}
           </Box>
@@ -287,11 +295,12 @@ export const ConfirmScreen = ({
       {collisionsCount > 0 ? (
         <Box flexDirection="column" marginTop={1}>
           <Text color="yellow">
-            ⚠ {collisionsCount.toString()} fichier
-            {collisionsCount > 1 ? "s" : ""} ne pourra
-            {collisionsCount > 1 ? "ont" : ""} pas être renommé
-            {collisionsCount > 1 ? "s" : ""} (un fichier porte déjà le nom
-            cible) :
+            {collisionsCount > 1
+              ? `⚠ ${collisionsCount.toString()} fichiers ne pourront pas être renommés`
+              : "⚠ 1 fichier ne pourra pas être renommé"}
+          </Text>
+          <Text color="yellow">
+            {"  (un fichier porte déjà le nom cible) :"}
           </Text>
           {pickExamples(plan.skippedCollision).map((name) => (
             <Text key={name}>{`    ${name}`}</Text>
@@ -325,7 +334,7 @@ export const ConfirmScreen = ({
         hints={
           plan.operations.length === 0
             ? [
-                { key: "Entrée", label: "retour au menu" },
+                { key: "Entrée", label: "continuer" },
                 { key: "Échap", label: "retour à la saisie" },
               ]
             : [

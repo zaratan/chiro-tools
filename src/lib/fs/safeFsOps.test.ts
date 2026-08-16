@@ -2,7 +2,6 @@ import {
   copyFile as realCopyFile,
   mkdtemp,
   readFile,
-  readdir,
   rm,
   unlink as realUnlink,
   writeFile as realWriteFile,
@@ -13,9 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   extractErrorCode,
   renameWithFallback,
-  writeFileAtomic,
   type RenameFsLike,
-  type WriteFsLike,
 } from "./safeFsOps.js";
 
 const makeFsError = (code: string): Error & { code: string } => {
@@ -115,99 +112,5 @@ describe("renameWithFallback", () => {
     });
 
     expect(result).toEqual({ kind: "error", code: "ABORT_ERR" });
-  });
-});
-
-describe("writeFileAtomic", () => {
-  let tmpDir: string;
-
-  beforeEach(async () => {
-    tmpDir = await mkdtemp(path.join(tmpdir(), "chiro-safefs-atomic-"));
-  });
-
-  afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
-  });
-
-  it("writes a file via tmp + rename", async () => {
-    const target = path.join(tmpDir, "out.bin");
-    const data = new Uint8Array([1, 2, 3, 4]);
-
-    const result = await writeFileAtomic(target, data);
-
-    expect(result).toEqual({ kind: "ok" });
-    const written = await readFile(target);
-    expect(Array.from(written)).toEqual([1, 2, 3, 4]);
-
-    const entries = await readdir(tmpDir);
-    expect(entries).toEqual(["out.bin"]); // tmp removed
-  });
-
-  it("returns the writeFile error code without leaving a tmp", async () => {
-    const fsMock: WriteFsLike = {
-      writeFile: vi.fn(() => Promise.reject(makeFsError("ENOSPC"))),
-      rename: vi.fn(),
-      copyFile: vi.fn(),
-      unlink: vi.fn(),
-    };
-
-    const result = await writeFileAtomic("/some/where.bin", new Uint8Array(1), {
-      fs: fsMock,
-    });
-
-    expect(result).toEqual({ kind: "error", code: "ENOSPC" });
-    expect(fsMock.rename).not.toHaveBeenCalled();
-  });
-
-  it("cleans up tmp on rename failure (best effort)", async () => {
-    const target = path.join(tmpDir, "out.bin");
-    const renameErr = makeFsError("EACCES");
-
-    let tmpExisted = false;
-    const fsMock: WriteFsLike = {
-      writeFile: vi.fn(async (file, data) => {
-        await realWriteFile(file as string, data as Uint8Array);
-      }),
-      rename: vi.fn(async (from: string) => {
-        // Verify the tmp was written before we fail. The tmp path embeds
-        // the current PID so we recover it from the mock's first arg.
-        await readFile(from);
-        tmpExisted = true;
-        throw renameErr;
-      }),
-      copyFile: vi.fn(),
-      unlink: vi.fn(realUnlink),
-    };
-
-    const result = await writeFileAtomic(target, new Uint8Array([9]), {
-      fs: fsMock,
-    });
-
-    expect(result).toEqual({ kind: "error", code: "EACCES" });
-    expect(tmpExisted).toBe(true);
-
-    // Give the best-effort unlink a microtask to run.
-    await new Promise((r) => setImmediate(r));
-    const entries = await readdir(tmpDir);
-    expect(entries).toEqual([]); // tmp removed by best-effort cleanup
-  });
-
-  it("returns ABORT_ERR if signal is already aborted", async () => {
-    const controller = new AbortController();
-    controller.abort();
-    const fsMock: WriteFsLike = {
-      writeFile: vi.fn(),
-      rename: vi.fn(),
-      copyFile: vi.fn(),
-      unlink: vi.fn(),
-    };
-
-    const result = await writeFileAtomic("/x", new Uint8Array(0), {
-      signal: controller.signal,
-      fs: fsMock,
-    });
-
-    expect(result).toEqual({ kind: "error", code: "ABORT_ERR" });
-    expect(fsMock.writeFile).not.toHaveBeenCalled();
   });
 });

@@ -59,7 +59,7 @@ describe("UploadResultScreen — success, multiple volumes", () => {
       "Vos enregistrements sont toujours dans ./processed/.",
     );
     // Never lists individual volume file names — O(N) cost on a fixed-height
-    // screen (phase-9 plan, U-Résultat).
+    // screen.
     expect(frame).not.toContain("part1.zip");
   });
 

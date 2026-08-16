@@ -41,14 +41,30 @@ describe("scanDirectory", () => {
   });
 
   it("returns sorted WAV filenames, case-insensitive on extension", async () => {
-    await writeFile(path.join(tmpDir, "c.wav"), "");
-    await writeFile(path.join(tmpDir, "a.wav"), "");
-    await writeFile(path.join(tmpDir, "B.WAV"), "");
+    // Caveat, measured: `readdir`'s order on APFS depends on a hash of the
+    // *directory name*, so for this suite's `chiro-test-scandir-` prefix it
+    // happens to come back already ordered — removing the `.sort()` leaves
+    // this green, while the same names under a different prefix come back
+    // shuffled 12 times out of 12. The set-and-order assertion below is
+    // therefore only as strong as the machine allows; it is kept because it
+    // still fails anywhere `readdir` does not oblige, and no arrangement of
+    // filenames can do better without mocking `readdir` itself.
+    const created = [
+      "z9.wav",
+      "c.wav",
+      "M2.WAV",
+      "a.wav",
+      "b12.wav",
+      "B.WAV",
+      "y.wav",
+      "d3.wav",
+    ];
+    for (const name of created) await writeFile(path.join(tmpDir, name), "");
 
     const result = await scanDirectory(tmpDir);
     expect(result).toEqual({
       kind: "ok",
-      wavFiles: ["B.WAV", "a.wav", "c.wav"],
+      wavFiles: [...created].sort(),
       ignoredFileCount: 0,
     });
   });

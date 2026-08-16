@@ -1,18 +1,19 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import type {
-  createZipArchive as defaultCreateZipArchive,
-  CreateZipArchiveResult,
-} from "../../lib/archive/createZipArchive.js";
+import type { createZipArchive as defaultCreateZipArchive } from "../../lib/archive/createZipArchive.js";
 import {
   buildArchiveName,
   resolveArchiveFileName,
   type ArchiveEntryStat,
 } from "../../lib/archive/planArchive.js";
-import { buildArchiveSessionEvent } from "../../lib/logging/buildArchiveSessionEvent.js";
+import {
+  buildArchiveSessionEvent,
+  type ArchiveSessionOutcome,
+} from "../../lib/logging/buildArchiveSessionEvent.js";
 import { extractCommonPrefix } from "../../lib/vigie-chiro/extractCommonPrefix.js";
 import type {
   ArchiveRunner,
+  BackupOkResult,
   BuildRunSessionEvent,
   ResolveTargetName,
 } from "./useArchiveRun.js";
@@ -42,8 +43,8 @@ export const hasExistingArchiveZip = async (
 
 export type BackupBehavior = {
   resolveTargetName: ResolveTargetName;
-  runner: ArchiveRunner;
-  buildSessionEvent: BuildRunSessionEvent;
+  runner: ArchiveRunner<BackupOkResult>;
+  buildSessionEvent: BuildRunSessionEvent<BackupOkResult>;
 };
 
 /**
@@ -75,7 +76,7 @@ export const createBackupBehavior = (
     };
   };
 
-  const runner: ArchiveRunner = async ({
+  const runner: ArchiveRunner<BackupOkResult> = async ({
     entries: runEntries,
     signal,
     onProgress,
@@ -102,27 +103,27 @@ export const createBackupBehavior = (
         zipBytes: result.zipBytes,
         entryCount: result.entryCount,
         durationMs: result.durationMs,
+        durable: result.durable,
       };
     }
     return result;
   };
 
-  const buildSessionEvent: BuildRunSessionEvent = (
+  const buildSessionEvent: BuildRunSessionEvent<BackupOkResult> = (
     result,
     entryCount,
     totalBytes,
     durationMs,
     runCwd,
   ) => {
-    let adapted: CreateZipArchiveResult;
+    let adapted: ArchiveSessionOutcome;
     switch (result.kind) {
       case "backup-ok":
         adapted = {
           kind: "ok",
           zipPath: result.zipPath,
           zipBytes: result.zipBytes,
-          entryCount: result.entryCount,
-          durationMs: result.durationMs,
+          durable: result.durable,
         };
         break;
       case "aborted":
@@ -130,14 +131,6 @@ export const createBackupBehavior = (
         break;
       case "error":
         adapted = { kind: "error", code: result.code };
-        break;
-      case "package-ok":
-        // Cannot happen in practice: this closure's own `runner` (above)
-        // only ever produces backup-ok/aborted/error — `BuildRunSessionEvent`
-        // is only this wide because its type is shared with the package
-        // flow (`useArchiveRun.ts`). Logged defensively rather than thrown,
-        // consistent with the project's no-throw-on-normal-paths rule.
-        adapted = { kind: "error", code: "wrong-behavior-wired:package-ok" };
         break;
     }
     return buildArchiveSessionEvent(

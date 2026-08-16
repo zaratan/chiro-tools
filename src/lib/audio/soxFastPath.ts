@@ -1,4 +1,3 @@
-import { statSync } from "node:fs";
 import {
   mkdir,
   open,
@@ -9,8 +8,9 @@ import {
   unlink,
 } from "node:fs/promises";
 import path from "node:path";
-import { spawn as nodeSpawn, spawnSync } from "node:child_process";
-import { WaveFile } from "wavefile";
+import { runSpotCheck } from "./soxSpotCheck.js";
+
+import { spawn as nodeSpawn } from "node:child_process";
 import type {
   ProcessError,
   ProcessInput,
@@ -18,7 +18,6 @@ import type {
   ProcessedFile,
   ProgressEvent,
 } from "../../types.js";
-import { splitWavFile } from "./splitWavFile.js";
 import { rewriteHeaderToStandardPcm } from "./wavHeader.js";
 import { appendAncillaryChunks } from "./finalizeChunk.js";
 import { CHUNK_OUTPUT_SECONDS, TIME_EXPANSION_FACTOR } from "./constants.js";
@@ -37,137 +36,9 @@ import {
 } from "./batchPlan.js";
 import type { MetadataConfig } from "../../types.js";
 
-export type SoxAvailability =
-  { kind: "available"; binPath: string } | { kind: "absent" };
-
 export type SoxBatchResult =
   | { kind: "completed"; outcome: ProcessOutcome }
   | { kind: "fallback"; reason: string };
-
-// Spot-check: compare this many samples from the middle of each verified chunk
-const SPOT_CHECK_SAMPLE_COUNT = 100;
-
-// Resolves the full path of a binary by searching PATH entries.
-// Uses statSync to check file existence without spawning a subprocess,
-// so it works even when PATH is restricted to a custom directory in tests.
-const which = (name: string): string | null => {
-  const pathEnv = process.env.PATH ?? "";
-  for (const dir of pathEnv.split(path.delimiter)) {
-    if (!dir) continue;
-    const candidate = path.join(dir, name);
-    try {
-      const st = statSync(candidate);
-      // Check that the file is executable (owner, group, or other exec bit)
-      if (st.isFile() && (st.mode & 0o111) !== 0) return candidate;
-    } catch {
-      // file does not exist or no access — try next
-    }
-  }
-  return null;
-};
-
-export const detectSox = (): Promise<SoxAvailability> => {
-  if (process.env.CHIRO_DISABLE_FASTPATH) {
-    return Promise.resolve({ kind: "absent" });
-  }
-
-  const binPath = which("sox");
-  if (binPath === null) {
-    return Promise.resolve({ kind: "absent" });
-  }
-
-  try {
-    const result = spawnSync(binPath, ["--version"], { encoding: "utf8" });
-    if (result.status !== 0) {
-      return Promise.resolve({ kind: "absent" });
-    }
-  } catch {
-    return Promise.resolve({ kind: "absent" });
-  }
-
-  return Promise.resolve({ kind: "available", binPath });
-};
-
-const decodeFirstChannelSamples = (
-  buf: Buffer,
-): Int16Array | Int32Array | null => {
-  let wav: WaveFile;
-  try {
-    wav = new WaveFile(buf);
-  } catch {
-    return null;
-  }
-  const Ctor: typeof Int16Array | typeof Int32Array =
-    wav.bitDepth === "16" ? Int16Array : Int32Array;
-  const raw = wav.getSamples(false, Ctor) as unknown as
-    Int16Array | Int32Array | (Int16Array | Int32Array)[];
-  const samples: (Int16Array | Int32Array)[] = Array.isArray(raw) ? raw : [raw];
-  return samples[0] ?? null;
-};
-
-const middleSamplesFingerprint = (channel: Int16Array | Int32Array): string => {
-  const total = channel.length;
-  const midStart =
-    Math.floor(total / 2) - Math.floor(SPOT_CHECK_SAMPLE_COUNT / 2);
-  const start = Math.max(0, midStart);
-  const end = Math.min(total, start + SPOT_CHECK_SAMPLE_COUNT);
-  return Array.from(channel.subarray(start, end)).join(",");
-};
-
-const fingerprintChunkMiddle = async (
-  chunkPath: string,
-): Promise<string | null> => {
-  let buf: Buffer;
-  try {
-    buf = await readFile(chunkPath);
-  } catch {
-    return null;
-  }
-  const channel = decodeFirstChannelSamples(buf);
-  if (channel === null || channel.length === 0) return null;
-  return middleSamplesFingerprint(channel);
-};
-
-// Fingerprints several reference chunks in a single traversal of the
-// wavefile generator. Calling fingerprintReferenceChunk once per target
-// index would re-decode the source and re-encode every chunk up to the
-// target for each call — exactly the CPU cost the sox fast path exists to
-// avoid. Returns a map from target index to its fingerprint (or null if
-// the chunk could not be decoded); indices the generator never reaches
-// (aborted/errored/out of range) are simply absent from the map.
-const fingerprintReferenceChunks = (
-  sourceBuffer: Buffer,
-  mode: ProcessInput["mode"],
-  targetIndices: number[],
-): Map<number, string | null> => {
-  const targets = new Set(targetIndices);
-  const maxTarget = Math.max(...targetIndices);
-  const results = new Map<number, string | null>();
-
-  for (const yielded of splitWavFile(sourceBuffer, {
-    mode,
-    chunkSeconds: CHUNK_OUTPUT_SECONDS,
-  })) {
-    if (yielded.kind !== "chunk") break;
-    const { chunk } = yielded;
-    if (chunk.index > maxTarget) break;
-    if (!targets.has(chunk.index)) continue;
-
-    const channel = decodeFirstChannelSamples(Buffer.from(chunk.buffer));
-    results.set(
-      chunk.index,
-      channel === null || channel.length === 0
-        ? null
-        : middleSamplesFingerprint(channel),
-    );
-
-    if (results.size === targets.size) break;
-  }
-
-  return results;
-};
-
-// Lists sox-produced raw files in numerical order
 const listRawChunks = async (outDir: string): Promise<string[]> => {
   let entries: string[];
   try {
@@ -449,44 +320,34 @@ const processOneFile = async (
 
 // Spot-checks the sox output for the first processed file against the
 // wavefile reference pipeline. Returns null on match, reason string on mismatch.
-const runSpotCheck = async (
-  sourceBuffer: Buffer,
-  outDir: string,
-  baseName: string,
-  chunkCount: number,
-  mode: ProcessInput["mode"],
-): Promise<string | null> => {
-  if (chunkCount === 0) return "spot-check: no chunks produced";
 
-  const checkIndices = [0, Math.floor(chunkCount / 2), chunkCount - 1].filter(
-    (v, i, arr) => arr.indexOf(v) === i,
-  );
-
-  const refFingerprints = fingerprintReferenceChunks(
-    sourceBuffer,
-    mode,
-    checkIndices,
-  );
-
-  for (const idx of checkIndices) {
-    const chunkPath = path.join(outDir, buildChunkName(baseName, idx));
-
-    const soxFingerprint = await fingerprintChunkMiddle(chunkPath);
-    if (soxFingerprint === null) {
-      return `spot-check: could not decode chunk ${String(idx)}`;
-    }
-
-    const refFingerprint = refFingerprints.get(idx) ?? null;
-    if (refFingerprint === null) {
-      return `spot-check: could not decode reference chunk ${String(idx)}`;
-    }
-
-    if (soxFingerprint !== refFingerprint) {
-      return `spot-check mismatch on chunk ${String(idx)}`;
-    }
+/**
+ * Removes `.sox-tmp-*` scratch directories left by a killed run.
+ *
+ * The `finally` of `processOneFile` clears its own, but not on `kill -9` or a
+ * power cut — and `scanDirectory` deliberately hides dotted entries from the
+ * conflict constat, so nothing else ever reports them. Up to a few hundred MB
+ * can then sit in `processed/`, invisible in the Finder, collected only by a
+ * later run happening to process the *same* base name. Prefixing the files
+ * changes every base name, which makes that never happen.
+ *
+ * Mirrors `preCleanOrphanTmps` in `splitWorkerPool.ts`. Best-effort: a
+ * directory a live sibling run is using simply fails to delete and is left.
+ */
+const preCleanOrphanSoxTmpDirs = async (outDir: string): Promise<void> => {
+  let entries: string[];
+  try {
+    entries = await readdir(outDir);
+  } catch {
+    return;
   }
-
-  return null;
+  for (const entry of entries) {
+    if (!entry.startsWith(".sox-tmp-")) continue;
+    await rm(path.join(outDir, entry), {
+      recursive: true,
+      force: true,
+    }).catch(() => undefined);
+  }
 };
 
 export const runSoxBatch = async (
@@ -507,6 +368,8 @@ export const runSoxBatch = async (
   const maxInputBytes = options?.maxInputBytes ?? DEFAULT_MAX_INPUT_BYTES;
   const outDir = buildOutDir(dir);
   const emit = makeEmit(options?.onProgress);
+
+  await preCleanOrphanSoxTmpDirs(outDir);
 
   const state = {
     processed: [] as ProcessedFile[],

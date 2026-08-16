@@ -123,10 +123,28 @@ describe("isTransientArchiveError", () => {
     expect(isTransientArchiveError(code)).toBe(true);
   });
 
-  it.each(["zip64-required", "entry-too-large", "EROFS"])(
+  it.each(["zip64-required", "entry-too-large", "EROFS", "staging-stuck"])(
     "is definitive (not transient) for %s",
     (code) => {
       expect(isTransientArchiveError(code)).toBe(false);
+    },
+  );
+
+  it.each(["mkdir:EROFS", "rename-volume:EROFS"])(
+    "sees through the prefix: %s is definitive too",
+    (code) => {
+      // A read-only mount surfaces as `mkdir:EROFS` — the first mkdir is what
+      // fails — so classifying on the raw string missed the very case the
+      // definitive list was added for. The operation a failure happened
+      // during says nothing about whether it can resolve itself.
+      expect(isTransientArchiveError(code)).toBe(false);
+    },
+  );
+
+  it.each(["mkdir:ENOSPC", "rename-volume:ENOSPC", "mkdir:EBUSY"])(
+    "keeps a prefixed transient code transient: %s",
+    (code) => {
+      expect(isTransientArchiveError(code)).toBe(true);
     },
   );
 

@@ -15,6 +15,7 @@ import { buildUploadDir } from "../../lib/archive/planUpload.js";
 import { cleanOrphanStagingDirs } from "../../lib/archive/createZipVolumes.js";
 import { formatBytes } from "../../format/bytes.js";
 import type { ArchiveFlowMode } from "./useArchiveRun.js";
+import { fitPath } from "../../format/path.js";
 
 const BYTES_PER_ENTRY_OVERHEAD = 200;
 const DISK_SAFETY_MARGIN_BYTES = 1024 * 1024;
@@ -55,8 +56,7 @@ const scanForArchive = async (
 
   // Best-effort, silent — the screen already reads "Analyse du dossier…",
   // and this is unrelated to whether `processed/` scans cleanly, so it runs
-  // regardless of that outcome (phase-9 plan: called at constat time, never
-  // mid-run where it would freeze the UI right after Entrée).
+  // regardless of that outcome.
   const orphanCleanup =
     mode === "package"
       ? cleanOrphanStagingDirs(buildUploadDir(cwd)).catch(() => undefined)
@@ -106,7 +106,7 @@ const scanForArchive = async (
 };
 
 export type ArchiveConstatScreenProps = {
-  /** Wording-only branch (phase-9 plan, D7): the target-folder label and the
+  /** Wording-only branch: the target-folder label and the
    * closing question differ; the scan itself does not. */
   mode: ArchiveFlowMode;
   cwd: string;
@@ -164,7 +164,7 @@ export const ConstatScreen = ({
   if (state.kind === "no-processed") {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1}>
           <Text>Aucun dossier « processed » trouvé dans ce dossier.</Text>
         </Box>
@@ -190,7 +190,7 @@ export const ConstatScreen = ({
   if (state.kind === "empty-processed") {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1}>
           <Text>
             Le dossier « processed » ne contient aucun enregistrement.
@@ -210,7 +210,7 @@ export const ConstatScreen = ({
   if (state.kind === "not-writable") {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1}>
           <Text color="yellow">⚠ Ce dossier est protégé en écriture.</Text>
         </Box>
@@ -233,7 +233,7 @@ export const ConstatScreen = ({
   if (state.kind === "scan-error") {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1}>
           <Text color="yellow">
             ⚠ Une erreur inattendue est survenue en lisant ce dossier.
@@ -253,7 +253,7 @@ export const ConstatScreen = ({
   if (state.kind === "insufficient-disk") {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1}>
           <Text color="yellow">
             ⚠ Pas assez d'espace disque pour cette opération.
@@ -281,7 +281,7 @@ export const ConstatScreen = ({
   // state.kind === "ready"
   return (
     <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-      <Text>📁 {cwd}</Text>
+      <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
       <Box marginTop={1}>
         <Text color="green">✓ </Text>
         <Text>

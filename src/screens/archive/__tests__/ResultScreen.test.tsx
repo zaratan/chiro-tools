@@ -17,6 +17,7 @@ describe("ArchiveResultScreen — success", () => {
     zipBytes: 12345,
     entryCount,
     durationMs: 4200,
+    durable: true,
   });
 
   it("shows the plural count, the relative zip path, the size, and the backup-copy hand-off wording", () => {

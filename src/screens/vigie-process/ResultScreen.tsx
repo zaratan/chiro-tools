@@ -5,7 +5,10 @@ import { formatDuration } from "../../format/duration.js";
 import type { ProcessError, ProcessOutcome } from "../../types.js";
 import { mapProcessErrorCodeToMessage } from "./errorMessages.js";
 
-const TRUNCATE_PER_GROUP = 5;
+// Three, not five: on an 80×24 Terminal two groups of five scroll the title
+// and the summary off the top, leaving her a wall of filenames with no idea
+// what happened. The names only serve to be passed on.
+const TRUNCATE_PER_GROUP = 3;
 
 type Variant =
   | { kind: "interrupted"; outcome: ProcessOutcome }
@@ -20,11 +23,14 @@ const classify = (outcome: ProcessOutcome): Variant => {
   if (outcome.interrupted) {
     return { kind: "interrupted", outcome };
   }
+  // `skippedAlreadyChunked` is not a failure: relaunching on an already-cut
+  // folder is a normal thing to do. Counting it here produced a bare
+  // "⚠ Aucun enregistrement n'a pu être découpé" with no explanation and no
+  // action — the exact anxiety this app exists to avoid. It falls through to
+  // `success`, which already reports the skip calmly in dimColor.
   if (
     outcome.processed.length === 0 &&
-    (outcome.errored.length > 0 ||
-      outcome.skippedTooLarge.length > 0 ||
-      outcome.skippedAlreadyChunked.length > 0)
+    (outcome.errored.length > 0 || outcome.skippedTooLarge.length > 0)
   ) {
     return { kind: "all-failed", outcome };
   }
@@ -199,11 +205,13 @@ export const ResultScreen = ({
           const truncatedCount = group.files.length - visibleFiles.length;
           return (
             <Box key={group.message} flexDirection="column" marginBottom={1}>
-              <Text>
-                {`    • ${group.message} (${group.files.length.toString()} fichier${
-                  group.files.length > 1 ? "s" : ""
-                })`}
-              </Text>
+              <Box marginLeft={4}>
+                <Text>
+                  {`• ${group.message} (${group.files.length.toString()} fichier${
+                    group.files.length > 1 ? "s" : ""
+                  })`}
+                </Text>
+              </Box>
               {visibleFiles.map((f) => (
                 <Text key={f}>{`        ${f}`}</Text>
               ))}

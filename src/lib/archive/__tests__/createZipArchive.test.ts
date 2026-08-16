@@ -221,7 +221,6 @@ describe("createZipArchive — progress events", () => {
       kind: "entry-start",
       entryIndex: 0,
       entryName: "a.wav",
-      totalEntries: 2,
     });
     expect(events[events.length - 1]).toEqual({
       kind: "entry-done",

@@ -11,6 +11,7 @@ import { extractCommonPrefix } from "../../lib/vigie-chiro/extractCommonPrefix.j
 import type {
   ArchiveRunner,
   BuildRunSessionEvent,
+  PackageOkResult,
   ResolveTargetName,
 } from "./useArchiveRun.js";
 
@@ -25,7 +26,7 @@ const UPLOAD_SERIES_NAME_REGEX =
  * déjà" reassurance line. Mirrors `hasExistingArchiveZip` in
  * `backupBehavior.ts`: a directory-name check, not a collision check for
  * *this run's* exact name (that's resolved at commit time inside
- * `createZipVolumes`, never here — see D2 in the phase-9 plan).
+ * `createZipVolumes`, never here).
  */
 export const hasExistingUploadSeries = async (
   uploadDir: string,
@@ -40,14 +41,13 @@ export const hasExistingUploadSeries = async (
 
 export type PackageBehavior = {
   resolveTargetName: ResolveTargetName;
-  runner: ArchiveRunner;
-  buildSessionEvent: BuildRunSessionEvent;
+  runner: ArchiveRunner<PackageOkResult>;
+  buildSessionEvent: BuildRunSessionEvent<PackageOkResult>;
 };
 
 /**
  * Builds the `useArchiveRun` triplet for the multi-volume Vigie-Chiro
- * upload-series flow: one `createZipVolumes` call, `zip64: "forbid""
- * enforced inside it (not here — see D4 in the phase-9 plan). Unlike the
+ * upload-series flow: one `createZipVolumes` call, `zip64: "forbid"` enforced inside it, not here. Unlike the
  * backup flow, the preview name shown here is never collision-resolved: the
  * commit-time rename loop inside `createZipVolumes` is the single place
  * that decides on a `-2` suffix (D2), so showing anything else at preview
@@ -67,7 +67,7 @@ export const createPackageBehavior = (
     return { name, alreadyExists };
   };
 
-  const runner: ArchiveRunner = async ({
+  const runner: ArchiveRunner<PackageOkResult> = async ({
     entries: runEntries,
     signal,
     onProgress,
@@ -99,7 +99,7 @@ export const createPackageBehavior = (
     return result;
   };
 
-  const buildSessionEvent: BuildRunSessionEvent = (
+  const buildSessionEvent: BuildRunSessionEvent<PackageOkResult> = (
     result,
     entryCount,
     totalBytes,
@@ -125,14 +125,6 @@ export const createPackageBehavior = (
         break;
       case "error":
         adapted = { kind: "error", code: result.code };
-        break;
-      case "backup-ok":
-        // Cannot happen in practice: this closure's own `runner` (above)
-        // only ever produces package-ok/aborted/error — `BuildRunSessionEvent`
-        // is only this wide because its type is shared with the backup
-        // flow (`useArchiveRun.ts`). Logged defensively rather than thrown,
-        // consistent with the project's no-throw-on-normal-paths rule.
-        adapted = { kind: "error", code: "wrong-behavior-wired:backup-ok" };
         break;
     }
     return buildPackageSessionEvent(

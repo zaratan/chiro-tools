@@ -57,3 +57,19 @@ describe("extractCommonPrefix", () => {
     );
   });
 });
+
+describe("extractCommonPrefix — mixed batches", () => {
+  it("returns null when only some files carry the prefix", () => {
+    // The production case that matters: one foreign file dropped into
+    // `processed/`. Without this, the deposit folder gets named after the
+    // prefixed subset instead of falling back to `depot_YYYYMMDD` — a name
+    // that claims the batch is one study when it is not.
+    expect(
+      extractCommonPrefix([
+        "Car340581-2026-Pass1-A1-a_001.wav",
+        "Car340581-2026-Pass1-A1-a_002.wav",
+        "notes-de-terrain.wav",
+      ]),
+    ).toBeNull();
+  });
+});

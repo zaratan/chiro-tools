@@ -13,9 +13,11 @@ import {
   mapKnownArchiveErrorCode,
 } from "./errorMessages.js";
 import { RunningView } from "./RunningView.js";
+import { fitPath } from "../../format/path.js";
 import {
   useArchiveRun,
   type ArchiveFlowMode,
+  type ArchiveOkResult,
   type ArchiveRunOutcome,
   type ArchiveRunner,
   type BuildRunSessionEvent,
@@ -56,24 +58,26 @@ const RETRY_RESTART_HINT: Record<ArchiveFlowMode, string> = {
   package: "(la création des fichiers zip reprend depuis le début)",
 };
 
-export type ArchiveConfirmScreenProps = {
+export type ArchiveConfirmScreenProps<TOk extends ArchiveOkResult> = {
   /** Wording-only branch — behavior is fully injected below, never keyed on
-   * this (phase-9 plan, D7). */
+   * this. */
   mode: ArchiveFlowMode;
   cwd: string;
   entries: readonly ArchiveEntryStat[];
   totalBytes: number;
   /** Mutated during the run; consulted by the App-level Ctrl+C handler. */
   runningRef: React.RefObject<boolean>;
-  /** Injected — built by `createBackupBehavior`/`createPackageBehavior`. */
-  runner: ArchiveRunner;
+  /** Injected — built by `createBackupBehavior`/`createPackageBehavior`.
+   * `TOk` is inferred from the triplet, so wiring a backup runner to a
+   * package result handler is a compile error rather than a silent no-op. */
+  runner: ArchiveRunner<TOk>;
   resolveTargetName: ResolveTargetName;
-  buildSessionEvent: BuildRunSessionEvent;
-  onComplete: (outcome: ArchiveRunOutcome) => void;
+  buildSessionEvent: BuildRunSessionEvent<TOk>;
+  onComplete: (outcome: ArchiveRunOutcome<TOk>) => void;
   onBack: () => void;
 };
 
-export const ConfirmScreen = ({
+export const ConfirmScreen = <TOk extends ArchiveOkResult>({
   mode,
   cwd,
   entries,
@@ -84,7 +88,7 @@ export const ConfirmScreen = ({
   buildSessionEvent,
   onComplete,
   onBack,
-}: ArchiveConfirmScreenProps): React.JSX.Element => {
+}: ArchiveConfirmScreenProps<TOk>): React.JSX.Element => {
   const { state, startArchive, abort, retry, registerRunningViewHandles } =
     useArchiveRun({
       cwd,
@@ -162,7 +166,7 @@ export const ConfirmScreen = ({
     const transient = isTransientArchiveError(state.code);
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1} flexDirection="column">
           <Text color="yellow">⚠ {RUN_ERROR_TITLE[mode]}</Text>
         </Box>
@@ -181,7 +185,9 @@ export const ConfirmScreen = ({
             Détail technique : <Text color="cyan">{state.code}</Text>
           </Text>
           <Text dimColor>{"  (à transmettre si vous demandez de l'aide)"}</Text>
-          {transient ? <Text dimColor>{RETRY_RESTART_HINT[mode]}</Text> : null}
+          {transient ? (
+            <Text dimColor>{`  ${RETRY_RESTART_HINT[mode]}`}</Text>
+          ) : null}
         </Box>
         <Footer
           hints={
@@ -202,7 +208,7 @@ export const ConfirmScreen = ({
     const archivedDir = ARCHIVED_DIR_DISPLAY;
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-        <Text>📁 {cwd}</Text>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
         <Box marginTop={1}>
           <Text>
             {`On va rassembler ${entries.length.toString()} enregistrement${
@@ -216,11 +222,10 @@ export const ConfirmScreen = ({
             <Text color="cyan">{state.name}</Text>
           </Text>
           <Text>{`Emplacement :    ${archivedDir}`}</Text>
-          <Text>
-            {`Taille du zip :  au plus ${formatBytes(totalBytes)} — souvent moins, le zip compresse`}
-          </Text>
+          <Text>{`Taille du zip :  au plus ${formatBytes(totalBytes)}`}</Text>
         </Box>
         <Box marginTop={1} flexDirection="column">
+          <Text dimColor>Souvent moins : un zip compresse.</Text>
           <Text dimColor>La date de création est dans le nom du fichier.</Text>
           {state.alreadyExists ? (
             <Text dimColor>
@@ -251,7 +256,7 @@ export const ConfirmScreen = ({
   const estimatedSingleVolume = totalBytes <= maxVolumeBytes();
   return (
     <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
-      <Text>📁 {cwd}</Text>
+      <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
       <Box marginTop={1}>
         <Text>
           {estimatedSingleVolume
@@ -273,7 +278,13 @@ export const ConfirmScreen = ({
               // the total she just read on the previous screen, and the backup
               // flow's own wording for the very same folder. Bound by the
               // source, like backup does.
-              `Taille :           au plus ${formatBytes(totalBytes)} — souvent moins, le zip compresse`
+              //
+              // The "souvent moins" hedge lives on its own dimColor line
+              // below, not here: appended, it pushed this line to 67 columns
+              // for 66 usable, wrapping "compresse" onto the left margin under
+              // a block whose whole point is column alignment. It is a nuance,
+              // not a datum — dimColor is where it belongs anyway.
+              `Taille :           au plus ${formatBytes(totalBytes)}`
             : `Taille de chacun : au plus ${formatBytes(maxVolumeBytes())}`}
         </Text>
       </Box>
@@ -287,6 +298,7 @@ export const ConfirmScreen = ({
         </Box>
       ) : null}
       <Box marginTop={1} flexDirection="column">
+        <Text dimColor>Souvent moins : un zip compresse.</Text>
         <Text dimColor>
           {estimatedSingleVolume
             ? "Le fichier zip n'apparaîtra qu'à la fin."
@@ -294,7 +306,9 @@ export const ConfirmScreen = ({
         </Text>
         {state.alreadyExists ? (
           <Text dimColor>
-            {`Un dossier de dépôt existe déjà dans ${UPLOAD_DIR_DISPLAY} — celui-ci s'ajoutera à côté.`}
+            {
+              "Un dossier de dépôt existe déjà ici — celui-ci s'ajoutera à côté."
+            }
           </Text>
         ) : null}
         <Text dimColor>
