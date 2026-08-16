@@ -42,14 +42,18 @@ const DIR_LABEL: Record<ArchiveFlowMode, string> = {
   package: "upload",
 };
 
+// « zips » is banned in a full sentence addressed to the user (docs/ux.md) —
+// the only assumed exceptions are the menu label and a footer hint, where the
+// word stands alone under a width constraint. This is the one screen she
+// reads carefully, after losing twelve minutes; jargon belongs here least.
 const RUN_ERROR_TITLE: Record<ArchiveFlowMode, string> = {
   backup: "Une erreur est survenue pendant la création du zip.",
-  package: "Une erreur est survenue pendant la préparation des zips.",
+  package: "Une erreur est survenue pendant la préparation des fichiers zip.",
 };
 
 const RETRY_RESTART_HINT: Record<ArchiveFlowMode, string> = {
   backup: "(la création du zip reprend depuis le début)",
-  package: "(la création des zips reprend depuis le début)",
+  package: "(la création des fichiers zip reprend depuis le début)",
 };
 
 export type ArchiveConfirmScreenProps = {
@@ -264,7 +268,12 @@ export const ConfirmScreen = ({
         </Text>
         <Text>
           {estimatedSingleVolume
-            ? `Taille :           au plus ${formatBytes(maxVolumeBytes())}`
+            ? // The volume cap is meaningless when a single file is expected:
+              // announcing "au plus 3,5 Go" for a 1,4 Go source contradicts
+              // the total she just read on the previous screen, and the backup
+              // flow's own wording for the very same folder. Bound by the
+              // source, like backup does.
+              `Taille :           au plus ${formatBytes(totalBytes)} — souvent moins, le zip compresse`
             : `Taille de chacun : au plus ${formatBytes(maxVolumeBytes())}`}
         </Text>
       </Box>

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { writeFileSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -20,6 +21,7 @@ import {
   type VolumeProgressEvent,
 } from "../createZipVolumes.js";
 import { readZip } from "./zipTestReader.js";
+import { buildStagingDirName } from "../planUpload.js";
 import { VERSION_NEEDED_DEFAULT } from "../zipFormat.js";
 
 let tmpDir: string;
@@ -216,6 +218,82 @@ describe("createZipVolumes — atomicity", () => {
     expect(remaining).toEqual(
       [...entries.map((e) => e.name)].filter((n) => n !== targetName).sort(),
     );
+  });
+});
+
+describe("createZipVolumes — staging residue", () => {
+  /**
+   * The staging name derives only from the series and our own PID, so a
+   * previous failed attempt in this same process leaves a directory at the
+   * exact path the next attempt will want — and `cleanOrphanStagingDirs`
+   * refuses to touch it, precisely because our PID is alive. Adopting it
+   * would publish its stale volumes with the series.
+   */
+  it("clears a leftover staging dir from a previous attempt instead of adopting it", async () => {
+    process.env.CHIRO_MAX_VOLUME_BYTES = MULTI_VOLUME_CAP;
+    const entries = await buildEntries(2);
+    const stagingPath = path.join(
+      uploadDir,
+      buildStagingDirName("depot_20260814", process.pid),
+    );
+    await mkdir(stagingPath, { recursive: true });
+    await writeFile(
+      path.join(stagingPath, "depot_20260814_part9.zip"),
+      "stale",
+    );
+    await writeFile(path.join(stagingPath, "volume-7.zip"), "stale");
+
+    const result = await createZipVolumes({
+      sourceDir,
+      entries,
+      uploadDir,
+      seriesDirName: "depot_20260814",
+    });
+
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") throw new Error("type narrowing");
+
+    // A legitimate retry must still succeed — and publish only its own work.
+    const seriesFiles = (await readdir(result.seriesDirPath)).sort();
+    expect(seriesFiles).toEqual(
+      [...result.volumes.map((v) => v.fileName)].sort(),
+    );
+    expect(seriesFiles).not.toContain("depot_20260814_part9.zip");
+    expect(seriesFiles).not.toContain("volume-7.zip");
+  });
+
+  it("refuses to publish when the staging dir gains an unexpected file mid-run", async () => {
+    process.env.CHIRO_MAX_VOLUME_BYTES = MULTI_VOLUME_CAP;
+    const entries = await buildEntries(3);
+    const stagingPath = path.join(
+      uploadDir,
+      buildStagingDirName("depot_20260814", process.pid),
+    );
+
+    let injected = false;
+    const result = await createZipVolumes({
+      sourceDir,
+      entries,
+      uploadDir,
+      seriesDirName: "depot_20260814",
+      onProgress: (event) => {
+        if (injected || event.kind !== "volume-start") return;
+        injected = true;
+        // A stale volume with a plausible name: once deposited it is
+        // indistinguishable from a real one.
+        writeFileSync(
+          path.join(stagingPath, "depot_20260814_part9.zip"),
+          "stale",
+        );
+      },
+    });
+
+    expect(injected).toBe(true);
+    expect(result.kind).toBe("error");
+    if (result.kind !== "error") throw new Error("type narrowing");
+    expect(result.code).toBe("verify-failed");
+    // Staging destroyed, nothing published, not even a hidden directory.
+    expect(await readdir(uploadDir)).toEqual([]);
   });
 });
 

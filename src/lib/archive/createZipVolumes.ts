@@ -185,10 +185,28 @@ export const createZipVolumes = async (
   const stagingDirName = buildStagingDirName(opts.seriesDirName, process.pid);
   const stagingDirPath = path.join(opts.uploadDir, stagingDirName);
 
+  // Deliberately NOT `recursive: true`, which silently adopts a pre-existing
+  // directory. The staging name derives only from the series and our own PID,
+  // so it is identical across two attempts in the same process — and
+  // `cleanOrphanStagingDirs` exempts live PIDs, including ours. A leftover
+  // from a failed attempt (its cleanup is best-effort) or from a dead process
+  // whose PID was reused would therefore be adopted, and its stale volumes
+  // published by the commit rename below: the result screen would announce
+  // fewer files than the folder actually contains, and she would deposit
+  // duplicates on the portal. Clear the residue and create it once more —
+  // failing outright would break a legitimate retry.
   try {
-    await mkdir(stagingDirPath, { recursive: true });
+    await mkdir(stagingDirPath);
   } catch (err) {
-    return { kind: "error", code: `mkdir:${extractErrorCode(err)}` };
+    if (extractErrorCode(err) !== "EEXIST") {
+      return { kind: "error", code: `mkdir:${extractErrorCode(err)}` };
+    }
+    await removeDirRecursiveBestEffort(stagingDirPath);
+    try {
+      await mkdir(stagingDirPath);
+    } catch (retryErr) {
+      return { kind: "error", code: `mkdir:${extractErrorCode(retryErr)}` };
+    }
   }
 
   if (isAborted(signal)) {
@@ -318,6 +336,29 @@ export const createZipVolumes = async (
       zipBytes: volume.zipBytes,
       entryCount: volume.entryCount,
     });
+  }
+
+  // Symmetric to the completeness check above, in the other direction: that
+  // one proves no entry is missing, this one proves no *file* is extra. The
+  // commit below publishes the directory wholesale, so anything sitting in it
+  // that this run did not just write would ship with the series — and a stale
+  // `<série>_part9.zip` is a perfectly valid zip, indistinguishable from a
+  // real one once deposited. Anchored on the directory itself, never on what
+  // the loop believes it wrote.
+  let stagedFiles: string[];
+  try {
+    stagedFiles = await readdir(stagingDirPath);
+  } catch {
+    await removeDirRecursiveBestEffort(stagingDirPath);
+    return { kind: "error", code: "verify-failed" };
+  }
+  const expectedFiles = new Set(finalVolumes.map((v) => v.fileName));
+  const filesMatch =
+    stagedFiles.length === expectedFiles.size &&
+    stagedFiles.every((name) => expectedFiles.has(name));
+  if (!filesMatch) {
+    await removeDirRecursiveBestEffort(stagingDirPath);
+    return { kind: "error", code: "verify-failed" };
   }
 
   const durableStaging = await fsyncDirBestEffort(stagingDirPath);

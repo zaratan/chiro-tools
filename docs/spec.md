@@ -131,7 +131,7 @@ Affiché après exécution. Trois variantes possibles selon l'issue :
 - `✓ Terminé !`
 - `N fichiers renommés`
 - `M fichier(s) laissé(s) tel(s) quel(s) (déjà au bon format)` (si M > 0)
-- Phrase d'orientation vers l'étape suivante. ⚠ Le code dit encore « Vous pouvez maintenant les téléverser sur Vigie-Chiro », devenu faux : depuis les Phases 5 et 9, il faut découper puis empaqueter avant de déposer quoi que ce soit (dette de wording relevée en 9.D, remplacement proposé dans `ux.md`).
+- Phrase d'orientation vers l'étape suivante : `Vous pouvez maintenant les découper, puis créer les zips à déposer`. Elle a remplacé en 9.D un « vous pouvez maintenant les téléverser sur Vigie-Chiro » devenu faux — depuis les Phases 5 et 9, il faut découper puis empaqueter avant de déposer quoi que ce soit.
 - Footer : `Entrée retour au menu`
 
 **Variante B — Rien à faire (tout déjà préfixé)**
@@ -456,15 +456,16 @@ Deux variantes :
 
 En plus des codes de la table A-Confirmation (tous atteignables ici), le flux de dépôt ajoute :
 
-| Code                         | Cause                                                                                                                                                | Transitoire ? |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| `zip64-required`             | Un des trois gardes `zip64: "forbid"` s'est déclenché. **Bug interne** — inatteignable tant que le plafond de volume tient (d'où le clamp de l'env). | non           |
-| `entry-too-large-for-volume` | Une entrée seule ne tiendrait dans aucun volume. Déterministe.                                                                                       | non           |
-| `rename-volume:<code>`       | Échec du renommage d'un volume en son nom `partN` **à l'intérieur** du staging.                                                                      | oui           |
-| `verify-failed`              | Complétude de la série (ou d'un volume) en échec → staging détruit, `upload/` vide.                                                                  | oui           |
-| `collision-exhausted`        | 99 dossiers de série du même nom déjà présents dans `upload/`.                                                                                       | oui           |
+| Code                   | Cause                                                                                                                                                                            | Transitoire ?  |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `zip64-required`       | Un des trois gardes `zip64: "forbid"` s'est déclenché. **Bug interne** — inatteignable tant que le plafond de volume tient (d'où le clamp de l'env).                             | non            |
+| `rename-volume:<code>` | Échec du renommage d'un volume en son nom `partN` **à l'intérieur** du staging. Délégué au libellé de `<code>`, donc transitoire ou non selon lui.                               | selon `<code>` |
+| `verify-failed`        | Complétude de la série en échec, dans un sens ou dans l'autre : une entrée manque, ou le staging contient un fichier que le run n'a pas écrit → staging détruit, `upload/` vide. | oui            |
+| `collision-exhausted`  | 99 dossiers de série du même nom déjà présents dans `upload/`.                                                                                                                   | oui            |
 
-`isTransientArchiveError` est la source de vérité : **définitifs** = `zip64-required`, `entry-too-large`, `entry-too-large-for-volume` ; tout le reste est transitoire et se voit proposer `Entrée réessayer`. Proposer un réessai qui ne peut structurellement pas aboutir, à quelqu'un qui vient de perdre douze minutes, est la pire fuite de confiance du flux.
+`isTransientArchiveError` est la source de vérité : **définitifs** = `zip64-required`, `entry-too-large`, `EROFS` ; tout le reste est transitoire et se voit proposer `Entrée réessayer`. Proposer un réessai qui ne peut structurellement pas aboutir, à quelqu'un qui vient de perdre douze minutes, est la pire fuite de confiance du flux.
+
+Il n'existe **pas** de code `entry-too-large-for-volume` : une entrée plus grosse que le plafond part seule dans son propre volume, qui dépasse alors `maxVolumeBytes()`. C'est délibéré — refuser bloquerait tout le dépôt pour un fichier — et le garde `index > 0` de la boucle d'admission empêche la boucle infinie. La spec a décrit ce code pendant toute la Phase 9 alors qu'il n'a jamais existé dans le code.
 
 Dans **tous** les cas d'échec, y compris interruption, `upload/` ne contient aucune série partielle.
 

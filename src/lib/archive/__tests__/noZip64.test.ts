@@ -1,9 +1,20 @@
-// "The proof" — a series of small volumes produced under `maxBytes` never
-// contains a single ZIP64 structure, checked structurally (never by
-// scanning for magic bytes) via the extended `readZip`. Calls
-// `createZipArchive` directly in a loop, without an orchestrator (none
-// exists yet — see the plan for 9.B): this is deliberate, this test is
-// meant to survive intact once the real orchestrator lands.
+// Exact on-disk layout of a volume series: every byte written is accounted
+// for by a known structure (`onDiskSize === Σ structures + EOCD`), and no
+// ZIP64 record appears — checked structurally via the extended `readZip`,
+// never by scanning for magic bytes, since a deflate stream can legitimately
+// contain `50 4B 06 06`.
+//
+// This is NOT the proof that `zip64: "forbid"` works: nothing here passes
+// that option, and every assertion below would still hold if the mode were
+// deleted from the codebase (the thresholds are 65 535 entries / 4 GiB,
+// which volumes of a few KiB cannot approach). That guarantee is covered,
+// and discriminatingly so, by `createZipVolumes.test.ts` ("forwards
+// zip64Thresholds") and `zip64.test.ts` (injected thresholds). What this
+// file uniquely catches is an accounting drift in the volume-admission
+// arithmetic — drop `priorCdBytes` or `EOCD_FIXED_SIZE` and it goes red.
+//
+// Calls `createZipArchive` directly in a loop rather than the orchestrator:
+// deliberate, so it keeps testing the writer's own layout guarantee.
 import { createHash } from "node:crypto";
 import {
   mkdir,

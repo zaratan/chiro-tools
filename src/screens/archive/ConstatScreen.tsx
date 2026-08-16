@@ -170,8 +170,9 @@ export const ConstatScreen = ({
         </Box>
         <Box marginTop={1} flexDirection="column">
           <Text>
-            Le zip se crée à partir des enregistrements découpés. Lancez d'abord
-            « Découper les enregistrements », puis revenez ici.
+            {mode === "backup"
+              ? "Le zip se crée à partir des enregistrements découpés. Lancez d'abord « Découper les enregistrements », puis revenez ici."
+              : "Les fichiers zip se créent à partir des enregistrements découpés. Lancez d'abord « Découper les enregistrements », puis revenez ici."}
           </Text>
         </Box>
         <Box marginTop={1} flexDirection="column">

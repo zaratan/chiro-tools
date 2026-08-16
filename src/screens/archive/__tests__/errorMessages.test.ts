@@ -69,6 +69,28 @@ describe("mapKnownArchiveErrorCode", () => {
       "impossible de créer le sous-dossier « upload »",
     );
   });
+
+  it.each([
+    [
+      "rename-volume:ENOSPC",
+      "plus de place sur le disque — libérez de l'espace puis relancez",
+    ],
+    ["rename-volume:EACCES", "permission refusée par le système"],
+  ] as const)(
+    "keeps the actionable message for %s rather than dropping the line",
+    (code, expected) => {
+      // The run-error screen omits the message entirely on `null`, so an
+      // unmapped prefix costs her the only line that says what to do — on
+      // the most likely failure of a long run.
+      expect(mapKnownArchiveErrorCode(code, "upload")).toBe(expected);
+    },
+  );
+
+  it("still returns null for a rename-volume code it doesn't recognize", () => {
+    expect(
+      mapKnownArchiveErrorCode("rename-volume:EXDEV", "upload"),
+    ).toBeNull();
+  });
 });
 
 describe("mapArchiveErrorCodeToMessage", () => {
@@ -90,7 +112,6 @@ describe("isTransientArchiveError", () => {
     "ENOSPC",
     "EACCES",
     "EPERM",
-    "EROFS",
     "ENOENT",
     "file-changed",
     "collision-exhausted",
@@ -102,10 +123,18 @@ describe("isTransientArchiveError", () => {
     expect(isTransientArchiveError(code)).toBe(true);
   });
 
-  it.each(["zip64-required", "entry-too-large"])(
+  it.each(["zip64-required", "entry-too-large", "EROFS"])(
     "is definitive (not transient) for %s",
     (code) => {
       expect(isTransientArchiveError(code)).toBe(false);
     },
   );
+
+  it("never offers a retry whose own message tells her to go elsewhere", () => {
+    // EROFS reads "copiez les fichiers ailleurs puis relancez". Pairing that
+    // with "Entrée réessayer" makes the screen contradict itself.
+    const message = mapKnownArchiveErrorCode("EROFS", "upload");
+    expect(message).toContain("ailleurs");
+    expect(isTransientArchiveError("EROFS")).toBe(false);
+  });
 });

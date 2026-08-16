@@ -1065,20 +1065,23 @@ Table commune aux **deux** flux zip (`src/screens/archive/errorMessages.ts`). Le
 
 La colonne **Transitoire** est ce qui décide de l'affichage de `Entrée réessayer` (`isTransientArchiveError`) : proposer un réessai qui ne peut structurellement pas aboutir, à quelqu'un qui vient de perdre douze minutes, est la pire fuite de confiance possible. Tout code non listé comme définitif est traité comme transitoire — le défaut est celui qui laisse une action à faire.
 
-| Code interne                 | Libellé FR                                                                                                                   | Transitoire ?          |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| `mkdir:<X>`                  | `impossible de créer le sous-dossier « archived »` (ou `« upload »` — le libellé de dossier est un paramètre, pas un mode)   | oui                    |
-| `ENOENT`                     | `un enregistrement a changé ou disparu pendant la création du zip — réessayez`                                               | oui                    |
-| `file-changed`               | `un enregistrement a changé ou disparu pendant la création du zip — réessayez`                                               | oui                    |
-| `verify-failed`              | `chiro n'a pas pu vérifier que le zip était complet — il n'a pas été conservé, vos enregistrements sont intacts ; réessayez` | oui                    |
-| `collision-exhausted`        | `trop de fichiers zip portent déjà ce nom — renommez ou rangez ceux du jour, puis réessayez`                                 | oui                    |
-| `entry-too-large`            | `un enregistrement est trop volumineux pour être mis dans le zip — transmettez le détail technique`                          | **non** (déterministe) |
-| `entry-too-large-for-volume` | `un enregistrement est trop volumineux pour être déposé sur Vigie-Chiro — transmettez le détail technique`                   | **non** (déterministe) |
-| `zip64-required`             | `chiro n'a pas réussi à préparer des fichiers acceptés par Vigie-Chiro — transmettez le détail technique`                    | **non** (bug interne)  |
+| Code interne          | Libellé FR                                                                                                                   | Transitoire ?             |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `mkdir:<X>`           | `impossible de créer le sous-dossier « archived »` (ou `« upload »` — le libellé de dossier est un paramètre, pas un mode)   | oui                       |
+| `rename-volume:<X>`   | délègue au libellé du code système `<X>` (`ENOSPC` → `plus de place sur le disque…`)                                         | selon `<X>`               |
+| `ENOENT`              | `un enregistrement a changé ou disparu pendant la création du zip — réessayez`                                               | oui                       |
+| `file-changed`        | `un enregistrement a changé ou disparu pendant la création du zip — réessayez`                                               | oui                       |
+| `verify-failed`       | `chiro n'a pas pu vérifier que le zip était complet — il n'a pas été conservé, vos enregistrements sont intacts ; réessayez` | oui                       |
+| `collision-exhausted` | `trop de fichiers zip portent déjà ce nom — renommez ou rangez ceux du jour, puis réessayez`                                 | oui                       |
+| `EROFS`               | `ce disque est protégé en écriture — copiez les fichiers ailleurs puis relancez`                                             | **non** (voir ci-dessous) |
+| `entry-too-large`     | `un enregistrement est trop volumineux pour être mis dans le zip — transmettez le détail technique`                          | **non** (déterministe)    |
+| `zip64-required`      | `chiro n'a pas réussi à préparer des fichiers acceptés par Vigie-Chiro — transmettez le détail technique`                    | **non** (bug interne)     |
 
-Les trois derniers codes n'appartiennent qu'au flux de dépôt en pratique. Leur libellé ne dit jamais « réessayez » et ne promet rien : il oriente vers le détail technique, c'est-à-dire vers son conjoint dev.
+Les deux derniers codes n'appartiennent qu'au flux de dépôt en pratique. Leur libellé ne dit jamais « réessayez » et ne promet rien : il oriente vers le détail technique, c'est-à-dire vers son conjoint dev.
 
-⚠ **Dette de wording** : le libellé de `collision-exhausted` parle encore de « la même minute » alors que les noms sont datés au **jour** depuis la Phase 9, et il dit « zips » là où la règle de vocabulaire ci-dessous impose « fichiers zip ». Remplacement à appliquer : `plusieurs fichiers zip portent déjà ce nom — renommez ou déplacez les précédents puis réessayez`.
+**`rename-volume:<X>` doit rester délégué, jamais mappé à un libellé propre.** C'est un échec système ordinaire qui se trouve survenir pendant le nommage des volumes ; lui donner son propre message ferait perdre la ligne actionnable (« libérez de l'espace ») sur ce qui est le mode d'échec le plus probable d'un run long. Un `<X>` non reconnu retombe sur `null`, comme n'importe quel autre code inconnu.
+
+**`EROFS` est le seul code système classé définitif.** Son propre libellé lui dit de copier les fichiers ailleurs et de relancer : l'accompagner d'un `Entrée réessayer` fait se contredire l'écran, et un disque monté en lecture seule ne redevient pas inscriptible entre deux touches. `EACCES`/`EPERM` restent transitoires à dessein — une permission peut réellement être levée depuis l'extérieur sans rien déplacer, et leur libellé ne promet rien de concurrent.
 
 ## Wordings — Flow « Créer les zips à déposer » (Phase 9)
 
@@ -1097,7 +1100,7 @@ Ce sont bien les enregistrements à déposer sur Vigie-Chiro ?
   Entrée continuer   Échap retour au menu
 ```
 
-Deux autres écarts sur les variantes dégradées : le dossier nommé est `« upload »` (« L'outil ne peut pas créer le sous-dossier « upload » ici. »), et le message d'espace disque passe au pluriel (« Les zips sont une copie de vos enregistrements : ils peuvent occuper presque autant de place. » — cf. dette de vocabulaire en fin de section).
+Trois autres écarts sur les variantes dégradées : le dossier nommé est `« upload »` (« L'outil ne peut pas créer le sous-dossier « upload » ici. ») ; le message d'espace disque passe au pluriel (« Les fichiers zip sont une copie de vos enregistrements : ils peuvent occuper presque autant de place. ») ; et la variante « aucun dossier processed » s'accorde elle aussi (« **Les fichiers zip se créent** à partir des enregistrements découpés. »), là où le flux sauvegarde dit « Le zip se crée ».
 
 ### U-Confirmation (plusieurs fichiers attendus)
 
@@ -1132,7 +1135,7 @@ Rien n'est déplacé ni supprimé.
 On va rassembler 720 enregistrements dans un fichier zip.
 
 Emplacement :      ./upload/Car340581-2026-Pass1-A1_20260814/
-Taille :           au plus 3,5 Go
+Taille :           au plus 12,4 Go — souvent moins, le zip compresse
 
 Le fichier zip n'apparaîtra qu'à la fin.
 …
@@ -1140,6 +1143,8 @@ Le fichier zip n'apparaîtra qu'à la fin.
 ```
 
 Tout passe au singulier, la phrase « Vigie-Chiro n'accepte pas… » **disparaît** (sans objet), et le footer aussi.
+
+**La taille annoncée est bornée par la source, pas par le plafond de volume.** Le plafond de 3,5 Go ne qualifie _chacun_ des fichiers que lorsqu'il y en a plusieurs ; sur un point d'écoute isolé de 1,4 Go, annoncer « au plus 3,5 Go » donne un chiffre **plus grand que la source qu'elle vient de lire au constat**, et contredit le flux sauvegarde qui, sur le même dossier, annonce « au plus 1,4 Go ». Deux entrées de menu ne doivent pas donner deux tailles incompatibles pour le même contenu.
 
 ### U-Confirmation (pendant la création)
 
@@ -1183,20 +1188,22 @@ Seconde ligne en `dimColor`, footer vide, aucune touche active (l'annulation est
 ```
 📁 /Users/.../Vigie-2026-pointA1
 
-⚠ Une erreur est survenue pendant la préparation des zips.
+⚠ Une erreur est survenue pendant la préparation des fichiers zip.
 
 Aucun fichier zip n'a été créé — vos enregistrements sont intacts.
 
 Plus de place sur le disque — libérez de l'espace puis relancez.
 
-Détail technique : ENOSPC
+Détail technique : rename-volume:ENOSPC
   (à transmettre si vous demandez de l'aide)
-  (la création des zips reprend depuis le début)
+  (la création des fichiers zip reprend depuis le début)
 
   Entrée réessayer   Échap revenir au début
 ```
 
-La ligne `(la création des zips reprend depuis le début)` et `Entrée réessayer` n'apparaissent **que pour les codes transitoires** (cf. table des codes, colonne dédiée). Sur un code définitif (`zip64-required`, `entry-too-large-for-volume`), il ne reste que `Échap revenir au début`.
+La ligne `(la création des fichiers zip reprend depuis le début)` et `Entrée réessayer` n'apparaissent **que pour les codes transitoires** (cf. table des codes, colonne dédiée). Sur un code définitif (`zip64-required`, `entry-too-large`, `EROFS`), il ne reste que `Échap revenir au début`.
+
+Le titre et le hint de réessai disent « **fichiers zip** », pas « zips » : ce sont des phrases pleines, donc hors des deux exceptions assumées (libellé de menu et hint de footer, où le mot est isolé et contraint par la longueur). C'est aussi le seul écran qu'elle lit attentivement, après avoir perdu douze minutes — l'endroit où le jargon coûte le plus cher. Le titre fait 64 caractères, plus `⚠ ` : 66, soit exactement la largeur utile.
 
 ### U-Résultat (succès, plusieurs fichiers)
 
@@ -1250,7 +1257,11 @@ Trois règles, à appliquer à **toute** l'app (pas seulement aux flux zip) :
 2. **« fichiers zip », jamais « zips »** dans une phrase adressée à l'utilisatrice. « zips » est un raccourci de dev ; « fichier zip » est ce qu'elle voit dans le Finder. Exception assumée : le **libellé de menu** (« Créer les zips à déposer sur Vigie-Chiro ») et le hint de footer (« créer les zips »), où la contrainte de longueur prime et où le mot est isolé, pas noyé dans une phrase.
 3. **Les compteurs sont globaux, jamais par volume.** `Enregistrement 214 sur 720` compte sur toute la série. Un compteur qui repartirait à 1 à chaque fichier zip donnerait l'impression que le travail recommence.
 
-Les quatre écarts relevés dans le code au moment de figer ces règles **ont tous été corrigés en 9.D** : le « téléverser » de l'Écran 4 (qui était en plus devenu factuellement faux), « Les zips sont une copie… » du constat d'espace disque, « plusieurs zips… dans la même minute » de `collision-exhausted` (la minute n'a plus de sens depuis que le nom est daté au jour), et « la date **et l'heure** de création » de A-Confirmation. Il ne reste que les deux exceptions assumées ci-dessus, où « zips » est isolé et contraint par la longueur : le libellé de menu et le hint de footer.
+Les quatre écarts relevés dans le code au moment de figer ces règles ont été corrigés en 9.D : le « téléverser » de l'Écran 4 (qui était en plus devenu factuellement faux), « Les zips sont une copie… » du constat d'espace disque, « plusieurs zips… dans la même minute » de `collision-exhausted` (la minute n'a plus de sens depuis que le nom est daté au jour), et « la date **et l'heure** de création » de A-Confirmation.
+
+**La revue UX post-implémentation en a trouvé deux de plus, corrigés depuis** : le titre et le hint de réessai de l'écran d'erreur du dépôt (« préparation **des zips** », « la création **des zips** reprend »), et la variante « aucun dossier processed » du constat, restée au singulier en mode dépôt. Les deux avaient survécu à 9.D parce qu'ils étaient recopiés tels quels dans ce document, donc relus de bonne foi — une inspection du code, pas de la spec, est ce qui les a sortis. À refaire dans ce sens-là.
+
+Il ne reste que les deux exceptions assumées ci-dessus, où « zips » est isolé et contraint par la longueur : le libellé de menu et le hint de footer. Exception de citation à connaître : `UploadResultScreen` cite « Sauvegarder les enregistrements découpés » **sans** son suffixe « (un seul zip) », qui ferait passer la ligne à 70 caractères pour 66 utiles. C'est un préfixe strict du vrai libellé, donc repérable au scan dans le menu.
 
 ## Choix UX validés (rappel)
 

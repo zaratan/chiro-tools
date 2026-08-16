@@ -395,7 +395,7 @@ describe("ArchiveConfirmScreen — run-error", () => {
     stdin.write("\r");
     await waitUntil(() =>
       (lastFrame() ?? "").includes(
-        "Une erreur est survenue pendant la préparation des zips.",
+        "Une erreur est survenue pendant la préparation des fichiers zip.",
       ),
     );
     await settle();

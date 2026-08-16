@@ -802,7 +802,7 @@ describe("App — end-to-end", () => {
 
       const errorFrame = lastFrame() ?? "";
       expect(errorFrame).toContain(
-        "Une erreur est survenue pendant la préparation des zips.",
+        "Une erreur est survenue pendant la préparation des fichiers zip.",
       );
       expect(errorFrame).toContain("ENOSPC");
       expect(lastFrame()).not.toBeNull();
