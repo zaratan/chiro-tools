@@ -455,7 +455,14 @@ export async function createZipArchive(
         crcMode: "spot",
       });
       if (verifyResult.kind !== "ok") {
-        return await failWith("verify-failed");
+        // `reason` is carried into the code, not dropped. A bare
+        // "verify-failed" is what a user can transmit, and it says nothing
+        // about which of a dozen checks tripped — a field report of this exact
+        // error arrived with no way to tell a truncated central directory from
+        // a CRC mismatch. The screens strip the suffix for the French label
+        // and for the transient/definitive classification, so the extra detail
+        // only ever surfaces in the "Détail technique" line.
+        return await failWith(`verify-failed:${verifyResult.reason}`);
       }
 
       try {

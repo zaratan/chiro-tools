@@ -40,6 +40,17 @@ describe("buildConstatCounts", () => {
     expect(counts.otherIgnored).toBe(5);
   });
 
+  it("counts an already-prefixed file found inside a Brut/ subfolder", () => {
+    const counts = buildConstatCounts(
+      [
+        "Brut/Car040962-2026-Pass3-A1-old.wav",
+        "Brut/PaRecPR1925645_20260507_210004.wav",
+      ],
+      0,
+    );
+    expect(counts.alreadyPrefixed).toBe(1);
+  });
+
   it("combines all counters independently on a mixed listing", () => {
     const counts = buildConstatCounts(
       [

@@ -12,7 +12,7 @@ Pas d'argument, pas de flag (au MVP). Trois exceptions :
 - `chiro --help` (ou `-h`) → affiche un mini-help (1 paragraphe en français) puis quitte.
 - Toute autre forme avec arguments → message "Pas encore supporté, lancez juste `chiro`" et quitte (code 0).
 
-Le dossier ciblé est **toujours `process.cwd()`** (le dossier dans lequel l'utilisatrice a tapé la commande).
+Le dossier ciblé est **toujours `process.cwd()`** (le dossier dans lequel l'utilisatrice a tapé la commande). Les flux Préfixer et Découper cherchent les `.wav` à la racine **et** dans un éventuel sous-dossier `Brut`/`Bruts` (casse indifférente, un seul niveau) — cf. « Détection des `.wav` » dans Règles métier. La sortie du découpage (`processed/`) reste toujours à la racine du `cwd`, quelle que soit la provenance des sources.
 
 ## Boot
 
@@ -62,9 +62,10 @@ Contenu :
 
 - En-tête : chemin **absolu** du `cwd` (ex : `📁 /Users/.../Vigie-2026-A1/`).
 - Compteurs :
-  - `N enregistrements .wav trouvés ici` (compte `.wav` ET `.WAV`, case-insensitive)
+  - `N enregistrements .wav trouvés ici` (compte `.wav` ET `.WAV`, case-insensitive ; racine + `Brut`/`Bruts` fusionnés — cf. Règles métier)
   - `M fichier(s) déjà au bon format` (matche la regex d'idempotence — sera laissé tel quel)
   - `K autre(s) fichier(s) ignoré(s)` (non `.wav` ; dotfiles ignorés)
+  - Si une partie au moins vient du sous-dossier, une ligne `dimColor` précise la répartition (`(N ici et M dans ./Brut/)`, ou `trouvés dans ./Brut/` si tout en vient) — inchangé quand tout vient de la racine.
 - Question : `Ce sont bien les fichiers à préparer ?`
 - Footer : `Entrée continuer   Échap retour au menu`
 
@@ -73,6 +74,7 @@ Contenu :
 - **Aucun `.wav` trouvé** : message clair, l'utilisatrice ne peut pas continuer. Affiche `pwd`-style aide pour comprendre où elle est. Bouton `Échap` pour quitter.
 - **Dossier non lisible** (`fs.access(cwd, R_OK)` échoue) : message clair, quit.
 - **Dossier non writable** (`fs.access(cwd, W_OK)` échoue) : avertir avant la saisie, l'utilisatrice ne peut pas continuer. Message orienté solution (copier ailleurs et relancer).
+- **Basename dupliqué entre la racine et `Brut/`** : refus (pas de résolution silencieuse) — les deux produiraient le même nom dans `processed/`. Écran dédié listant les fichiers concernés (bornée à 4, avec un total), `Échap retour au menu` uniquement.
 
 Voir [`ux.md`](./ux.md) pour les wordings exacts.
 
@@ -166,7 +168,7 @@ Internalise les étapes `Découpage des données (AudioMoth only)` + `Kaleidosco
 
 ### Écran P-Constat
 
-Identique en posture à l'Écran 1 (cf. `ux.md` pour les wordings), mais avec **deux vérifications supplémentaires** :
+Identique en posture à l'Écran 1 (racine + `Brut`/`Bruts`, même ligne d'origine quand une partie vient du sous-dossier, même refus `duplicate-names` — cf. `ux.md` pour les wordings), mais avec **deux vérifications supplémentaires** :
 
 - **`processed/` existant** non-vide → bloque avec warning **jaune `⚠`** : propose à l'utilisatrice de **renommer ou supprimer** l'ancien dossier (non-destructif — ne propose pas d'écraser).
 - **Espace disque** insuffisant (`fs.statfs` → `free < total_input × 1.05`) → bloque avec warning jaune chiffré.
@@ -595,10 +597,11 @@ Trois issues, jamais de branche « erreur » distincte de l'écran de run — `r
 
 ### Détection des `.wav`
 
-- Scan **non-récursif** de `process.cwd()`.
+- Scan **non-récursif** de `process.cwd()`, **plus** un éventuel sous-dossier nommé `Brut` ou `Bruts` (casse indifférente : `brut`, `BRUTS`… acceptés ; `Brutal`/`Brute` non), lui aussi scanné à un seul niveau (jamais `Brut/2026/`). Les deux emplacements sont fusionnés en un seul lot.
 - Filtre : nom se terminant par `.wav` OU `.WAV` (case-insensitive sur l'extension uniquement).
-- Ignorer : dotfiles (`.foo.wav`), dossiers, symlinks (au moins MVP — on ignore pour rester safe).
-- Conserver l'ordre alphabétique stable (utile pour l'écran de confirmation).
+- Ignorer : dotfiles (`.foo.wav`), dossiers, symlinks (au moins MVP — on ignore pour rester safe). Le filtre dotfile s'applique aussi dans `Brut/` — essentiel sur un disque exFAT, où macOS pose un `._<nom>.wav` à côté de chaque fichier.
+- Conserver l'ordre alphabétique stable sur la liste fusionnée (utile pour l'écran de confirmation) — les entrées du sous-dossier sont préfixées de son nom (`Brut/foo.wav`), relatif au `cwd`.
+- **Refus, pas de résolution silencieuse**, si le même nom de base existe à la fois à la racine et dans `Brut/` : les deux produiraient le même nom en sortie de découpage (`processed/<nom>_NNN.wav`), l'un écraserait l'autre. `scanDirectory` retourne alors `{ kind: "duplicate-names", names }` plutôt qu'un résultat exploitable.
 
 ### Idempotence
 
@@ -627,8 +630,11 @@ Exemple :
 - Avant : `20260511_213045.WAV`
 - Après : `Car040962-2026-Pass3-A1-20260511_213045.wav`
 
+Pour un fichier trouvé dans `Brut/`, le préfixe s'applique au nom de fichier uniquement — le sous-dossier est conservé sur la cible (`Brut/20260511_213045.WAV` → `Brut/Car040962-2026-Pass3-A1-20260511_213045.wav`), jamais aplati vers la racine.
+
 ### Renommage
 
+- **Sur place** : un fichier trouvé dans `Brut/` est renommé dans `Brut/`, jamais déplacé.
 - **Séquentiel** (pas de `Promise.all`). On traite fichier par fichier dans l'ordre alphabétique.
 - Utiliser `fs.rename` en premier. Si échec avec code `EXDEV` (cross-device, typique SD card) → fallback `fs.copyFile` + `fs.unlink`.
 - Sur toute autre erreur I/O par fichier (`EACCES`, `EPERM`, `ENOENT`, `EEXIST`…) → capturer, consigner, **continuer** avec le fichier suivant. Ne jamais crasher la boucle entière sur un fichier.
@@ -640,7 +646,7 @@ Exemple :
 
 - **Plan-time** : avant l'exécution, vérifier pour chaque rename prévu que le nom cible n'existe pas déjà sur disque. Si oui, marquer la collision et NE PAS l'inclure dans le batch d'exécution. Afficher la liste en jaune sur l'écran de Confirmation.
 - **Rename-time** : double sécurité. Si `fs.rename` échoue avec `EEXIST`, capturer et consigner. (Ne devrait jamais arriver après le plan, mais protection en cas de race condition.)
-- **Collision intra-plan** : si deux fichiers source produisent le même nom cible (cas APFS case-insensitive, ou collisions liées à la normalisation `.WAV → .wav`), le premier dans l'ordre alphabétique est conservé dans `operations`, les suivants vont dans `skippedCollision`.
+- **Collision intra-plan** : si deux fichiers source produisent le même nom cible (cas APFS case-insensitive, ou collisions liées à la normalisation `.WAV → .wav`), le premier dans l'ordre alphabétique est conservé dans `operations`, les suivants vont dans `skippedCollision`. Deux fichiers de même nom dans deux dossiers différents (racine et `Brut/`) ne collisionnent PAS à ce niveau — leurs cibles vivent dans des dossiers distincts et coexistent réellement sur le disque ; ce cas est refusé bien plus tôt, au scan (cf. « Détection des `.wav` »).
 
 ## Logging local
 

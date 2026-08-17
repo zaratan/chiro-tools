@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -379,5 +379,42 @@ describe("processWavFiles", () => {
     // small_000.wav → skippedAlreadyChunked, big.wav → skippedTooLarge
     // Neither should emit any progress event
     expect(events).toHaveLength(0);
+  });
+
+  describe("a source file living in a Brut/ subfolder (scanDirectory relative-path output)", () => {
+    it("reads from Brut/ and writes chunks to <cwd>/processed/ with names carrying no subfolder prefix", async () => {
+      await mkdir(path.join(tmpDir, "Brut"));
+      await writeFile(
+        path.join(tmpDir, "Brut", "source.wav"),
+        makeRampWav({ durationSeconds: 6 }),
+      );
+
+      const outcome = await processWavFiles(["Brut/source.wav"], tmpDir, {
+        mode: "preserve",
+      });
+
+      expect(outcome.errored).toEqual([]);
+      expect(outcome.processed.length).toBe(1);
+      const proc = outcome.processed[0];
+      if (!proc) throw new Error("no processed entry");
+      // The original relative path (with its Brut/ prefix) is preserved for
+      // reporting, but the chunk filename on disk must not carry it.
+      expect(proc.sourceFile).toBe("Brut/source.wav");
+
+      const processedEntries = await readdir(path.join(tmpDir, "processed"));
+      expect(processedEntries).toEqual(["source_000.wav"]);
+
+      // The output folder must land at the cwd root, never nested under a
+      // "Brut" subfolder of processed/.
+      const { existsSync } = await import("node:fs");
+      expect(existsSync(path.join(tmpDir, "processed", "Brut"))).toBe(false);
+
+      // Source untouched, still in Brut/ — nothing is ever moved.
+      const { readFile } = await import("node:fs/promises");
+      const sourceStillThere = await readFile(
+        path.join(tmpDir, "Brut", "source.wav"),
+      );
+      expect(sourceStillThere.length).toBeGreaterThan(0);
+    });
   });
 });

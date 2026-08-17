@@ -85,13 +85,13 @@ chiro-tools/
 │   │   ├── updateErrorMessages.ts # mapping FR pour les codes d'erreur Update
 │   │   ├── fsErrorMessages.ts     # codes fs communs (ENOSPC/EACCES/EPERM/EROFS) → FR, partagé par les 3 flows
 │   │   ├── vigie-chiro/           # flow "Préfixer" — 4 écrans
-│   │   │   ├── ConstatScreen.tsx
+│   │   │   ├── ConstatScreen.tsx  # constat — scan racine + Brut(s)/ via lib/fs/scanDirectory, écran duplicate-names dédié
 │   │   │   ├── FormScreen.tsx     # focusedIndex + 4 <TextField> (numeric en mode managed)
 │   │   │   ├── ConfirmScreen.tsx
 │   │   │   ├── ResultScreen.tsx
 │   │   │   └── errorMessages.ts   # mapping FR pour codes d'erreur rename
 │   │   ├── vigie-process/         # flow "Découper" — 4 écrans (Phase 5) + progression (Phase 5.E)
-│   │       ├── ConstatScreen.tsx  # constat — scan via lib/fs/scanDirectory + checks processed/ et espace disque
+│   │       ├── ConstatScreen.tsx  # constat — scan racine + Brut(s)/ via lib/fs/scanDirectory + checks processed/ et espace disque
 │   │       ├── FormScreen.tsx     # sélecteur Teensy/Autre inline (pas de RadioSelect)
 │   │       ├── ConfirmScreen.tsx  # affichage + navigation seulement — l'orchestration vit dans useVigieProcessRun
 │   │       ├── ResultScreen.tsx   # 4 variantes : success / interrupted / all-failed / partial
@@ -117,6 +117,7 @@ chiro-tools/
 │   ├── components/
 │   │   ├── TextField.tsx          # label + ink-text-input (ou Text en mode managed) + aide/erreur
 │   │   ├── ProgressPanel.tsx      # cadre commun des 3 RunningView (cwd, titre, compteurs, barre, stats, réassurance)
+│   │   ├── DuplicateNamesScreen.tsx # écran partagé Préfixer/Découper : refus basename dupliqué racine/Brut(s)/
 │   │   └── Footer.tsx             # footer de raccourcis stylé
 │   ├── lib/
 │   │   ├── vigie-chiro/
@@ -138,7 +139,7 @@ chiro-tools/
 │   │   ├── progress/
 │   │   │   └── renderThrottle.ts  # THROTTLE_MS + shouldRenderNow — partagé par les 2 hooks de progression
 │   │   ├── fs/
-│   │   │   ├── scanDirectory.ts   # scan unique des 3 flows : scanDirectory + sumFileSizes + checkProcessedDirConflict + isVisibleNonTmpEntry
+│   │   │   ├── scanDirectory.ts   # scan unique des 3 flows : scanDirectory (racine + Brut(s)/, 1 niveau, fusionné, refuse les basenames dupliqués) + sumFileSizes + checkProcessedDirConflict + isVisibleNonTmpEntry
 │   │   │   ├── safeFsOps.ts       # renameWithFallback (EXDEV) + writeFileAtomic (.tmp + rename)
 │   │   │   ├── planRenames.ts     # produit la liste {from, to, skipReason?}
 │   │   │   └── applyRenames.ts    # consume renameWithFallback, séquentiel, gestion SIGINT

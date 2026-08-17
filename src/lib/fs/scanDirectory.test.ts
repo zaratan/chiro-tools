@@ -37,7 +37,14 @@ describe("scanDirectory", () => {
 
   it("returns an empty list and zero ignored count for an empty directory", async () => {
     const result = await scanDirectory(tmpDir);
-    expect(result).toEqual({ kind: "ok", wavFiles: [], ignoredFileCount: 0 });
+    expect(result).toEqual({
+      kind: "ok",
+      wavFiles: [],
+      ignoredFileCount: 0,
+      subDirName: null,
+      rootCount: 0,
+      subCount: 0,
+    });
   });
 
   it("returns sorted WAV filenames, case-insensitive on extension", async () => {
@@ -66,6 +73,9 @@ describe("scanDirectory", () => {
       kind: "ok",
       wavFiles: [...created].sort(),
       ignoredFileCount: 0,
+      subDirName: null,
+      rootCount: created.length,
+      subCount: 0,
     });
   });
 
@@ -80,6 +90,9 @@ describe("scanDirectory", () => {
       kind: "ok",
       wavFiles: ["recording.wav"],
       ignoredFileCount: 3,
+      subDirName: null,
+      rootCount: 1,
+      subCount: 0,
     });
   });
 
@@ -93,6 +106,9 @@ describe("scanDirectory", () => {
       kind: "ok",
       wavFiles: ["visible.wav"],
       ignoredFileCount: 0,
+      subDirName: null,
+      rootCount: 1,
+      subCount: 0,
     });
   });
 
@@ -106,6 +122,9 @@ describe("scanDirectory", () => {
       kind: "ok",
       wavFiles: ["top.wav"],
       ignoredFileCount: 0,
+      subDirName: null,
+      rootCount: 1,
+      subCount: 0,
     });
   });
 
@@ -119,6 +138,9 @@ describe("scanDirectory", () => {
       kind: "ok",
       wavFiles: ["real.wav"],
       ignoredFileCount: 0,
+      subDirName: null,
+      rootCount: 1,
+      subCount: 0,
     });
   });
 
@@ -150,6 +172,146 @@ describe("scanDirectory", () => {
     expect(result.kind).toBe("scan-error");
     if (result.kind !== "scan-error") throw new Error("type narrowing");
     expect(result.rawCode).toBe("ENOTDIR");
+  });
+});
+
+describe("scanDirectory — Brut(s)/ subfolder", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(path.join(tmpdir(), "chiro-test-scandir-brut-"));
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it("finds files only at the root, unchanged, when no Brut(s)/ subfolder exists", async () => {
+    await writeFile(path.join(tmpDir, "a.wav"), "");
+    await writeFile(path.join(tmpDir, "b.wav"), "");
+
+    const result = await scanDirectory(tmpDir);
+    expect(result).toEqual({
+      kind: "ok",
+      wavFiles: ["a.wav", "b.wav"],
+      ignoredFileCount: 0,
+      subDirName: null,
+      rootCount: 2,
+      subCount: 0,
+    });
+  });
+
+  it("finds files only inside Brut/, none at the root", async () => {
+    await mkdir(path.join(tmpDir, "Brut"));
+    await writeFile(path.join(tmpDir, "Brut", "a.wav"), "");
+    await writeFile(path.join(tmpDir, "Brut", "b.wav"), "");
+
+    const result = await scanDirectory(tmpDir);
+    expect(result).toEqual({
+      kind: "ok",
+      wavFiles: ["Brut/a.wav", "Brut/b.wav"],
+      ignoredFileCount: 0,
+      subDirName: "Brut",
+      rootCount: 0,
+      subCount: 2,
+    });
+  });
+
+  it("merges root and Brut/ files into one alphabetically sorted list", async () => {
+    await mkdir(path.join(tmpDir, "Brut"));
+    await writeFile(path.join(tmpDir, "z-root.wav"), "");
+    await writeFile(path.join(tmpDir, "a-root.wav"), "");
+    await writeFile(path.join(tmpDir, "Brut", "m-sub.wav"), "");
+
+    const result = await scanDirectory(tmpDir);
+    expect(result).toEqual({
+      kind: "ok",
+      // "B" (66) sorts before lowercase "a" (97) in plain string order —
+      // deterministic regardless of readdir's raw order or insertion order.
+      wavFiles: ["Brut/m-sub.wav", "a-root.wav", "z-root.wav"],
+      ignoredFileCount: 0,
+      subDirName: "Brut",
+      rootCount: 2,
+      subCount: 1,
+    });
+  });
+
+  it.each(["Bruts", "BRUT", "brut", "BRUTS"])(
+    "accepts a %s subfolder — case- and plural-insensitive",
+    async (dirName) => {
+      await mkdir(path.join(tmpDir, dirName));
+      await writeFile(path.join(tmpDir, dirName, "a.wav"), "");
+
+      const result = await scanDirectory(tmpDir);
+      expect(result).toEqual({
+        kind: "ok",
+        wavFiles: [`${dirName}/a.wav`],
+        ignoredFileCount: 0,
+        subDirName: dirName,
+        rootCount: 0,
+        subCount: 1,
+      });
+    },
+  );
+
+  it("does not accept Brutal/ or Brute/ as the subfolder", async () => {
+    await mkdir(path.join(tmpDir, "Brutal"));
+    await writeFile(path.join(tmpDir, "Brutal", "x.wav"), "");
+    await mkdir(path.join(tmpDir, "Brute"));
+    await writeFile(path.join(tmpDir, "Brute", "y.wav"), "");
+    await writeFile(path.join(tmpDir, "root.wav"), "");
+
+    const result = await scanDirectory(tmpDir);
+    expect(result).toEqual({
+      kind: "ok",
+      wavFiles: ["root.wav"],
+      ignoredFileCount: 0,
+      subDirName: null,
+      rootCount: 1,
+      subCount: 0,
+    });
+  });
+
+  it("refuses with duplicate-names when the same basename exists at the root and in Brut/", async () => {
+    await mkdir(path.join(tmpDir, "Brut"));
+    await writeFile(path.join(tmpDir, "x.wav"), "");
+    await writeFile(path.join(tmpDir, "Brut", "x.wav"), "");
+    await writeFile(path.join(tmpDir, "y.wav"), "");
+
+    const result = await scanDirectory(tmpDir);
+    expect(result).toEqual({ kind: "duplicate-names", names: ["x.wav"] });
+  });
+
+  it("ignores a dotfile inside Brut/ (e.g. an exFAT ._x.wav sidecar)", async () => {
+    await mkdir(path.join(tmpDir, "Brut"));
+    await writeFile(path.join(tmpDir, "Brut", "._x.wav"), "");
+    await writeFile(path.join(tmpDir, "Brut", "x.wav"), "");
+
+    const result = await scanDirectory(tmpDir);
+    expect(result).toEqual({
+      kind: "ok",
+      wavFiles: ["Brut/x.wav"],
+      ignoredFileCount: 0,
+      subDirName: "Brut",
+      rootCount: 0,
+      subCount: 1,
+    });
+  });
+
+  it("does not explore a nested sub-subfolder (Brut/2026/)", async () => {
+    await mkdir(path.join(tmpDir, "Brut", "2026"), { recursive: true });
+    await writeFile(path.join(tmpDir, "Brut", "2026", "deep.wav"), "");
+    await writeFile(path.join(tmpDir, "Brut", "shallow.wav"), "");
+
+    const result = await scanDirectory(tmpDir);
+    expect(result).toEqual({
+      kind: "ok",
+      wavFiles: ["Brut/shallow.wav"],
+      ignoredFileCount: 0,
+      subDirName: "Brut",
+      rootCount: 0,
+      subCount: 1,
+    });
   });
 });
 

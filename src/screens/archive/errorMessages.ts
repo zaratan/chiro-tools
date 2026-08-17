@@ -49,9 +49,15 @@ export const mapKnownArchiveErrorCode = (
       dirLabel,
     );
   }
-  const fsMessage = mapKnownFsErrorCode(code);
+  // `verify-failed:<raison>` carries a diagnostic suffix for the "Détail
+  // technique" line; the French message is the same whichever check tripped.
+  // Normalising here and in `isTransientArchiveError` alike is mandatory —
+  // a `switch` on the exact string next to a classification that strips the
+  // suffix is how `mkdir:EROFS` once offered a retry that could not work.
+  const baseCode = code.startsWith("verify-failed:") ? "verify-failed" : code;
+  const fsMessage = mapKnownFsErrorCode(baseCode);
   if (fsMessage !== null) return fsMessage;
-  switch (code) {
+  switch (baseCode) {
     case "ENOENT":
     case "file-changed":
       return "un enregistrement a changé ou disparu pendant la création du zip — réessayez";

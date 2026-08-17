@@ -1,9 +1,11 @@
 import { Box, Text, useInput } from "ink";
 import { statfs } from "node:fs/promises";
 import { useEffect, useState } from "react";
+import { DuplicateNamesScreen } from "../../components/DuplicateNamesScreen.js";
 import { Footer } from "../../components/Footer.js";
 import { buildOutDir } from "../../lib/audio/batchPlan.js";
 import { formatBytes } from "../../format/bytes.js";
+import { describeScanOrigin } from "../../format/scanOrigin.js";
 import { fitPath } from "../../format/path.js";
 import {
   checkProcessedDirConflict,
@@ -16,6 +18,7 @@ type ScanState =
   | { kind: "not-readable" }
   | { kind: "not-writable" }
   | { kind: "scan-error"; rawCode: string }
+  | { kind: "duplicate-names"; names: string[] }
   | { kind: "no-wav" }
   | {
       kind: "processed-conflict";
@@ -30,6 +33,9 @@ type ScanState =
       kind: "ready";
       wavFiles: string[];
       totalInputBytes: number;
+      subDirName: string | null;
+      rootCount: number;
+      subCount: number;
     };
 
 const scanDirectory = async (
@@ -41,7 +47,7 @@ const scanDirectory = async (
     return scanResult;
   }
 
-  const { wavFiles } = scanResult;
+  const { wavFiles, subDirName, rootCount, subCount } = scanResult;
   if (wavFiles.length === 0) {
     return { kind: "no-wav" };
   }
@@ -76,7 +82,14 @@ const scanDirectory = async (
     // statfs failed — proceed; the processor will surface ENOSPC if needed.
   }
 
-  return { kind: "ready", wavFiles, totalInputBytes };
+  return {
+    kind: "ready",
+    wavFiles,
+    totalInputBytes,
+    subDirName,
+    rootCount,
+    subCount,
+  };
 };
 
 export type ProcessConstatScreenProps = {
@@ -183,6 +196,10 @@ export const ConstatScreen = ({
     );
   }
 
+  if (state.kind === "duplicate-names") {
+    return <DuplicateNamesScreen names={state.names} onBack={onBack} />;
+  }
+
   if (state.kind === "no-wav") {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
@@ -254,6 +271,12 @@ export const ConstatScreen = ({
   }
 
   // state.kind === "ready"
+  const origin = describeScanOrigin(
+    state.subDirName,
+    state.rootCount,
+    state.subCount,
+  );
+
   return (
     <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
       <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
@@ -266,6 +289,13 @@ export const ConstatScreen = ({
         </Text>
       </Box>
       <Text>{`  Volume total : ${formatBytes(state.totalInputBytes)}`}</Text>
+      {origin !== null ? (
+        <Text dimColor>
+          {origin.kind === "all-sub"
+            ? `  (trouvés dans ${origin.label})`
+            : `  (${origin.rootCount.toString()} ici et ${origin.subCount.toString()} dans ${origin.label})`}
+        </Text>
+      ) : null}
       <Box marginTop={1}>
         <Text>Ce sont bien les fichiers à découper ?</Text>
       </Box>

@@ -128,6 +128,35 @@ Ce sont bien les fichiers à préparer ?
   ```
   • 2 fichiers en .WAV seront renommés en .wav (minuscule)
   ```
+- **Sous-dossier `Brut`/`Bruts`** (casse indifférente) présent à côté des `.wav` de la racine : le scan cherche aux deux emplacements et fusionne en un seul lot (cf. `spec.md` § Détection des `.wav`). Quand tout vient de la racine, l'écran **ne change pas d'un caractère**. Sinon :
+  - Tout vient du sous-dossier :
+    ```
+    ✓ 412 enregistrements trouvés dans ./Brut/
+    ```
+  - Mélange des deux :
+    ```
+    ✓ 412 enregistrements trouvés
+      (8 ici et 404 dans ./Brut/)
+    ```
+    La seconde ligne est en `dimColor`.
+
+### Écran 1 — Constat (dégradé : basenames dupliqués racine/Brut)
+
+Le même nom de fichier existe à la fois à la racine et dans `Brut/` — refus, pas de résolution silencieuse : les deux produiraient le même nom en sortie de découpage (`processed/<nom>_NNN.wav`), l'un écraserait l'autre sans un mot. Écran partagé par les flux Préfixer et Découper (`components/DuplicateNamesScreen.tsx`).
+
+```
+⚠ 2 enregistrements existent aux deux endroits :
+
+  • PaRec340581_20260814_223000.wav
+  • PaRec340581_20260814_223512.wav
+
+Ces enregistrements existent aux deux endroits ; gardez-en un seul
+pour éviter que l'un n'écrase l'autre, puis relancez chiro.
+
+  Échap retour au menu
+```
+
+Liste bornée à 4 noms, avec un total et un `... et N autres` si dépassement. Aucun footer autre que `Échap retour au menu` — pas d'option pour continuer malgré tout, le principe non-destructif l'interdit.
 
 ### Écran 1 — Constat (dégradé : dossier vide / pas de .wav)
 
@@ -627,6 +656,22 @@ Ce sont bien les fichiers à découper ?
 ```
 
 Le « volume total » donne à l'utilisatrice un ordre de grandeur (utile pour les sessions AudioMoth où chaque fichier fait 150 Mo). Pas de comptage de « déjà au format » côté Constat — le filtre `_NNN.wav$` se déclenche silencieusement à l'exécution.
+
+**Variante — sous-dossier `Brut`/`Bruts`** : même scan fusionné qu'à l'Écran 1 (cf. § Écran 1 — Constat, variantes). Quand tout vient de la racine, l'écran ne change pas. Sinon, une ligne `dimColor` est ajoutée sous « Volume total » :
+
+```
+  Volume total : 1.4 Go
+  (trouvés dans ./Brut/)
+```
+
+ou, si mélange des deux emplacements :
+
+```
+  Volume total : 1.4 Go
+  (8 ici et 404 dans ./Brut/)
+```
+
+**Dégradé — basenames dupliqués racine/Brut** : même écran partagé qu'à l'Écran 1 (cf. § Écran 1 — Constat, dégradé basenames dupliqués) — `components/DuplicateNamesScreen.tsx`.
 
 ### P-Constat (dégradé : `processed/` existe déjà)
 

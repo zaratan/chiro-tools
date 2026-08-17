@@ -8,6 +8,7 @@ import {
   unlink,
 } from "node:fs/promises";
 import path from "node:path";
+import { isVisibleNonTmpEntry } from "../fs/scanDirectory.js";
 import {
   extractErrorCode,
   fsyncDirBestEffort,
@@ -293,7 +294,7 @@ export const createZipVolumes = async (
   );
   if (totalEntryCount !== opts.entries.length) {
     await removeDirRecursiveBestEffort(stagingDirPath);
-    return { kind: "error", code: "verify-failed" };
+    return { kind: "error", code: "verify-failed:entry-count" };
   }
 
   const totalVolumes = provisionalVolumes.length;
@@ -332,7 +333,7 @@ export const createZipVolumes = async (
     stagedFiles = await readdir(stagingDirPath);
   } catch {
     await removeDirRecursiveBestEffort(stagingDirPath);
-    return { kind: "error", code: "verify-failed" };
+    return { kind: "error", code: "verify-failed:staging-unreadable" };
   }
   // Only `.zip` entries: the whole point is that no *stale volume* ships with
   // the series, and a stale volume is a zip. Rejecting any unexpected name
@@ -340,14 +341,27 @@ export const createZipVolumes = async (
   // opens `upload/` to watch progress — destroying the staging and costing
   // fifteen minutes, under a message about completeness. Filtering keeps the
   // whole safety property and drops that entire class of false positive.
+  // `isVisibleNonTmpEntry` on top of the `.zip` suffix, and the dot-prefix
+  // half is the load-bearing one: on a filesystem without native extended
+  // attributes — exFAT, which is what an external drive shared with a PC is
+  // formatted as — macOS writes an AppleDouble sidecar `._<name>` next to
+  // every file. That sidecar *keeps the original extension*, so
+  // `._<série>_part1.zip` sails through a suffix-only filter and the count
+  // comes out one too high, per volume. The run then destroys its own staging
+  // and reports an incomplete series, after fifteen minutes of work, on a
+  // series that was in fact perfect. Reported from the field on
+  // `/Volumes/NOOX_DD` and reproduced on an exFAT image: 5/5 runs failed, and
+  // a single run failed just the same — concurrency was never involved.
   const expectedFiles = new Set(finalVolumes.map((v) => v.fileName));
-  const stagedZips = stagedFiles.filter((name) => name.endsWith(".zip"));
+  const stagedZips = stagedFiles.filter(
+    (name) => isVisibleNonTmpEntry(name) && name.endsWith(".zip"),
+  );
   const filesMatch =
     stagedZips.length === expectedFiles.size &&
     stagedZips.every((name) => expectedFiles.has(name));
   if (!filesMatch) {
     await removeDirRecursiveBestEffort(stagingDirPath);
-    return { kind: "error", code: "verify-failed" };
+    return { kind: "error", code: "verify-failed:staged-files" };
   }
 
   const durableStaging = await fsyncDirBestEffort(stagingDirPath);

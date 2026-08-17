@@ -355,9 +355,46 @@ describe("createZipVolumes — staging residue", () => {
     expect(injected).toBe(true);
     expect(result.kind).toBe("error");
     if (result.kind !== "error") throw new Error("type narrowing");
-    expect(result.code).toBe("verify-failed");
+    expect(result.code).toBe("verify-failed:staged-files");
     // Staging destroyed, nothing published, not even a hidden directory.
     expect(await readdir(uploadDir)).toEqual([]);
+  });
+
+  it("ignores an AppleDouble sidecar next to a volume instead of failing the series", async () => {
+    // Field report from `/Volumes/NOOX_DD`: on a filesystem with no native
+    // extended attributes (exFAT — how an external drive shared with a PC is
+    // formatted), macOS writes a `._<name>` sidecar beside every file, and
+    // that sidecar *keeps the original extension*. A suffix-only `.zip`
+    // filter counts it as a volume, so the completeness guard sees one file
+    // too many per volume, destroys the staging and reports an incomplete
+    // series — after fifteen minutes, on a series that was perfect.
+    // Reproduced on an exFAT image: 5 runs out of 5 failed, and a single run
+    // failed identically, so the parallel usage was never the cause.
+    process.env.CHIRO_MAX_VOLUME_BYTES = MULTI_VOLUME_CAP;
+    const entries = await buildEntries(3);
+    const stagingPath = path.join(
+      uploadDir,
+      buildStagingDirName("depot_20260814", process.pid),
+    );
+
+    let injected = false;
+    const result = await createZipVolumes({
+      sourceDir,
+      entries,
+      uploadDir,
+      seriesDirName: "depot_20260814",
+      onProgress: (event) => {
+        if (injected || event.kind !== "volume-start") return;
+        injected = true;
+        writeFileSync(
+          path.join(stagingPath, "._depot_20260814_part1.zip"),
+          "Mac OS X AppleDouble",
+        );
+      },
+    });
+
+    expect(injected).toBe(true);
+    expect(result.kind).toBe("ok");
   });
 });
 

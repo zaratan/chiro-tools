@@ -419,7 +419,12 @@ describe("createZipArchive — verify-failed", () => {
       },
     });
 
-    expect(result).toEqual({ kind: "error", code: "verify-failed" });
+    expect(result.kind).toBe("error");
+    if (result.kind !== "error") throw new Error("type narrowing");
+    // The code carries which check tripped, and on which entry: a bare
+    // "verify-failed" is all a user can transmit, and it names none of the
+    // dozen reasons `verifyZipArchive` can distinguish.
+    expect(result.code).toMatch(/^verify-failed:crc-mismatch:/);
     await expect(stat(zipPath)).rejects.toThrow();
     expect(await tmpFilesIn(archivedDir)).toEqual([]);
   });

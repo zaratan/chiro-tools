@@ -8,12 +8,19 @@ import { isAlreadyPrefixed } from "../vigie-chiro/isAlreadyPrefixed.js";
  *
  * The extension is always normalized to lowercase `.wav`,
  * even if the source had `.WAV`.
+ *
+ * `filename` may be a path relative to the scan root (e.g. `Brut/foo.wav`,
+ * from a `Brut/` subfolder scan) — the prefix is applied to the basename
+ * only, and any subfolder is preserved on the target so the rename happens
+ * on place, in the folder the file was found in, never moved to the root.
  */
 const buildTargetName = (filename: string, prefix: string): string => {
-  const lastDotIndex = filename.lastIndexOf(".");
-  const baseName =
-    lastDotIndex === -1 ? filename : filename.slice(0, lastDotIndex);
-  return `${prefix}${baseName}.wav`;
+  const dirPart = path.dirname(filename);
+  const base = path.basename(filename);
+  const lastDotIndex = base.lastIndexOf(".");
+  const baseName = lastDotIndex === -1 ? base : base.slice(0, lastDotIndex);
+  const targetBase = `${prefix}${baseName}.wav`;
+  return dirPart === "." ? targetBase : path.join(dirPart, targetBase);
 };
 
 /**
@@ -41,7 +48,9 @@ const fileExists = async (filePath: string): Promise<boolean> => {
  *
  * Operations are sorted alphabetically by `from`.
  *
- * @param files Plain filenames (NOT absolute paths). Typically the `wavFiles` output of `scanDirectory`.
+ * @param files Filenames relative to `dir` (NOT absolute paths) — a plain
+ * name at the scan root, or `Brut/name.wav` for a `Brut/` subfolder entry.
+ * Typically the `wavFiles` output of `scanDirectory`.
  * @param prefix The Vigie-Chiro prefix (e.g. "Car040962-2026-Pass3-A1-"), output of `buildPrefix`.
  * @param dir Absolute directory path — used to check on-disk collisions via `fs.access`.
  */

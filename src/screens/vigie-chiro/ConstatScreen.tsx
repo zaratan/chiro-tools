@@ -1,9 +1,11 @@
 import { Box, Text, useInput } from "ink";
 import { useEffect, useState } from "react";
+import { DuplicateNamesScreen } from "../../components/DuplicateNamesScreen.js";
 import { Footer } from "../../components/Footer.js";
 import { scanDirectory } from "../../lib/fs/scanDirectory.js";
 import { buildConstatCounts } from "../../lib/vigie-chiro/buildConstatCounts.js";
 import type { ConstatCounts } from "../../types.js";
+import { describeScanOrigin } from "../../format/scanOrigin.js";
 import { fitPath } from "../../format/path.js";
 
 type ScanState =
@@ -11,7 +13,15 @@ type ScanState =
   | { kind: "not-readable" }
   | { kind: "not-writable" }
   | { kind: "scan-error"; rawCode: string }
-  | { kind: "ready"; counts: ConstatCounts; wavFiles: string[] };
+  | { kind: "duplicate-names"; names: string[] }
+  | {
+      kind: "ready";
+      counts: ConstatCounts;
+      wavFiles: string[];
+      subDirName: string | null;
+      rootCount: number;
+      subCount: number;
+    };
 
 export type ConstatScreenProps = {
   cwd: string;
@@ -38,6 +48,9 @@ export const ConstatScreen = ({
         kind: "ready",
         wavFiles: result.wavFiles,
         counts: buildConstatCounts(result.wavFiles, result.ignoredFileCount),
+        subDirName: result.subDirName,
+        rootCount: result.rootCount,
+        subCount: result.subCount,
       });
     });
     return () => {
@@ -139,8 +152,23 @@ export const ConstatScreen = ({
     );
   }
 
+  if (state.kind === "duplicate-names") {
+    return <DuplicateNamesScreen names={state.names} onBack={onBack} />;
+  }
+
   // state.kind === "ready"
   const { counts } = state;
+  const origin = describeScanOrigin(
+    state.subDirName,
+    state.rootCount,
+    state.subCount,
+  );
+  const locationSuffix =
+    origin === null
+      ? " ici"
+      : origin.kind === "all-sub"
+        ? ` dans ${origin.label}`
+        : "";
 
   if (counts.totalWav === 0) {
     return (
@@ -172,9 +200,15 @@ export const ConstatScreen = ({
         <Text>
           {counts.totalWav.toString()} enregistrement
           {counts.totalWav > 1 ? "s" : ""} .wav trouvé
-          {counts.totalWav > 1 ? "s" : ""} ici
+          {counts.totalWav > 1 ? "s" : ""}
+          {locationSuffix}
         </Text>
       </Box>
+      {origin?.kind === "mixed" ? (
+        <Text dimColor>
+          {`  (${origin.rootCount.toString()} ici et ${origin.subCount.toString()} dans ${origin.label})`}
+        </Text>
+      ) : null}
       {counts.alreadyPrefixed > 0 ? (
         <Text>
           {"  • "}

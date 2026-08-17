@@ -139,7 +139,7 @@ describe("createZipVolumes — series completeness guard", () => {
 
     expect(result.kind).toBe("error");
     if (result.kind !== "error") throw new Error("type narrowing");
-    expect(result.code).toBe("verify-failed");
+    expect(result.code).toBe("verify-failed:entry-count");
     // Staging destroyed too: no hidden multi-GB directory left behind.
     expect(await readdir(uploadDir)).toEqual([]);
   });

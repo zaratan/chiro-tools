@@ -148,4 +148,46 @@ describe("planRenames", () => {
     ]);
     expect(result.skippedCollision).toEqual(["will-collide.wav"]);
   });
+
+  describe("Brut/ subfolder entries", () => {
+    it("keeps the subfolder in the target name — renamed on place, never moved to the root", async () => {
+      const prefix = "Car040962-2026-Pass3-A1-";
+
+      const result = await planRenames(["Brut/rec.wav"], prefix, tmpDir);
+
+      expect(result.operations).toEqual([
+        {
+          from: "Brut/rec.wav",
+          to: "Brut/Car040962-2026-Pass3-A1-rec.wav",
+        },
+      ]);
+    });
+
+    it("does not collide a root file with a same-named file in Brut/ — different paths, not a real collision", async () => {
+      const result = await planRenames(
+        ["rec.wav", "Brut/rec.wav"],
+        "P-",
+        tmpDir,
+      );
+
+      expect(result.skippedCollision).toEqual([]);
+      expect(result.operations).toEqual([
+        { from: "Brut/rec.wav", to: "Brut/P-rec.wav" },
+        { from: "rec.wav", to: "P-rec.wav" },
+      ]);
+    });
+
+    it("skips an already-prefixed file inside Brut/ (idempotence across subfolders)", async () => {
+      const result = await planRenames(
+        ["Brut/Car040962-2026-Pass3-A1-old.wav"],
+        "Car040962-2026-Pass3-A1-",
+        tmpDir,
+      );
+
+      expect(result.operations).toEqual([]);
+      expect(result.skippedAlreadyPrefixed).toEqual([
+        "Brut/Car040962-2026-Pass3-A1-old.wav",
+      ]);
+    });
+  });
 });

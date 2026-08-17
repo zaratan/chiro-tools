@@ -29,4 +29,16 @@ describe("isAlreadyPrefixed", () => {
   it("rejects a random filename", () => {
     expect(isAlreadyPrefixed("random.wav")).toBe(false);
   });
+
+  it("recognizes a prefixed file inside a Brut/ subfolder (relative-path input)", () => {
+    expect(isAlreadyPrefixed("Brut/Car040962-2026-Pass3-A1-old.wav")).toBe(
+      true,
+    );
+  });
+
+  it("rejects a raw file inside a Brut/ subfolder", () => {
+    expect(isAlreadyPrefixed("Brut/PaRecPR1925645_20260507_210004.wav")).toBe(
+      false,
+    );
+  });
 });

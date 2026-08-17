@@ -1,5 +1,6 @@
 import {
   copyFile as realCopyFile,
+  mkdir,
   mkdtemp,
   readdir,
   rename as realRename,
@@ -292,6 +293,25 @@ describe("applyRenames", () => {
     expect(result.renamed).toEqual([]);
     expect(result.interrupted).toBe(true);
     expect(fsMock.rename).not.toHaveBeenCalled();
+  });
+
+  it("renames a file inside a subfolder in place — never moves it to the scan root", async () => {
+    await mkdir(path.join(tmpDir, "Brut"));
+    await writeFile(path.join(tmpDir, "Brut", "rec.wav"), "content");
+
+    const plan = emptyPlan({
+      operations: [{ from: "Brut/rec.wav", to: "Brut/P-rec.wav" }],
+    });
+
+    const result = await applyRenames(plan, tmpDir);
+
+    expect(result.renamed).toEqual(["Brut/rec.wav"]);
+    expect(result.errored).toEqual([]);
+
+    const rootEntries = await readdir(tmpDir);
+    expect(rootEntries).toEqual(["Brut"]);
+    const subEntries = await readdir(path.join(tmpDir, "Brut"));
+    expect(subEntries).toEqual(["P-rec.wav"]);
   });
 
   it("measures a non-negative durationMs", async () => {
