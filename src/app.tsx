@@ -48,6 +48,22 @@ import type {
   BackupOkResult,
   PackageOkResult,
 } from "./screens/archive/useArchiveRun.js";
+import { ConstatScreen as OffsiteConstatScreen } from "./screens/offsite/ConstatScreen.js";
+import type {
+  PickArchiveToUploadFn,
+  RemoteStatFn,
+} from "./screens/offsite/ConstatScreen.js";
+import { ConfirmScreen as OffsiteConfirmScreen } from "./screens/offsite/ConfirmScreen.js";
+import { RunScreen as OffsiteRunScreen } from "./screens/offsite/RunScreen.js";
+import { ResultScreen as OffsiteResultScreen } from "./screens/offsite/ResultScreen.js";
+import type {
+  OffsiteRunOutcome,
+  UploadArchiveFn,
+} from "./screens/offsite/useOffsiteRun.js";
+import { pickArchiveToUpload as defaultPickArchiveToUpload } from "./lib/offsite/pickArchiveToUpload.js";
+import { remoteStat as defaultRemoteStat } from "./lib/offsite/remoteStat.js";
+import type { ChosenArchive } from "./lib/offsite/pickArchiveToUpload.js";
+import type { OffsiteAvailability } from "./lib/offsite/resolveOffsiteAvailability.js";
 import { FormScreen as ProcessFormScreen } from "./screens/vigie-process/FormScreen.js";
 import { ResultScreen as ProcessResultScreen } from "./screens/vigie-process/ResultScreen.js";
 import type {
@@ -106,7 +122,11 @@ type Screen =
       entries: ArchiveEntryStat[];
       totalBytes: number;
     }
-  | { kind: "package:result"; outcome: PackageOutcome };
+  | { kind: "package:result"; outcome: PackageOutcome }
+  | { kind: "offsite:constat" }
+  | { kind: "offsite:confirm"; chosen: ChosenArchive }
+  | { kind: "offsite:running"; chosen: ChosenArchive }
+  | { kind: "offsite:result"; outcome: OffsiteRunOutcome };
 
 type BootChecker = (opts: {
   currentVersion: string;
@@ -135,6 +155,18 @@ export type AppProps = {
    *  menu entry hidden, update screen shows a "managed externally" message.
    *  Set when chiro runs from Homebrew or when CHIRO_DISABLE_AUTOUPDATE=1. */
   autoUpdateDisabled?: boolean;
+  /** Boot-time probe result (`resolveOffsiteAvailability`, computed
+   * synchronously in `index.tsx` before `render()`). Gates the menu entry,
+   * the backup Result screen's `A` hint, and both routes into
+   * `offsite:constat`. Defaults to unavailable so existing tests that don't
+   * pass this prop keep rendering the pre-Phase-10 six-entry menu. */
+  offsiteAvailability?: OffsiteAvailability;
+  /** Override for tests. Defaults to the real implementation. */
+  pickArchiveToUpload?: PickArchiveToUploadFn;
+  /** Override for tests. Defaults to the real implementation. */
+  remoteStat?: RemoteStatFn;
+  /** Override for tests. Defaults to the real `uploadArchive`. */
+  uploadArchive?: UploadArchiveFn;
 };
 
 const buildProcessWavFiles = (
@@ -157,9 +189,20 @@ export const App = ({
   updateChecker,
   soxAvailability: soxAvailabilityProp,
   autoUpdateDisabled = false,
+  offsiteAvailability = { kind: "unavailable" },
+  pickArchiveToUpload = defaultPickArchiveToUpload,
+  remoteStat = defaultRemoteStat,
+  uploadArchive,
 }: AppProps): React.JSX.Element => {
   const { exit } = useApp();
   const [screen, setScreen] = useState<Screen>({ kind: "menu" });
+  // Narrowed once per render — both entry points into offsite:* (the menu
+  // item, the backup Result screen's `A` key) are themselves gated on this
+  // same availability, so by the time either navigation fires, `offsite`
+  // is guaranteed non-null. The `offsite === null` branches below the
+  // routing `if`s exist only as defensive programmer-error guards.
+  const offsite =
+    offsiteAvailability.kind === "available" ? offsiteAvailability : null;
   const [availableVersion, setAvailableVersion] = useState<string | null>(null);
   const [soxAvailability, setSoxAvailability] = useState<
     SoxAvailability | "pending"
@@ -268,31 +311,42 @@ export const App = ({
     }
   });
 
+  // Built once per render and reused both for the "menu" screen itself and
+  // as the defensive fallback for the offsite:* branches below (screen.kind
+  // === "offsite:constat"/"offsite:confirm" with offsite === null, a state
+  // that should be unreachable through normal navigation) — reusing this
+  // element avoids duplicating the whole prop list a second time.
+  const menuScreen = (
+    <MenuScreen
+      availableVersion={availableVersion}
+      autoUpdateDisabled={autoUpdateDisabled}
+      offsiteAvailable={offsite !== null}
+      onPickVigiePrefix={() => {
+        setScreen({ kind: "vigie:constat" });
+      }}
+      onPickVigieProcess={() => {
+        setScreen({ kind: "process:constat" });
+      }}
+      onPickPackage={() => {
+        setScreen({ kind: "package:constat" });
+      }}
+      onPickBackup={() => {
+        setScreen({ kind: "archive:constat" });
+      }}
+      onPickOffsite={() => {
+        setScreen({ kind: "offsite:constat" });
+      }}
+      onPickUpdate={() => {
+        setScreen({ kind: "update" });
+      }}
+      onQuit={() => {
+        exit();
+      }}
+    />
+  );
+
   if (screen.kind === "menu") {
-    return (
-      <MenuScreen
-        availableVersion={availableVersion}
-        autoUpdateDisabled={autoUpdateDisabled}
-        onPickVigiePrefix={() => {
-          setScreen({ kind: "vigie:constat" });
-        }}
-        onPickVigieProcess={() => {
-          setScreen({ kind: "process:constat" });
-        }}
-        onPickPackage={() => {
-          setScreen({ kind: "package:constat" });
-        }}
-        onPickBackup={() => {
-          setScreen({ kind: "archive:constat" });
-        }}
-        onPickUpdate={() => {
-          setScreen({ kind: "update" });
-        }}
-        onQuit={() => {
-          exit();
-        }}
-      />
-    );
+    return menuScreen;
   }
 
   if (screen.kind === "update") {
@@ -477,6 +531,10 @@ export const App = ({
       <ArchiveResultScreen
         cwd={cwd}
         outcome={screen.outcome}
+        offsiteAvailable={offsite !== null}
+        onArchiveOffsite={() => {
+          setScreen({ kind: "offsite:constat" });
+        }}
         onBackToMenu={() => {
           setScreen({ kind: "menu" });
         }}
@@ -520,9 +578,79 @@ export const App = ({
     );
   }
 
-  // screen.kind === "package:result"
+  if (screen.kind === "package:result") {
+    return (
+      <UploadResultScreen
+        cwd={cwd}
+        outcome={screen.outcome}
+        onBackToMenu={() => {
+          setScreen({ kind: "menu" });
+        }}
+      />
+    );
+  }
+
+  if (screen.kind === "offsite:constat") {
+    if (offsite === null) return menuScreen;
+    return (
+      <OffsiteConstatScreen
+        cwd={cwd}
+        binPath={offsite.binPath}
+        settings={offsite.settings}
+        runningRef={runningRef}
+        pickArchiveToUpload={pickArchiveToUpload}
+        remoteStat={remoteStat}
+        onContinue={(chosen) => {
+          setScreen({ kind: "offsite:confirm", chosen });
+        }}
+        onBack={() => {
+          setScreen({ kind: "menu" });
+        }}
+      />
+    );
+  }
+
+  if (screen.kind === "offsite:confirm") {
+    if (offsite === null) return menuScreen;
+    const chosen = screen.chosen;
+    return (
+      <OffsiteConfirmScreen
+        cwd={cwd}
+        chosen={chosen}
+        onConfirm={() => {
+          setScreen({ kind: "offsite:running", chosen });
+        }}
+        onBack={() => {
+          setScreen({ kind: "offsite:constat" });
+        }}
+      />
+    );
+  }
+
+  if (screen.kind === "offsite:running") {
+    if (offsite === null) return menuScreen;
+    const chosen = screen.chosen;
+    return (
+      <OffsiteRunScreen
+        cwd={cwd}
+        chosen={chosen}
+        binPath={offsite.binPath}
+        settings={offsite.settings}
+        runningRef={runningRef}
+        uploadArchive={uploadArchive}
+        onComplete={(outcome) => {
+          setScreen({ kind: "offsite:result", outcome });
+        }}
+        onBackToStart={() => {
+          setScreen({ kind: "offsite:confirm", chosen });
+        }}
+      />
+    );
+  }
+
+  // screen.kind === "offsite:result"
   return (
-    <UploadResultScreen
+    <OffsiteResultScreen
       cwd={cwd}
       outcome={screen.outcome}
       onBackToMenu={() => {

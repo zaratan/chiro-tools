@@ -9,6 +9,9 @@ import {
   FALLBACK_INSTALL_SCRIPT_URL,
   INSTALL_SCRIPT_URL,
 } from "./lib/update/constants.js";
+import { detectRclone } from "./lib/offsite/detectRclone.js";
+import { loadOffsiteSettings } from "./lib/offsite/settings.js";
+import { resolveOffsiteAvailability } from "./lib/offsite/resolveOffsiteAvailability.js";
 import { CHIRO_VERSION } from "./version.js";
 
 const args = process.argv.slice(2);
@@ -81,10 +84,25 @@ const state = { installAfterExit: false };
 const autoUpdateDisabled =
   isHomebrewInstall() || process.env.CHIRO_DISABLE_AUTOUPDATE === "1";
 
+// Synchronous, before `render()` — never a `useEffect` probe. `MenuScreen`
+// navigates by raw index into its item list; an entry appearing 100-300 ms
+// after mount would shift every entry below it, and a keypress landing in
+// that window could launch the wrong action (the exact race `detectSox`
+// avoids the same way — see `docs/architecture.md` § offsite). `detectRclone`
+// makes no network call; `loadOffsiteSettings` is a local file read. Neither
+// can freeze the TUI before its first frame.
+const rcloneAvailability = detectRclone();
+const offsiteSettingsResult = await loadOffsiteSettings();
+const offsiteAvailability = resolveOffsiteAvailability(
+  rcloneAvailability,
+  offsiteSettingsResult,
+);
+
 const instance = render(
   <App
     cwd={process.cwd()}
     autoUpdateDisabled={autoUpdateDisabled}
+    offsiteAvailability={offsiteAvailability}
     onRequestUpdate={() => {
       state.installAfterExit = true;
     }}

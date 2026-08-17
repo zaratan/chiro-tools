@@ -4,6 +4,57 @@ import eslintConfigPrettier from "eslint-config-prettier";
 import eslintPluginPrettier from "eslint-plugin-prettier";
 import globals from "globals";
 
+// One screen directory per user-facing flow. Each flow may freely import
+// lib/, format/, components/ (unrestricted below) but never reach into a
+// sibling flow's screens/ directory — that boundary is generated, not
+// hand-written, because at N flows it's N*(N-1) restriction entries in
+// three forms each (see the comment on `crossFlowRestrictionsFor`), and
+// hand-writing it once already produced a silent regression (Phase 9: the
+// guard for one flow pair went inert because only the qualified
+// "**/screens/x/**" form was listed, not the relative "../x/**" one a real
+// import string actually uses).
+const FLOWS = ["vigie-chiro", "vigie-process", "archive", "offsite"];
+
+/**
+ * The `no-restricted-imports` patterns that forbid `flow` from importing any
+ * *other* flow's screens/ directory, in the three forms a real import string
+ * can take: `no-restricted-imports` matches the literal import string, not
+ * the resolved path, and `../vigie-process/x.js` never contains "screens/".
+ *
+ * Deliberately scoped to `screens/<other>/` and never a bare `**\/<other>/**`
+ * — several flows legitimately import a same-named module under `lib/`
+ * (e.g. `screens/archive/` importing `lib/vigie-chiro/extractCommonPrefix`,
+ * or any future flow importing `lib/offsite/`), and a bare pattern would
+ * block that too.
+ */
+const crossFlowRestrictionsFor = (flow) =>
+  FLOWS.filter((other) => other !== flow).flatMap((other) => [
+    `**/screens/${other}/**`,
+    `../${other}/**`,
+    `../../${other}/**`,
+  ]);
+
+const flowBoundaryBlocks = FLOWS.map((flow) => ({
+  files: [`src/screens/${flow}/**/*.{ts,tsx}`],
+  ignores: [
+    `src/screens/${flow}/**/*.test.{ts,tsx}`,
+    `src/screens/${flow}/**/__tests__/**`,
+  ],
+  rules: {
+    "no-restricted-imports": [
+      "error",
+      {
+        patterns: [
+          {
+            group: crossFlowRestrictionsFor(flow),
+            message: "No cross-flow imports between screen directories.",
+          },
+        ],
+      },
+    ],
+  },
+}));
+
 export default tseslint.config(
   {
     ignores: [
@@ -129,98 +180,5 @@ export default tseslint.config(
       ],
     },
   },
-  {
-    files: ["src/screens/vigie-chiro/**/*.{ts,tsx}"],
-    ignores: [
-      "src/screens/vigie-chiro/**/*.test.{ts,tsx}",
-      "src/screens/vigie-chiro/**/__tests__/**",
-    ],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              // Both the "screens/"-qualified form AND the bare relative
-              // forms. no-restricted-imports matches the literal import
-              // string, and a real cross-flow import reads
-              // "../vigie-process/x.js" — which never contains "screens/".
-              // Listing only the qualified form silently disables the guard.
-              // A bare "**/vigie-process/**" is not an option either: it
-              // would also match the legitimate src/lib/vigie-chiro/ module.
-              group: [
-                "**/screens/vigie-process/**",
-                "../vigie-process/**",
-                "../../vigie-process/**",
-                "**/screens/archive/**",
-                "../archive/**",
-                "../../archive/**",
-              ],
-              message: "No cross-flow imports between screen directories.",
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
-    files: ["src/screens/vigie-process/**/*.{ts,tsx}"],
-    ignores: [
-      "src/screens/vigie-process/**/*.test.{ts,tsx}",
-      "src/screens/vigie-process/**/__tests__/**",
-    ],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              // Cannot use a bare "**/vigie-chiro/**": it would also match
-              // the legitimate src/lib/vigie-chiro/ business module.
-              group: [
-                "**/screens/vigie-chiro/**",
-                "../vigie-chiro/**",
-                "../../vigie-chiro/**",
-                "**/screens/archive/**",
-                "../archive/**",
-                "../../archive/**",
-              ],
-              message: "No cross-flow imports between screen directories.",
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
-    files: ["src/screens/archive/**/*.{ts,tsx}"],
-    ignores: [
-      "src/screens/archive/**/*.test.{ts,tsx}",
-      "src/screens/archive/**/__tests__/**",
-    ],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              // Qualified + relative forms, cf. the vigie-chiro block above.
-              // A bare "**/vigie-chiro/**" would also match the legitimate
-              // src/lib/vigie-chiro/ module this flow imports
-              // (extractCommonPrefix), so both forms must be listed.
-              group: [
-                "**/screens/vigie-chiro/**",
-                "../vigie-chiro/**",
-                "../../vigie-chiro/**",
-                "**/screens/vigie-process/**",
-                "../vigie-process/**",
-                "../../vigie-process/**",
-              ],
-              message: "No cross-flow imports between screen directories.",
-            },
-          ],
-        },
-      ],
-    },
-  },
+  ...flowBoundaryBlocks,
 );

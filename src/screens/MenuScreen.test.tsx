@@ -12,6 +12,7 @@ const baseProps = {
   onPickVigieProcess: noop,
   onPickPackage: noop,
   onPickBackup: noop,
+  onPickOffsite: noop,
   onPickUpdate: noop,
   onQuit: noop,
   availableVersion: null,
@@ -200,5 +201,45 @@ describe("MenuScreen", () => {
     await settle();
     expect(onQuit).toHaveBeenCalledOnce();
     expect(onPickBackup).not.toHaveBeenCalled();
+  });
+
+  it("hides the offsite entry by default", () => {
+    const { lastFrame } = render(<MenuScreen {...baseProps} />);
+    expect(lastFrame() ?? "").not.toContain("Archiver la sauvegarde en ligne");
+  });
+
+  it("shows the offsite entry, between backup and update, when offsiteAvailable=true", () => {
+    const { lastFrame } = render(
+      <MenuScreen {...baseProps} offsiteAvailable={true} />,
+    );
+    const frame = lastFrame() ?? "";
+    const backupIndex = frame.indexOf("Sauvegarder les enregistrements");
+    const offsiteIndex = frame.indexOf("Archiver la sauvegarde en ligne");
+    const updateIndex = frame.indexOf("Vérifier les mises à jour");
+    expect(offsiteIndex).toBeGreaterThan(-1);
+    expect(backupIndex).toBeLessThan(offsiteIndex);
+    expect(offsiteIndex).toBeLessThan(updateIndex);
+  });
+
+  it("triggers onPickOffsite when Enter is pressed on the offsite entry", async () => {
+    const onPickOffsite = vi.fn();
+    const { stdin } = render(
+      <MenuScreen
+        {...baseProps}
+        offsiteAvailable={true}
+        onPickOffsite={onPickOffsite}
+      />,
+    );
+    stdin.write("\x1b[B"); // → vigie-process
+    await settle();
+    stdin.write("\x1b[B"); // → package
+    await settle();
+    stdin.write("\x1b[B"); // → backup
+    await settle();
+    stdin.write("\x1b[B"); // → offsite
+    await settle();
+    stdin.write("\r");
+    await settle();
+    expect(onPickOffsite).toHaveBeenCalledOnce();
   });
 });

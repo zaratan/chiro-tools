@@ -1,9 +1,15 @@
 import { Box, Text, useInput } from "ink";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Footer } from "../components/Footer.js";
 
 type MenuItem =
-  "vigie-prefix" | "vigie-process" | "package" | "backup" | "update" | "quit";
+  | "vigie-prefix"
+  | "vigie-process"
+  | "package"
+  | "backup"
+  | "offsite"
+  | "update"
+  | "quit";
 
 const ITEMS: { id: MenuItem; label: string }[] = [
   {
@@ -22,6 +28,7 @@ const ITEMS: { id: MenuItem; label: string }[] = [
     id: "backup",
     label: "Sauvegarder les enregistrements découpés (un seul zip)",
   },
+  { id: "offsite", label: "Archiver la sauvegarde en ligne" },
   { id: "update", label: "Vérifier les mises à jour" },
   { id: "quit", label: "Quitter" },
 ];
@@ -31,10 +38,16 @@ export type MenuScreenProps = {
   onPickVigieProcess: () => void;
   onPickPackage: () => void;
   onPickBackup: () => void;
+  onPickOffsite: () => void;
   onPickUpdate: () => void;
   onQuit: () => void;
   availableVersion: string | null;
   autoUpdateDisabled?: boolean;
+  /** Gates the "Archiver la sauvegarde en ligne" entry — shown only when
+   * rclone was detected and `~/.chiro/settings.json` is valid at boot (cf.
+   * `resolveOffsiteAvailability`). Absent, this entry vanishes in total
+   * silence, same contract as `autoUpdateDisabled`. */
+  offsiteAvailable?: boolean;
 };
 
 export const MenuScreen = ({
@@ -42,16 +55,26 @@ export const MenuScreen = ({
   onPickVigieProcess,
   onPickPackage,
   onPickBackup,
+  onPickOffsite,
   onPickUpdate,
   onQuit,
   availableVersion,
   autoUpdateDisabled = false,
+  offsiteAvailable = false,
 }: MenuScreenProps): React.JSX.Element => {
   const [focused, setFocused] = useState(0);
 
-  const items = autoUpdateDisabled
-    ? ITEMS.filter((item) => item.id !== "update")
-    : ITEMS;
+  // Derived rather than a module-level constant: two independent gates
+  // (update, offsite) each conditionally drop an entry.
+  const items = useMemo(
+    () =>
+      ITEMS.filter((item) => {
+        if (item.id === "update") return !autoUpdateDisabled;
+        if (item.id === "offsite") return offsiteAvailable;
+        return true;
+      }),
+    [autoUpdateDisabled, offsiteAvailable],
+  );
 
   useInput((_input, key) => {
     if (key.upArrow) {
@@ -74,6 +97,7 @@ export const MenuScreen = ({
       else if (item.id === "vigie-process") onPickVigieProcess();
       else if (item.id === "package") onPickPackage();
       else if (item.id === "backup") onPickBackup();
+      else if (item.id === "offsite") onPickOffsite();
       else onQuit();
     }
   });

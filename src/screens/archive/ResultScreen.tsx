@@ -5,6 +5,7 @@ import { PROCESSED_DIR_DISPLAY } from "../../lib/audio/batchPlan.js";
 import { ARCHIVED_DIR_DISPLAY } from "../../lib/archive/planArchive.js";
 import { formatBytes } from "../../format/bytes.js";
 import { formatDuration } from "../../format/duration.js";
+import { estimateUploadSeconds } from "../../lib/offsite/estimatedDuration.js";
 import type { ArchiveRunOutcome, BackupOkResult } from "./useArchiveRun.js";
 
 /** The backup flow's own outcomes. */
@@ -14,15 +15,33 @@ export type ArchiveResultScreenProps = {
   cwd: string;
   outcome: BackupRunOutcome;
   onBackToMenu: () => void;
+  /** Gates the "A archiver en ligne" proposal below the success message —
+   * same availability the menu's own offsite entry is gated on. When false,
+   * this screen renders exactly as it did before Phase 10: one hand-off
+   * line, no bullet list, no `A` hint. */
+  offsiteAvailable?: boolean;
+  onArchiveOffsite?: () => void;
 };
 
 export const ResultScreen = ({
   cwd,
   outcome,
   onBackToMenu,
+  offsiteAvailable = false,
+  onArchiveOffsite,
 }: ArchiveResultScreenProps): React.JSX.Element => {
-  useInput((_input, key) => {
-    if (key.return) onBackToMenu();
+  useInput((input, key) => {
+    if (key.return) {
+      onBackToMenu();
+      return;
+    }
+    if (
+      offsiteAvailable &&
+      outcome.kind === "backup-ok" &&
+      input.toLowerCase() === "a"
+    ) {
+      onArchiveOffsite?.();
+    }
   });
 
   if (outcome.kind === "aborted") {
@@ -67,12 +86,28 @@ export const ResultScreen = ({
           Ce fichier est votre copie de sauvegarde : gardez-le de côté.
         </Text>
       </Box>
-      <Box marginTop={1} flexDirection="column">
-        <Text>ℹ Pour déposer sur Vigie-Chiro, choisissez</Text>
-        <Text>
-          {"  « Créer les zips à déposer sur Vigie-Chiro » dans le menu."}
-        </Text>
-      </Box>
+      {offsiteAvailable ? (
+        <Box marginTop={1} flexDirection="column">
+          <Text>ℹ Et maintenant :</Text>
+          <Text>
+            {"  • pour déposer sur Vigie-Chiro, choisissez « Créer les zips à"}
+          </Text>
+          <Text>{"    déposer sur Vigie-Chiro » dans le menu"}</Text>
+          <Text>
+            {"  • pour garder cette sauvegarde à l'abri d'une panne de disque,"}
+          </Text>
+          <Text>
+            {`    appuyez sur A (comptez environ ${formatDuration(estimateUploadSeconds(outcome.zipBytes))})`}
+          </Text>
+        </Box>
+      ) : (
+        <Box marginTop={1} flexDirection="column">
+          <Text>ℹ Pour déposer sur Vigie-Chiro, choisissez</Text>
+          <Text>
+            {"  « Créer les zips à déposer sur Vigie-Chiro » dans le menu."}
+          </Text>
+        </Box>
+      )}
       <Box marginTop={1} flexDirection="column">
         {/* The zip path above is relative; without the absolute cwd the user
             has no way to locate the file she is being told to upload. */}
@@ -81,7 +116,16 @@ export const ResultScreen = ({
           {`Vos enregistrements sont toujours dans ${PROCESSED_DIR_DISPLAY}.`}
         </Text>
       </Box>
-      <Footer hints={[{ key: "Entrée", label: "retour au menu" }]} />
+      <Footer
+        hints={
+          offsiteAvailable
+            ? [
+                { key: "A", label: "archiver en ligne" },
+                { key: "Entrée", label: "retour au menu" },
+              ]
+            : [{ key: "Entrée", label: "retour au menu" }]
+        }
+      />
     </Box>
   );
 };

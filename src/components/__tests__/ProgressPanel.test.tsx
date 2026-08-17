@@ -85,6 +85,36 @@ describe("ProgressPanel", () => {
     expect(frame).toContain("42 fichiers • Temps écoulé 30 s");
   });
 
+  it("renders noticeLine in between the counter lines and the bar when provided", () => {
+    const { lastFrame } = render(
+      <ProgressPanel
+        cwd="/tmp/chiro-demo"
+        title="Archivage en ligne en cours…"
+        counterLines={["  file.zip"]}
+        noticeLine="⚠ La connexion est ralentie — chiro continue d'essayer."
+        percent={40}
+        statsLine="Temps écoulé 1 min"
+        reassuranceLines={[]}
+      />,
+    );
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("La connexion est ralentie");
+  });
+
+  it("omits noticeLine entirely when not provided — the three pre-existing callers are unaffected", () => {
+    const { lastFrame } = render(
+      <ProgressPanel
+        cwd="/tmp/chiro-demo"
+        title="Découpage en cours…"
+        counterLines={[]}
+        percent={0}
+        statsLine="0 fichiers • Temps écoulé 0 s"
+        reassuranceLines={[]}
+      />,
+    );
+    expect(lastFrame() ?? "").not.toContain("⚠");
+  });
+
   it("renders every reassurance line", () => {
     const { lastFrame } = render(
       <ProgressPanel

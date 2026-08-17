@@ -9,6 +9,12 @@ import { readZip } from "./lib/archive/__tests__/zipTestReader.js";
 import type { CreateZipArchiveFn } from "./screens/archive/backupBehavior.js";
 import type { CreateZipVolumesFn } from "./screens/archive/packageBehavior.js";
 import type { ApplyRenamesFn } from "./screens/vigie-chiro/ConfirmScreen.js";
+import type {
+  PickArchiveToUploadFn,
+  RemoteStatFn,
+} from "./screens/offsite/ConstatScreen.js";
+import type { UploadArchiveFn } from "./screens/offsite/useOffsiteRun.js";
+import type { OffsiteAvailability } from "./lib/offsite/resolveOffsiteAvailability.js";
 import type { RenamePlan, RenameOutcome } from "./types.js";
 
 /**
@@ -846,6 +852,145 @@ describe("App — end-to-end", () => {
       const afterEscapeFrame = lastFrame() ?? "";
       expect(afterEscapeFrame).not.toContain("chiro — outils Vigie-Chiro");
       expect(afterEscapeFrame).toContain(path.basename(tmpDir));
+    });
+  });
+
+  describe("App — offsite flow", () => {
+    const makeOffsiteAvailability = (): OffsiteAvailability => ({
+      kind: "available",
+      binPath: "rclone",
+      settings: {
+        remote: "chiro-remote",
+        bucket: "chiro-bucket",
+        prefix: "vigie",
+      },
+    });
+
+    it("completes Menu → offsite:constat → confirm → running → result end-to-end with a fake uploadArchive, and Ctrl+C during the transfer doesn't exit the app", async () => {
+      const chosen = {
+        name: "Car340581-2026-Pass1-A1_20260814.zip",
+        path: path.join(
+          tmpDir,
+          "archived",
+          "Car340581-2026-Pass1-A1_20260814.zip",
+        ),
+        size: 4,
+        mtimeMs: Date.now(),
+      };
+      const pickArchiveToUpload: PickArchiveToUploadFn = () =>
+        Promise.resolve({ kind: "ok", chosen, otherCount: 0 });
+      const remoteStat: RemoteStatFn = () =>
+        Promise.resolve({ kind: "absent" });
+
+      let sawAbortSignal: AbortSignal | undefined;
+      const uploadArchive: UploadArchiveFn = (_deps, options) => {
+        sawAbortSignal = options.signal;
+        return new Promise((resolve) => {
+          options.signal?.addEventListener("abort", () => {
+            resolve({ kind: "aborted", bytesSent: 0 });
+          });
+        });
+      };
+
+      const { stdin, lastFrame } = render(
+        <App
+          cwd={tmpDir}
+          onRequestUpdate={vi.fn()}
+          offsiteAvailability={makeOffsiteAvailability()}
+          pickArchiveToUpload={pickArchiveToUpload}
+          remoteStat={remoteStat}
+          uploadArchive={uploadArchive}
+        />,
+      );
+
+      // Menu: 4x down → "offsite" item (prefix, process, package, backup,
+      // offsite), then Entrée → offsite:constat.
+      for (let i = 0; i < 4; i++) {
+        stdin.write("\x1B[B");
+        await settle();
+      }
+      stdin.write("\r");
+      await settle();
+
+      await waitForText(lastFrame, "prête à être archivée en ligne");
+
+      // Continue → offsite:confirm
+      stdin.write("\r");
+      await settle();
+      expect(lastFrame() ?? "").toContain(
+        "On va archiver votre sauvegarde en ligne.",
+      );
+
+      // Confirm → offsite:running
+      stdin.write("\r");
+      await waitForText(lastFrame, "Archivage en ligne en cours…");
+
+      // Ctrl+C during the transfer: must move to the stopping screen, and
+      // must NOT trip the App-level global Ctrl+C handler (which would call
+      // process.exit and tear down the whole test process) — runningRef has
+      // to stay true across the offsite:running screen for that.
+      stdin.write("\x03");
+      await waitForText(lastFrame, "Arrêt en cours…");
+      expect(sawAbortSignal?.aborted).toBe(true);
+    });
+
+    it("completes with a successful, verified result screen when uploadArchive resolves ok", async () => {
+      const chosen = {
+        name: "Car340581-2026-Pass1-A1_20260814.zip",
+        path: path.join(
+          tmpDir,
+          "archived",
+          "Car340581-2026-Pass1-A1_20260814.zip",
+        ),
+        size: 4,
+        mtimeMs: Date.now(),
+      };
+      const pickArchiveToUpload: PickArchiveToUploadFn = () =>
+        Promise.resolve({ kind: "ok", chosen, otherCount: 0 });
+      const remoteStat: RemoteStatFn = () =>
+        Promise.resolve({ kind: "absent" });
+      const uploadArchive: UploadArchiveFn = () =>
+        Promise.resolve({
+          kind: "ok",
+          bytesSent: 4,
+          attempts: 1,
+          verified: "size-match",
+        });
+
+      const { stdin, lastFrame } = render(
+        <App
+          cwd={tmpDir}
+          onRequestUpdate={vi.fn()}
+          offsiteAvailability={makeOffsiteAvailability()}
+          pickArchiveToUpload={pickArchiveToUpload}
+          remoteStat={remoteStat}
+          uploadArchive={uploadArchive}
+        />,
+      );
+
+      for (let i = 0; i < 4; i++) {
+        stdin.write("\x1B[B");
+        await settle();
+      }
+      stdin.write("\r");
+      await settle();
+      await waitForText(lastFrame, "prête à être archivée en ligne");
+
+      stdin.write("\r");
+      await settle();
+      stdin.write("\r");
+      await waitForText(lastFrame, "Terminé");
+
+      const resultFrame = lastFrame() ?? "";
+      expect(resultFrame).toContain("✓ Terminé !");
+      expect(resultFrame).toContain(chosen.name);
+      expect(resultFrame).toContain(
+        "chiro a vérifié que le fichier est bien arrivé, en entier.",
+      );
+
+      // Entrée returns to the menu.
+      stdin.write("\r");
+      await waitForText(lastFrame, "chiro — outils Vigie-Chiro");
     });
   });
 });
