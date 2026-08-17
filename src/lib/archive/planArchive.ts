@@ -5,6 +5,16 @@ import { isVisibleNonTmpEntry } from "../fs/scanDirectory.js";
 
 export const ARCHIVED_DIRNAME = "archived";
 
+/**
+ * Matches a backup zip's file name: `processed_YYYYMMDD.zip` or a
+ * prefixed-study form, optionally minute-stamped, with an optional `-N`
+ * collision suffix. Shared by `hasExistingArchiveZip` (screens/archive) and
+ * `pickArchiveToUpload` (lib/offsite) — both need to recognize "is this file
+ * a backup zip", so the pattern lives here rather than in either caller.
+ */
+export const ARCHIVE_ZIP_NAME_REGEX =
+  /^(?:processed|Car\d{6}-\d{4}-Pass\d+-[A-Z0-9]+)_\d{8}(?:\d{4})?(-\d+)?\.zip$/;
+
 /** Relative-path form shown to the user in the TUI (e.g. "./archived/"). */
 export const ARCHIVED_DIR_DISPLAY = `./${ARCHIVED_DIRNAME}/`;
 

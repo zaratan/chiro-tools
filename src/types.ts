@@ -206,6 +206,46 @@ export type PackageResultSerialized =
     };
 
 /**
+ * Aggregated result for a completed (or aborted/errored) `vigie-upload`
+ * (Scaleway Glacier offsite-archive) session. Discriminated on `status`,
+ * same shape as `ArchiveResultSerialized`/`PackageResultSerialized`.
+ * `verified` distinguishes "the remote size was re-read and matches" from
+ * "couldn't ask" — a post-transfer network hiccup after an otherwise
+ * successful upload is not the same failure as a genuine size mismatch, and
+ * collapsing the two would announce a failure for a transfer that actually
+ * succeeded. `attempts` counts rclone's own `--retries` attempts for this
+ * object, not `--low-level-retries` (which retries within a single attempt
+ * and never surfaces as a separate stats tick).
+ */
+export type OffsiteResultSerialized =
+  | {
+      status: "ok";
+      zip_name: string;
+      zip_bytes: number;
+      remote: string;
+      bucket: string;
+      remote_key: string;
+      verified: "size-match" | "unavailable";
+      attempts: number;
+      duration_ms: number;
+    }
+  | {
+      status: "aborted";
+      zip_name: string;
+      zip_bytes: number;
+      bytes_sent: number;
+      duration_ms: number;
+    }
+  | {
+      status: "error";
+      error_code: string;
+      zip_name: string;
+      zip_bytes: number;
+      bytes_sent: number;
+      duration_ms: number;
+    };
+
+/**
  * A single JSONL entry written to `~/.chiro/sessions.jsonl` after each session.
  *
  * Discriminated on `schema_version` so older readers (which only know
@@ -229,8 +269,9 @@ export type PackageResultSerialized =
  * v3 — `vigie-archive` zip-creation sessions, **retired**: superseded by v5.
  * No longer written; entries already on disk keep this shape.
  * v4 — `vigie-package` Vigie-Chiro upload-series sessions (chiro prepares
- * volumes, it doesn't upload — "vigie-upload" is deliberately left free for
- * a future real Glacier upload feature).
+ * volumes, it doesn't upload — "vigie-upload" was deliberately left free at
+ * the time for a future real Glacier upload feature; it is now taken by v6
+ * below).
  * v5 — `vigie-archive`, same action as v3 plus `durable`. A new number
  * rather than a field added to v3, as the rule above requires. The reason is
  * *not* that some future reader will need to tell "fsync confirmed" from
@@ -240,6 +281,11 @@ export type PackageResultSerialized =
  * and sufficient: a line whose `schema_version` is 5 has exactly the fields
  * v5 declares, so anything reading the journal downstream (jq, a future
  * export) can branch on the number alone instead of probing for a field.
+ * v6 — `vigie-upload` Scaleway Glacier offsite-archive sessions (Phase 10).
+ * Write-only like v3/v5: the "already online" check is a live remote HEAD
+ * via rclone at the time of the run, never a read of this journal — see
+ * `docs/architecture.md` § offsite for why (a `sessions.jsonl` key was found
+ * not to be unique across studies sharing a day).
  */
 export type SessionEvent =
   | {
@@ -275,4 +321,12 @@ export type SessionEvent =
       cwd: string;
       action: "vigie-package";
       result: PackageResultSerialized;
+    }
+  | {
+      schema_version: 6;
+      ts: string;
+      version: string;
+      cwd: string;
+      action: "vigie-upload";
+      result: OffsiteResultSerialized;
     };

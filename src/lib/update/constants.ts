@@ -1,5 +1,5 @@
-import { homedir } from "node:os";
 import path from "node:path";
+import { chiroHomeDir } from "../chiroHome.js";
 import { CHIRO_VERSION } from "../../version.js";
 
 export const GITHUB_REPO = "zaratan/chiro-tools";
@@ -38,8 +38,4 @@ export const UPDATE_FETCH_TIMEOUT_MS = 15_000;
  */
 export const UPDATE_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
-export const UPDATE_CACHE_PATH = path.join(
-  homedir(),
-  ".chiro",
-  "update-check.json",
-);
+export const UPDATE_CACHE_PATH = path.join(chiroHomeDir(), "update-check.json");

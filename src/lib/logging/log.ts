@@ -1,10 +1,10 @@
 import { appendFile, mkdir } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
+import { chiroHomeDir } from "../chiroHome.js";
 import type { SessionEvent } from "../../types.js";
 
 /** Default path for the JSONL session log. */
-const DEFAULT_LOG_FILE = path.join(os.homedir(), ".chiro", "sessions.jsonl");
+const DEFAULT_LOG_FILE = path.join(chiroHomeDir(), "sessions.jsonl");
 
 /**
  * Appends a session event as a single JSONL line to the log file.

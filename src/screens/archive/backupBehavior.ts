@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 import path from "node:path";
 import type { createZipArchive as defaultCreateZipArchive } from "../../lib/archive/createZipArchive.js";
 import {
+  ARCHIVE_ZIP_NAME_REGEX,
   buildArchiveName,
   resolveArchiveFileName,
   type ArchiveEntryStat,
@@ -19,9 +20,6 @@ import type {
 } from "./useArchiveRun.js";
 
 export type CreateZipArchiveFn = typeof defaultCreateZipArchive;
-
-const ARCHIVE_ZIP_NAME_REGEX =
-  /^(?:processed|Car\d{6}-\d{4}-Pass\d+-[A-Z0-9]+)_\d{8}(?:\d{4})?(-\d+)?\.zip$/;
 
 /**
  * Whether `archivedDir` already holds a zip from a previous run — drives the
