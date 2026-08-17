@@ -1270,6 +1270,373 @@ Les quatre écarts relevés dans le code au moment de figer ces règles ont ét�
 
 Il ne reste que les deux exceptions assumées ci-dessus, où « zips » est isolé et contraint par la longueur : le libellé de menu et le hint de footer. Exception de citation à connaître : `UploadResultScreen` cite « Sauvegarder les enregistrements découpés » **sans** son suffixe « (un seul zip) », qui ferait passer la ligne à 70 caractères pour 66 utiles. C'est un préfixe strict du vrai libellé, donc repérable au scan dans le menu.
 
+## Wordings — Flow « Archiver la sauvegarde en ligne » (Phase 10)
+
+Envoie le zip le plus récent de `archived/` (produit par le flux sauvegarde) vers un bucket Scaleway en classe `GLACIER`, via `rclone`. Capacité **optionnelle** : masquée en silence total tant que rclone et `~/.chiro/settings.json` ne sont pas tous deux en place. Écrans préfixés **`O-`** (`U-` est déjà pris par le flux de dépôt).
+
+### Écran 0 — Menu (Phase 10)
+
+Le menu passe à **sept entrées** : « Archiver la sauvegarde en ligne » s'insère en **5ᵉ position**, entre « Sauvegarder les enregistrements découpés » et « Vérifier les mises à jour ». C'est une entrée **conditionnelle** (comme « Vérifier les mises à jour » l'est déjà pour Homebrew) : elle n'apparaît que si rclone est détecté **et** `settings.json` est valide, sondés tous les deux avant `render()` — jamais un ajout tardif à la liste après le premier écran, qui ferait dériver un focus déjà posé sur un autre item.
+
+### O-Constat (chargement — deux temps)
+
+Le seul écran de l'app avec une attente réellement en deux phases : le scan local est quasi instantané, le HEAD distant peut traîner sur une connexion lente.
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+Analyse du dossier…
+```
+
+puis, une fois le fichier local trouvé :
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+Vérification en ligne…
+```
+
+Pas de footer pendant le chargement (rien à décider) ; Ctrl+C reste actif et abandonne le scan pour revenir au menu.
+
+### O-Constat (dégradé : aucune sauvegarde)
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+Aucune sauvegarde à archiver dans ce dossier.
+
+L'archivage en ligne part du fichier zip créé par « Sauvegarder les
+enregistrements découpés ». Lancez-le d'abord, puis revenez ici.
+
+Si la sauvegarde est déjà faite, vous n'êtes sans doute pas dans le
+bon dossier. Dans le Terminal, tapez pwd pour voir où vous êtes.
+
+  Échap retour au menu
+```
+
+`pwd` en `cyan`, même convention que les autres écrans « mauvais dossier ».
+
+### O-Constat (dégradé : erreur de scan)
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+⚠ Une erreur inattendue est survenue en lisant ce dossier.
+
+Détail technique : {CODE_BRUT}
+  (à transmettre si vous demandez de l'aide)
+
+  Échap retour au menu
+```
+
+### O-Constat (nominal : prêt à archiver)
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+✓ Une sauvegarde est prête à être archivée en ligne.
+
+  Fichier : Car340581-2026-Pass1-A1_20260814.zip
+  Taille  : 890 Mo
+
+ℹ Ce dossier contient 2 fichiers de sauvegarde. chiro archive le
+  plus récent, celui du 14/08. Les autres ne sont pas concernés.
+
+ℹ Archiver, c'est garder une copie de ce fichier ailleurs qu'ici,
+  au cas où ce disque tombe en panne.
+  Ce n'est pas le dépôt sur Vigie-Chiro : celui-ci reste à faire
+  depuis le site.
+
+  Entrée continuer   Échap retour au menu
+```
+
+Le bloc `ℹ Ce dossier contient…` n'apparaît que si `archived/` porte plus d'un fichier de sauvegarde valide (cas fréquent : plusieurs découpages dans la même étude). Le bloc `ℹ Archiver, c'est…` est **la phrase la plus rentable du flow** — en couleur par défaut, jamais `dimColor` (c'est le contrat de l'écran, pas une aide contextuelle) : sans elle, « en ligne » se confond avec le dépôt Vigie-Chiro, et elle attend un accusé de dépôt qui ne viendra jamais.
+
+### O-Constat (dégradé : déjà en ligne)
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+✓ Cette sauvegarde est déjà archivée en ligne.
+
+  Fichier : Car340581-2026-Pass1-A1_20260814.zip
+  Taille  : 890 Mo
+  Archivée le 14/08/2026
+
+Il n'y a rien à faire.
+
+  Échap retour au menu
+```
+
+Détecté par un **HEAD distant systématique** à chaque constat (`lsjson --stat`) — jamais par une relecture de `sessions.jsonl` : cf. `architecture.md` § `lib/offsite` pour la raison (une clé de journal non unique entre deux études traitées le même jour).
+
+### O-Constat (dégradé : taille différente)
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+⚠ Un fichier du même nom est déjà en ligne, mais il n'a pas la même
+taille.
+
+  Sur cet ordinateur : 890 Mo
+  Déjà en ligne      : 780 Mo
+
+C'est le signe que la sauvegarde a été refaite depuis. Le fichier en
+ligne est une version plus ancienne.
+
+Sur Entrée, chiro remplace celui qui est en ligne par celui de cet
+ordinateur. Votre fichier ici n'est pas touché.
+
+  Entrée remplacer   Échap retour au menu
+```
+
+**Jamais « le fichier en ligne est incomplet »** : un multipart interrompu ne laisse aucun objet visible dans le bucket, donc un objet présent de taille différente est forcément un envoi complet d'un contenu plus ancien — c'est ce que dit l'écran. `Entrée` remplace réellement l'objet distant (exception documentée à l'invariant non-destructif, cf. `architecture.md` § `lib/offsite`) ; l'écran le dit sans détour et précise que le fichier local n'est jamais touché — « remplacer » est le mot le plus anxiogène de l'app, il n'est jamais caché derrière un euphémisme.
+
+### O-Constat (dégradé : vérification impossible — code transitoire)
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+⚠ Impossible de vérifier en ligne pour l'instant.
+
+Vérifiez votre connexion internet, puis réessayez.
+
+Détail technique : {CODE_BRUT}
+  (à transmettre si vous demandez de l'aide)
+
+  Entrée réessayer   Échap retour au menu
+```
+
+### O-Constat (dégradé : réglage cassé — code définitif)
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+⚠ L'archivage en ligne n'est pas disponible pour l'instant.
+
+Ce n'est pas lié à vos fichiers : ils sont intacts, et votre sauvegarde
+est toujours dans ./archived/.
+
+{MESSAGE_MAPPÉ}
+
+Détail technique : {CODE_BRUT}
+  (à transmettre si vous demandez de l'aide)
+
+  Échap retour au menu
+```
+
+`{MESSAGE_MAPPÉ}` vient de `mapKnownOffsiteErrorCode` (cf. table des codes plus bas) — absent pour un code non reconnu, seul le détail technique reste. Les deux blocs de vérification-impossible (`O-Constat`) partagent la même donnée (`isTransientOffsiteError`) que le run et le résultat : un code transitoire propose `Entrée réessayer`, un code définitif s'arrête à `Échap`.
+
+### O-Confirmation
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+On va archiver votre sauvegarde en ligne.
+
+  Nom du fichier : Car340581-2026-Pass1-A1_20260814.zip
+  Taille :         890 Mo
+  Durée prévue :   environ 1 h 10 (selon votre connexion)
+
+Vous n'avez rien à surveiller : chiro continue tout seul, et le
+résultat restera affiché jusqu'à ce que vous reveniez. Pendant ce
+temps, laissez cette fenêtre ouverte, ne rabattez pas l'écran, et
+laissez l'ordinateur branché sur le secteur.
+
+Vous pourrez arrêter en cours de route (Ctrl et C ensemble).
+Votre fichier n'est ni déplacé ni supprimé.
+
+Destination : stockage en ligne Scaleway
+
+  Entrée archiver   Échap revenir au début
+```
+
+**Variante sur batterie** — `pmset -g batt` lu une fois au montage ; un bloc `⚠` s'insère avant la phrase « Vous n'avez rien à surveiller », qui perd alors sa mention du secteur (déjà dite juste au-dessus) :
+
+```
+  ⚠ L'ordinateur n'est pas branché sur le secteur. La batterie
+    s'épuisera et l'archivage s'arrêtera. Branchez-le d'abord.
+
+Vous n'avez rien à surveiller : chiro continue tout seul, et le
+résultat restera affiché jusqu'à ce que vous reveniez. Pendant ce
+temps, laissez cette fenêtre ouverte, ne rabattez pas l'écran.
+```
+
+**Ctrl+C annoncé en toutes lettres** (« Vous pourrez arrêter en cours de route (Ctrl et C ensemble) ») — **exception assumée** à la règle « Ctrl+C implicite jamais affiché » (cf. table Navigation clavier), calibrée sur des runs de 6 à 25 minutes ailleurs dans l'app. Ici un run peut durer une nuit entière ; ne pas le dire enferme quelqu'un qui ne sait pas comment interrompre une opération lancée avant de dormir.
+
+`Durée prévue` est calculée depuis la taille du fichier (`estimateUploadSeconds`, calibré sur 30 Mb/s pessimiste — jamais une valeur fixe) : elle bouge avec le fichier réellement choisi.
+
+### O-Run (progression)
+
+Même composant partagé `ProgressPanel` que les trois autres flux longs, avec sa prop `noticeLine` propre à ce flow :
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+Archivage en ligne en cours…
+
+  Car340581-2026-Pass1-A1_20260814.zip
+  412 Mo sur 890 Mo
+
+  █████████████████░░░░░░░░░░░░░░░░░░░░░░  46 %
+  Temps écoulé 12 min • Encore environ 14 min
+
+  Vous pouvez laisser cette fenêtre ouverte, ça continue tout seul.
+  Ne rabattez pas l'écran de l'ordinateur.
+  Votre sauvegarde reste dans ./archived/, elle n'est pas déplacée.
+```
+
+Si la durée estimée dépasse 30 minutes, une ligne s'ajoute en tête du bloc de réassurance : `Un archivage long, c'est normal — laissez faire.`
+
+**Le pourcentage gagne un point toutes les 42 s et la barre un bloc toutes les 1 min 45** sur un envoi typique : l'écran est immobile une bonne minute et demie d'affilée. La preuve de vie est le compteur d'octets (`412 Mo sur 890 Mo`), qui bouge à chaque tick, pas la barre.
+
+**Ralentissement réseau** (60 s sans le moindre octet transféré, rclone retente en silence) : une ligne `⚠` jaune s'insère entre les compteurs et la barre, et l'ETA repasse à « Calcul du temps restant… » plutôt que de continuer sur une fenêtre où rien n'a bougé.
+
+```
+  ⚠ La connexion est ralentie — chiro continue d'essayer.
+```
+
+**Finalisation** — une fois le dernier octet parti, rclone assemble encore le multipart côté serveur avant que chiro ne puisse relire la taille distante ; observé à ~25 s sur un transfert réel de 220 Mo, et ça croît avec le nombre de parts. La ligne de temps restant devient, pendant cette phase :
+
+```
+  Temps écoulé 1 h 09 • Finalisation en ligne…
+```
+
+plutôt qu'un « Encore environ 0 s » figé sous une barre pleine, indiscernable d'un plantage.
+
+**Arrêt (Ctrl+C)** — le panel de progression disparaît entièrement, remplacé par :
+
+```
+Arrêt en cours…
+
+  chiro termine proprement, un instant.
+```
+
+Footer vide, aucune touche active — l'annulation est déjà en cours.
+
+### O-Résultat (succès, vérifié)
+
+```
+✓ Terminé !
+
+  Votre sauvegarde est archivée en ligne.
+  Car340581-2026-Pass1-A1_20260814.zip
+  Taille : 890 Mo
+  Terminé à 2 h 47, après 1 h 12
+
+chiro a vérifié que le fichier est bien arrivé, en entier.
+
+Gardez votre copie locale tant que vous avez la place :
+deux copies valent mieux qu'une.
+
+📁 /Users/.../Vigie-2026-pointA1
+Votre sauvegarde est toujours dans ./archived/.
+
+  Entrée retour au menu
+```
+
+**Cet écran porte l'heure de fin ET la durée** (« Terminé à 2 h 47, après 1 h 12 ») — écart assumé avec les quatre autres écrans de résultat, qui n'affichent qu'une durée. Découvert au réveil, l'heure situe (« ça s'est terminé pendant la nuit ») ; la durée reste la seule information utile sur un run court, en pleine journée. Les deux cohabitent, sans branche conditionnelle.
+
+**Jamais de suggestion de supprimer la copie locale** : ce serait contourner sans code l'interdit que la Phase 9 et l'item 14 de `roadmap.md` posent explicitement.
+
+### O-Résultat (succès, non vérifié)
+
+Le bloc « vérifié » change seul, tout le reste de l'écran est identique :
+
+```
+L'envoi s'est terminé normalement. chiro n'a pas réussi à
+revérifier en ligne juste après ; le fichier est très
+probablement bien arrivé.
+```
+
+**Garde son `✓` vert** : ce n'est pas une variante d'échec, ratée la revérification n'est pas la preuve d'un problème — le libellé « L'envoi s'est terminé normalement » l'ouvre sans le mot « erreur » ni « échec ». Voir la table des codes plus bas et `architecture.md` § `lib/offsite` pour la distinction `verify-failed` / `verify-absent` / « vérification indisponible » (cette dernière seule accompagne un succès).
+
+### O-Résultat (interruption Ctrl+C)
+
+```
+ℹ Archivage en ligne arrêté à votre demande
+
+Le fichier n'a pas été archivé.
+
+Rien n'a été modifié : votre sauvegarde est intacte dans
+./archived/. Vous pouvez recommencer quand vous voudrez.
+
+  Entrée retour au menu
+```
+
+Après une interruption, l'objet peut malgré tout être arrivé au bucket (course décrite dans `architecture.md` § `lib/offsite`) — dans ce cas, l'issue est un succès normal, jamais cet écran : « arrêté » ne s'affiche que si rclone a effectivement quitté sur son propre code d'annulation.
+
+### O-Résultat (erreur — code transitoire)
+
+```
+⚠ Une erreur est survenue pendant l'archivage en ligne.
+
+Le fichier n'a pas été archivé — votre sauvegarde est intacte dans
+./archived/.
+
+{MESSAGE_MAPPÉ}
+
+Détail technique : {CODE_BRUT}
+  (à transmettre si vous demandez de l'aide)
+  (l'archivage reprend depuis le début, comptez environ {DURÉE})
+
+  Entrée réessayer   Échap revenir au début
+```
+
+### O-Résultat (erreur — code définitif)
+
+Même bloc, sans la ligne `(l'archivage reprend…)` ni `Entrée réessayer` :
+
+```
+  Échap revenir au début
+```
+
+**La touche-lettre `A` sur le résultat de la sauvegarde, jamais `Entrée`** — sur les cinq écrans de résultat de l'app, `Entrée` veut dire « retour au menu » ; réutiliser cette touche pour un enchaînement vers un autre flow (l'archivage en ligne, proposé en fin de sauvegarde) aurait fait de la même touche deux actions différentes selon l'écran précédent.
+
+### Puce et hint — fin de sauvegarde
+
+L'écran de résultat du flux sauvegarde (A-Résultat) gagne une puce **conditionnelle** à la même disponibilité que l'entrée de menu :
+
+```
+ℹ Et maintenant :
+  • pour déposer sur Vigie-Chiro, choisissez « Créer les zips à
+    déposer sur Vigie-Chiro » dans le menu
+  • pour garder cette sauvegarde à l'abri d'une panne de disque,
+    appuyez sur A (comptez environ 1 h 10)
+```
+
+et le footer gagne `A archiver en ligne`. Sans `rclone`/`settings.json`, l'écran redevient celui d'avant la Phase 10 (une seule ligne, pas de liste à puces, pas de hint `A`).
+
+### Codes d'erreur Offsite → libellés FR
+
+Table tirée de `src/screens/offsite/errorMessages.ts`. La colonne **Transitoire** décide de `Entrée réessayer` (`isTransientOffsiteError`) — comme pour les flux zip, tout code non listé comme définitif est traité comme transitoire : le défaut est celui qui laisse une action à faire.
+
+| Code interne            | Libellé FR                                                                                                                    | Transitoire ? |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `bucket-missing`        | `Ce réglage se fait sur l'ordinateur, pas dans chiro. Montrez cet écran à la personne qui a installé chiro.`                  | **non**       |
+| `config-error`          | (même libellé que `bucket-missing`)                                                                                           | **non**       |
+| `rclone-spawn-failed`   | `chiro n'a pas réussi à lancer l'archivage en ligne — transmettez le détail technique.`                                       | **non**       |
+| `fatal`                 | `chiro n'a pas réussi à archiver ce fichier, et l'erreur ne se résoudra pas en réessayant — transmettez le détail technique.` | **non**       |
+| `verify-failed`         | `chiro n'a pas pu vérifier que le fichier était bien arrivé en entier — il faut recommencer l'archivage.`                     | oui           |
+| `verify-absent`         | `Le fichier n'a pas été retrouvé en ligne après l'envoi — il faut recommencer l'archivage.`                                   | oui           |
+| `transient`             | `L'archivage en ligne s'est interrompu de façon inattendue — réessayez, et si ça recommence transmettez le détail technique.` | oui           |
+| `rclone-exit:<N>`       | (même libellé que `transient`)                                                                                                | oui           |
+| tout autre code inconnu | (pas de message mappé — seul le détail technique s'affiche)                                                                   | oui           |
+
+Les quatre codes de configuration (`bucket-missing`, `config-error`, `rclone-spawn-failed`, `fatal`) disent tous, d'une manière ou d'une autre, « ce n'est pas quelque chose que vous pouvez résoudre depuis chiro » — aucun réglage n'est accessible depuis la TUI, et proposer un réessai qui ne peut structurellement pas aboutir coûterait une fausse promesse. L'asymétrie joue dans le bon sens ici : un code de config mal classé transitoire ne coûte que quelques secondes (rclone refuse avant tout transfert réel), un code réseau mal classé définitif priverait d'un réessai après un simple accroc.
+
+`verify-failed` et `verify-absent` sont transitoires malgré leur wording « recommencer » plutôt que « réessayez » : rien ne reprend un multipart interrompu (pas de flag `--s3-*resume*` chez rclone), donc `Entrée` relance le transfert complet depuis le début — exactement ce que « recommencer » promet déjà.
+
+### Règles de vocabulaire — suite (Phase 10)
+
+Continuent la numérotation des trois règles figées en 9.D (§ ci-dessus) :
+
+4. **L'app décrit ses propres propriétés, jamais l'emploi du temps de l'utilisatrice.** « chiro continue tout seul » et non « allez faire autre chose » ; aucune référence à un moment de la journée, à un repas ou au coucher. La phrase doit tenir à 14 h comme à 23 h, sur un run de 17 minutes comme sur une nuit entière — c'est elle qui sépare la bienveillance de la familiarité, et qui rend possible un lancement le soir sans jamais le prescrire.
+5. **« en ligne » ne se supprime jamais.** C'est le seul mot qui distingue ce flow du dossier `archived/` d'un côté et du dépôt Vigie-Chiro de l'autre — l'omettre fait lire « archiver » comme un synonyme de l'un ou de l'autre.
+6. **Le contenu de `archived/` se dit « votre sauvegarde », jamais « votre archive ».** Cohérent avec le wording déjà en place dans le flow sauvegarde lui-même (« Ce fichier est votre copie de sauvegarde »).
+7. **« coffre » est un mot de code interne**, utilisé dans les échanges de conception et le nom des réglages (`~/.chiro/settings.json` → clé `coffre`) mais **absent de tout écran** — l'utilisatrice ne le lit jamais.
+8. **Une touche-lettre est l'initiale de son verbe, jamais nécessaire, et accepte minuscule et majuscule.** `A` pour « archiver » (comparer avec la touche `Entrée` pour l'action par défaut d'un écran) ; elle tapera spontanément en minuscule, `input.toLowerCase() === "a"` l'accepte donc dans les deux casses.
+
 ## Choix UX validés (rappel)
 
 - **Composant FormScreen maison** (pas `ink-form`, pas `<Form>` générique réutilisable) : un seul formulaire dans le MVP, ~50 lignes avec `useState<number>(focusedIndex)` + 4 `<TextInput>` empilés. Refactor en composant générique uniquement à la 3ᵉ utilisation (Règle de Trois). De même pour le sélecteur Teensy/Autre de la Phase 5 : inline dans `vigie-process/FormScreen.tsx`, pas extrait en `RadioSelect`.

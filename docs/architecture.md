@@ -706,13 +706,13 @@ La ligne « `spawn zip` » ci-dessus oppose « accélérateur optionnel » et «
 
 Le critère n'est donc pas « le binaire est-il requis pour que la fonction marche » — il l'est toujours pour la sienne — mais **« que perd l'utilisatrice s'il est absent »**. Pour `rclone` : rien de ce dont elle a besoin. Le zip de sauvegarde est produit localement quoi qu'il arrive ; elle le range où elle veut. La copie en ligne est un confort en plus, pas une étape du parcours.
 
-Trois conditions pour que ce statut reste honnête, à respecter si la Phase 10 se fait :
+Trois conditions pour que ce statut reste honnête — posées ici avant la Phase 10, respectées par elle (cf. § « Module `lib/offsite` » plus bas, dont la deuxième nuance légèrement la troisième par une exception documentée) :
 
 - **Dégradation silencieuse, jamais en cours de route.** L'absence se constate au boot (comme `detectSox`) et se traduit par une entrée de menu qui n'apparaît pas — jamais par un échec après douze minutes de travail.
 - **Aucun chemin d'intégrité de données ne passe par lui.** Il transporte une copie ; il ne produit ni ne vérifie l'archive.
 - **Aucune action destructive n'est conditionnée à son auto-déclaration.** Le jour où « supprimer `processed/` » dépend du code de sortie de rclone, rclone cesse d'être une capacité optionnelle : il devient une dépendance de correction d'un chemin **destructif**, soit pire que ce que l'ADR refuse à `zip`. Si chiro supprime après un transfert, il doit re-vérifier le distant lui-même (taille et empreinte relues) ou ne pas supprimer. Formulé court : **rclone peut porter l'octet, il ne peut pas porter la preuve.** C'est la même exigence que celle qui a rendu `durable` obligatoire — on ne laisse pas une décision destructive reposer sur une valeur qu'on n'a pas vérifiée soi-même.
 
-L'argument décisif en faveur de rclone n'est d'ailleurs pas la robustesse du transfert, c'est **le stockage des identifiants** : ils vivent dans `~/.config/rclone/rclone.conf`, posé par `rclone config`, et chiro n'en voit jamais un seul. Le fichier de réglages de chiro ne contient que le nom du remote, du bucket et du préfixe. Toute une classe de problèmes — permissions du fichier, fuite dans `sessions.jsonl` ou dans un message d'erreur — disparaît au lieu d'être gérée. `roadmap.md` compte « identifiants à ne pas stocker en clair » comme un coût de l'item 14 ; c'est en réalité la meilleure raison de choisir cette voie.
+L'argument décisif en faveur de rclone n'est d'ailleurs pas la robustesse du transfert, c'est **le stockage des identifiants** : ils vivent dans `~/.config/rclone/rclone.conf`, posé par `rclone config`, et chiro n'en voit jamais un seul. Le fichier de réglages de chiro ne contient que le nom du remote, du bucket et du préfixe. Toute une classe de problèmes — permissions du fichier, fuite dans `sessions.jsonl` ou dans un message d'erreur — disparaît au lieu d'être gérée. Le follow-up qui a précédé la Phase 10 comptait « identifiants à ne pas stocker en clair » comme un coût de la fonctionnalité ; c'était en réalité la meilleure raison de choisir cette voie, confirmée par l'implémentation : `settings.ts` ne lit jamais rien qui ressemble à une clé d'accès.
 
 ### Découpage des modules
 
@@ -907,6 +907,130 @@ Un `fsync` de fichier rend son _contenu_ durable, mais le `rename` final modifie
 - **Série** (`createZipVolumes.test.ts`) : nominal, cas N=1 sans suffixe `part`, atomicité (abort ou fichier disparu → `upload/` **vide**), câblage `zip64Thresholds` → `zip64-required` + `upload/` vide, collision au commit → `-2`, ré-offset de progression (un `volume-start` par volume, `entryIndex` globalement monotone, `bytes-read` final = total), et `cleanOrphanStagingDirs` (PID vivant/mort, garde d'âge 24 h, symlink jamais suivi, `ENOTEMPTY` → renoncement).
 - **Golden** : contenus, `mtime` et date figés, `TZ` épinglé via `vi.stubEnv` — les timestamps DOS sont en heure locale, sans quoi le test passerait en France et échouerait sur un runner en UTC.
 - **Extracteurs réels** (`externalTools.test.ts`) : `unzip -t`, `python3 -m zipfile -t`, `bsdtar -tf` — trois implémentations indépendantes. Skip silencieux si l'outil manque en local, **échec dur si absent en CI** (un skip silencieux sur un runner serait une couverture fantôme).
+
+## Module `lib/offsite` (Phase 10)
+
+Envoie `archived/<préfixe>_YYYYMMDD.zip` (la copie de sauvegarde du § « Module `lib/archive` » ci-dessus, jamais la série de dépôt) vers un bucket Scaleway Object Storage en classe `GLACIER`, via `rclone`. C'est une **capacité optionnelle** au sens de la table § « Les trois statuts possibles d'un binaire externe » plus haut — absente, l'utilisatrice ne perd rien de ce dont elle a besoin, le zip local suffit. Comportement fonctionnel dans `spec.md` § « Wizard "Archiver la sauvegarde en ligne" », wordings dans `ux.md` § « Flow "Archiver la sauvegarde en ligne" ». Cette section documente le **comment** et le **pourquoi**.
+
+### Arborescence
+
+```
+src/lib/offsite/
+  settings.ts                 # lecture + validation de ~/.chiro/settings.json (clé "coffre")
+  detectRclone.ts              # sonde synchrone : PATH + version >= 1.53 (plancher de `lsjson --stat`)
+  resolveOffsiteAvailability.ts# combine detectRclone + loadOffsiteSettings en un yes/no unique
+  powerState.ts                # pmset -g batt (darwin only) -> "ac" | "battery" | "unknown"
+  pickArchiveToUpload.ts       # le plus récent par mtime dans archived/, + compte des autres
+  remoteStat.ts                # lsjson --stat -> present{bytes,modTime,tier} | absent | error
+  buildRcloneCommand.ts        # pure : préfixe caffeinate sur darwin
+  parseRcloneStats.ts          # pure : ligne stderr JSON -> tick | null, + reader incrémental
+  uploadArchive.ts             # spawn injecté, progression, SIGINT + escalade, vérification post-transfert
+  estimatedDuration.ts         # taille -> durée affichée, calibrée sur un débit pessimiste
+src/lib/logging/
+  buildOffsiteSessionEvent.ts  # construit l'entrée schema_version 6 (action "vigie-upload")
+src/screens/offsite/
+  ConstatScreen.tsx    ConfirmScreen.tsx   RunScreen.tsx   RunningView.tsx   ResultScreen.tsx
+  useOffsiteRun.ts     useOffsiteProgressState.ts   errorMessages.ts
+```
+
+`resolveOffsiteAvailability` est le seul point qui décide si la porte est montrée : `rclone.kind !== "available"` **ou** `settingsResult.kind !== "ok"` → `{ kind: "unavailable" }`, sans distinguer laquelle des deux causes — `docs/ux.md` est explicite que cette dégradation est **totalement silencieuse**, aucun message nulle part. Un bucket/remote mal configuré alors que le JSON est bien formé surface plus tard, sur l'écran de constat, quand l'utilisatrice tente réellement d'archiver (`bucket-missing` / `config-error` via `remoteStat`).
+
+`RunScreen.tsx` est la pièce de connexion que le plan de la Phase 10 n'avait pas nommée mais que l'architecture impose : `ConfirmScreen.tsx` a été livré en 10.B1 comme une vue de confirmation sans état, avec ses propres tests, et le plan liste `RunningView`/`ResultScreen`/`useOffsiteRun` comme des fichiers séparés plutôt qu'une machine à états repliée dans la confirmation (contrairement aux trois autres flows, où confirmation et run partagent un seul fichier). `RunScreen` joue pour ce flow le rôle que `archive/ConfirmScreen.tsx` joue pour le sien : porter le cycle de vie de `useOffsiteRun` (montage → démarrage, abandon au démontage) attaché à un composant qui monte et démonte réellement avec la navigation.
+
+### Contrat de progression — chiffres mesurés
+
+Le PoC de 10.0 avait validé, sur une copie locale **sans erreur**, que `bytes` est monotone et `totalBytes` connu dès le premier tick. Reproduit avec un échec en cours de transfert (rclone 1.75, fichier de 209 715 200 octets, `--retries 3`, trace committée dans `test-data/rclone-stats/copy-with-retry.jsonl`), trois choses cassent ensemble :
+
+- **`totalBytes` n'est jamais la taille de l'objet.** Sur cette trace il va 240 447 488 → 271 179 776 → 92 196 864 pour un fichier de 209 715 200 octets — « octets déjà comptés + reste de la tentative en cours », un dénominateur mobile. Et sur le chemin **nominal** (`test-data/rclone-stats/upload-1gb-nominal.jsonl`), il vaut **`0`** sur les deux premiers ticks : une division brute plante ou donne `Infinity` dès le démarrage.
+- **`bytes` cumule les octets réémis.** 63 Mo pour un fichier qui n'a jamais dépassé ~21 Mo de progression réelle sur la trace de retry.
+- **Sur le tick final d'un transfert qui a échoué, `bytes / totalBytes` vaut exactement `1,0`** (`errors: 1`) — une barre bâtie dessus afficherait 100 % sur une erreur. Et `stats.transferring` est **vide sur le tick final**, dans tous les cas, ce qui interdit d'en faire l'unique source.
+
+**Correction, qui simplifie plutôt qu'elle ne complique** : chiro connaît déjà le dénominateur, il a `stat`é le zip pour le choisir.
+
+- `bytesTotal` = **taille locale du fichier**, jamais `totalBytes` de rclone (`parseRcloneStats.ts` ne le lit nulle part — omission volontaire, documentée dans le code pour qu'un futur lecteur ne la « corrige » pas).
+- Numérateur = `stats.transferring[0]?.bytes ?? stats.bytes`, **clampé monotone** (`shown = Math.max(shown, tick)` dans `uploadArchive.ts`) : un retry qui fait reculer les compteurs de rclone ne fait jamais reculer la barre affichée.
+- L'`eta` de rclone est ignoré partout — les cinq flux de l'app estiment de la même façon, via `etaTracker`.
+- **Décrochage réseau** : au-delà de 60 s sans le moindre octet de progrès, `useOffsiteProgressState` bascule en `stalled`, l'ETA repasse à `null` (jamais une estimation calculée sur une fenêtre où rien n'a bougé) et `RunningView` affiche une ligne `⚠` jaune via la prop `noticeLine` de `ProgressPanel` — même argument que l'écran « Annulation en cours… » de la Phase 9 : un écran figé est indiscernable d'un plantage.
+
+Fixtures réelles dans `test-data/rclone-stats/` (README dédié) : capturées le 17/08/2026 sur rclone v1.75.0, rejouées octet pour octet **et** à des tailles de chunk adverses (1, 7, 4096 octets) pour couvrir le découpage arbitraire d'un flux stdout, UTF-8 compris — un faux rclone écrit à la main est authored depuis le même modèle mental que le parseur qu'il nourrit, et les deux peuvent se tromper ensemble ; c'est exactement ce qui s'est passé avec ce contrat de progression, mesuré comme faux après avoir été supposé vrai sur le seul chemin heureux.
+
+### Le piège `IsDir`
+
+`remoteStat` (`lsjson --stat`) discrimine sur `record.IsDir`, **jamais sur le code de sortie seul**. Mesuré sur le vrai bucket, le 17/08/2026, rclone v1.75.0 :
+
+| cas                | code  | forme                                                |
+| ------------------ | ----- | ---------------------------------------------------- |
+| objet présent      | 0     | `{"IsDir": false, "Size": N, "Tier": "..."}`         |
+| **objet absent**   | **0** | `{"IsDir": true, "Size": -1}` — un pseudo-répertoire |
+| bucket introuvable | 3     | `Failed to lsjson: directory not found`              |
+| remote inconnu     | 1     | `didn't find section in config file`                 |
+
+Un objet absent sort en **code 0** — un parseur qui lirait `Size` sur tout exit 0 conclurait « présent, taille -1 », la lecture la plus dangereuse possible ici puisqu'elle est sur le chemin **nominal** (le tout premier archivage d'une étude passe systématiquement par ce cas). `remoteStat` traite `IsDir === true` comme `{ kind: "absent" }`, `IsDir === false` comme `{ kind: "present" }`, et n'importe quelle autre forme comme `unparseable-lsjson`. Code 3 → `bucket-missing`, code 1 → `config-error` : les trois cas restent distincts, contrairement à ce qu'une lecture rapide du plan initial avait craint.
+
+### Séquence SIGINT et la course
+
+Mesuré : `kill -INT` sur rclone → `exit=130`, retour en ~0,16 s, **aucun tick final** (rclone gère lui-même le signal et ne le reporte jamais dans `signal`, qui reste `null` côté Node). `uploadArchive` détecte donc l'abandon par son **propre drapeau d'intention**, jamais par la forme de sortie du process.
+
+**Escalade automatique, bornée** : `signal` déclenche un SIGINT immédiat ; un second SIGINT après `sigintResendMs` (5 s par défaut) au cas où le premier a été perdu ou ignoré ; un SIGKILL dur après `killEscalationMs` (15 s). SIGINT plutôt qu'un SIGKILL d'emblée : un SIGKILL laisse les parts multipart en vol, **facturées**, sans que rien ne les abandonne ; un SIGINT donne à rclone la chance de les nettoyer lui-même. Vérifié à la main le 17/08/2026 : après un Ctrl+C en plein transfert, `rclone backend list-multipart-uploads` revient **vide** — le SIGINT fait bien abandonner les parts.
+
+**La course qui ne doit pas se perdre** : rclone peut sortir `0` dans la fenêtre entre la demande d'abandon et l'arrivée effective du signal — l'objet est alors réellement dans le bucket (rclone a pu sortir « proprement » avant que le SIGINT ne l'atteigne). `uploadArchive` consulte donc **quand même** le code de sortie après un abandon : `0` reste un succès, exactement comme sur le chemin non-abandonné. Annoncer « annulé » et ne rien journaliser ferait re-proposer l'envoi complet d'un objet multi-Go déjà présent — et, sur AWS, des frais de suppression anticipée en prime (Scaleway n'en a pas, cf. § tarification plus bas, mais l'objet resterait double).
+
+### `caffeinate` en préfixe, jamais un process séparé
+
+`buildRcloneCommand` (pure, testable sans rien spawner) préfixe `caffeinate -i -s` devant la commande rclone sur darwin, plutôt que de spawner un second process `caffeinate` indépendant. Un `spawn("caffeinate", [...])` séparé **survivrait à un `kill -9` de chiro**, un crash, ou la fermeture du terminal — le Mac ne se mettrait alors plus jamais en veille, invisiblement, jusqu'au prochain redémarrage, sans que rien dans chiro puisse le détecter ou l'expliquer. Préfixé, `caffeinate` est le **parent** de rclone : il meurt avec son enfant par construction, aucun cycle de vie à gérer, aucun orphelin possible.
+
+`-i` inhibe la veille par inactivité, `-s` la veille système — mais **`-s` n'a d'effet que sur secteur**, le manuel de `caffeinate` le dit noir sur blanc (« valid only when system is running on AC power »). C'est pourquoi `readPowerState` (`pmset -g batt`) n'est pas redondant avec `caffeinate` : sur batterie, l'inhibition la plus forte que chiro puisse demander ne fait rien, et seule la phrase à l'écran de `O-Confirmation` protège le run. **Ni `-i` ni `-s` ne couvrent la fermeture du capot** — aucune ligne de code ne le peut, c'est précisément le geste naturel de « je lance et je vais dormir » ; seule la puce de l'écran de confirmation le mentionne. `readPowerState` est darwin-only par construction (la cible est un Mac) : `unknown` sur toute autre plateforme, tout `pmset` non reconnu, ou tout échec de spawn — rester silencieux y est plus sûr que de crier au loup sur une lecture dont chiro n'est pas sûr.
+
+### Pourquoi `useOffsiteRun` est distinct de `useArchiveRun`
+
+`useArchiveRun` (§ « Module `lib/archive` » ci-dessus) est déjà générique sur `TOk` : la forme du succès n'a **jamais** été l'obstacle à sa réutilisation ici — `OffsiteRunOkOutcome` aurait pu être un troisième `TOk`. Les vrais obstacles sont ailleurs :
+
+- `entries`/`totalBytes` sont inscrits **à la fois** dans les options du hook et dans la signature du runner qu'il appelle (`ArchiveRunner<TOk>`) — l'offsite n'a ni liste d'entrées ni total d'octets à faire circuler, un seul fichier et sa taille déjà connue.
+- `VolumeProgressEvent` est figé dans le type d'`onProgress` — l'offsite reçoit un simple `bytesTransferred: number` par tick, une forme incompatible sans union supplémentaire.
+- `resolveTargetName` veut dire « calculer un nom **à créer** » (résolution de collision `-2`…`-99`) — l'offsite a besoin de l'inverse, « vérifier qu'un fichier **existe déjà** en distant » (`remoteStat`), une opération de nature différente, pas juste un nom différent.
+
+Généraliser `useArchiveRun` aurait coûté trois paramètres de type de plus et un résolveur optionnel, sur un hook qui n'aurait alors plus que deux appelants réels (`backupBehavior`/`packageBehavior`) plus ce troisième cas structurellement différent. `useOffsiteRun` est donc écrit séparément — décision documentée ici pour qu'un futur lecteur qui verrait la ressemblance de surface (spawn, progression, abandon, log) ne (re)tente pas la fusion sans relire ces trois obstacles.
+
+**C'est la troisième copie du couple `AbortController` + `runningRef` + latch de démarrage synchrone + `cancelled`**, après `useArchiveRun` et `useVigieProcessRun`. La Règle de Trois dirait d'extraire — **décision volontaire de ne pas le faire** : l'extraction représente environ huit lignes de refs, et les trois contextes qui les entourent diffèrent partout ailleurs (un `retry()` propre à l'offsite, un état `cleaning` propre à la série de volumes, aucun équivalent dans le flow rename). Consigné ici pour que la phase suivante ne re-litige pas ce choix sans avoir vu cette note.
+
+### L'exception à la 3ᵉ condition de l'ADR
+
+L'écran `O-Constat` « taille différente » **remplace réellement** l'objet distant sur `Entrée` : un `PUT` sur une clé existante détruit la copie précédente (le bucket n'a pas le versioning activé), sur la seule foi de ce que `rclone lsjson` a répondu. C'est très exactement la forme que la 3ᵉ condition du § « Les trois statuts possibles d'un binaire externe » refuse (« aucune action destructive n'est conditionnée à son auto-déclaration »).
+
+**Décision utilisateur assumée, prise contre l'avis de l'architecte** — écrite ici comme une exception explicite plutôt que laissée en contradiction silencieuse avec l'ADR. Motif : un seul objet par nuit dans le coffre, jamais de doublon périmé qu'il faudrait départager dans trois ans sans indice. Le cas ne survient d'ailleurs que si le zip local a été **refait** sous le même nom (un second passage, un re-découpage) — l'objet distant est alors, par construction, une version antérieure du même contenu.
+
+**Ce qui borne l'exception, et qui ne s'étend pas par précédent** : elle porte sur le **seul objet distant du même nom**, jamais sur `processed/`, jamais sur `archived/` — les deux zips (local et distant) restent chacun ce qu'ils étaient avant que `Entrée` ne soit pressé, sauf l'objet distant lui-même. Le fait qui la rend défendable, et qui doit être écrit sans le déformer : **un transfert interrompu ne laisse jamais aucun objet visible** dans le bucket (le multipart n'est jamais commité tant que la dernière part n'est pas envoyée). Un objet présent de taille différente n'est donc jamais un envoi **tronqué** — c'est nécessairement un envoi **complet**, d'un contenu qui a changé depuis. L'écran `O-Constat` le dit dans ces termes exacts (« C'est le signe que la sauvegarde a été refaite depuis. Le fichier en ligne est une version plus ancienne. ») et jamais en termes de fichier incomplet.
+
+### `verify-absent` n'est pas `verify-unavailable`
+
+La ligne de partage entre les deux est **épistémique**, pas de degré : `unavailable` (le champ `verified: "unavailable"`, une variante de **succès**) veut dire « chiro n'a pas eu de réponse » ; `verify-absent` (une **erreur**) veut dire « chiro a eu une réponse, et elle dit non ». Seule l'incertitude a le droit d'accompagner un succès.
+
+La cause réaliste d'un `verify-absent` est une clé de bucket mal construite — écrire à un chemin, relire à un autre — dont c'est l'unique symptôme observable : le transfert a réussi selon rclone, mais l'objet qu'on cherche ensuite n'existe pas là où on le cherche. Classer ce cas en succès (« la vérification a juste échoué, tout va bien ») déguiserait un bug qui n'archive en réalité rien, tout en annonçant que tout va bien. L'asymétrie des coûts tranche : une fausse alerte (`verify-absent` sur un transfert en réalité réussi, très improbable vu la cohérence read-after-write de Scaleway comme de S3 depuis 2020) coûte un renvoi inutile ; un faux feu vert sur une fonction de sauvegarde se découvre des années plus tard, quand le coffre s'avère vide.
+
+`verify-failed` (objet présent à une taille **différente** de celle envoyée) est la troisième issue de la vérification post-transfert — un désaccord entre deux tailles connues, plus directement actionnable que `verify-absent`, mais classée transitoire au même titre (`isTransientOffsiteError`) : rien ne reprend un multipart interrompu, donc dans les deux cas `Entrée` relance le transfert complet depuis le début.
+
+### Ce qui n'est couvert par aucun test automatisé, et restera manuel
+
+Cinq faits que seule une main peut vérifier contre le vrai service, jamais la CI :
+
+- **Que le SIGINT fasse réellement abandonner les multiparts** — toute la justification de l'escalade SIGINT-avant-SIGKILL. **Vérifié à la main le 17/08/2026** : Ctrl+C en plein transfert, puis `rclone backend list-multipart-uploads` sur le bucket → liste vide.
+- **Que `--s3-storage-class GLACIER` atterrisse bien en `GLACIER`.** **Vérifié à la main le 17/08/2026** : `Tier` relu par `lsjson --stat` sur l'objet écrit vaut `"GLACIER"`, sans transition de cycle de vie nécessaire — la classe est acceptée directement à l'écriture.
+- **Le comportement de `lsjson --stat` sur un objet réel en classe Glacier.** **Vérifié à la main le 17/08/2026**, table du § « Le piège `IsDir` » ci-dessus — y compris que `Tier` est lisible **sans** l'option `-M`.
+- **La durée de vie réelle de `caffeinate`** sur un run de plusieurs heures, capot fermé ou non.
+- **L'absence de reprise multipart entre deux invocations rclone** (aucun flag `--s3-*resume*`) — reconfirmée en lisant la documentation de rclone 1.75, pas en la déclenchant réellement sur un vrai transfert coupé au milieu.
+
+Les trois premiers ont une date et une méthode de vérification ; les deux derniers restent des affirmations de documentation/comportement observé indirectement. Aucun des cinq n'est exercé par `pnpm check` — l'écrire ici évite qu'un futur lecteur suppose que la CI les couvre.
+
+### Tarification et cycle de vie Scaleway (mesuré le 17/08/2026)
+
+- Stockage : 0,00254 €/Go/mois — 15 Go ≈ 0,46 €/an.
+- **Aucune durée minimale de facturation, aucun frais de suppression anticipée** — contrairement aux 90 jours de S3 Glacier chez AWS. Remplacer un objet (§ exception ADR ci-dessus) ne coûte donc rien de plus que son stockage.
+- Transfert entrant gratuit ; **requêtes API incluses** — le HEAD systématique du constat (`remoteStat`, à chaque ouverture de l'écran) ne facture rien.
+- Restauration : 0,009 €/Go, délai **24 à 48 heures** (jamais « quelques heures » — corrigé dans le README après la mesure de 10.0, qui avait initialement une estimation plus optimiste). Egress : 75 Go/mois offerts puis 0,01 €/Go.
+
+### Débit — calibration délibérément pessimiste
+
+114 Mb/s soutenus mesurés sur 1 Gio depuis le réseau du développeur (⇒ 15 Go en ~19 min). Ce chiffre n'est **pas** celui utilisé pour l'estimation affichée : `estimatedDuration.ts` calibre `REFERENCE_UPLOAD_BYTES_PER_SECOND` à 30 Mb/s, délibérément pessimiste — un réseau domestique fait probablement moins bien qu'une mesure de développeur, et dépasser l'estimation affichée est la mauvaise direction (une archive qui finit plus tôt que prévu est une bonne surprise ; une qui prend le double du temps annoncé ne l'est pas). L'estimation reste **calculée depuis la taille du fichier**, jamais une valeur fixe — recalibrer après un premier archivage réel plutôt que par une nouvelle mesure isolée.
 
 ## Configuration (V2)
 

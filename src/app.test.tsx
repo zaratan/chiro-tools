@@ -883,13 +883,16 @@ describe("App — end-to-end", () => {
         Promise.resolve({ kind: "absent" });
 
       let sawAbortSignal: AbortSignal | undefined;
+      // Deliberately never resolves, not even on abort. What this test asserts
+      // is the *stopping* screen, which is transitional: a fake that resolved
+      // inside its own abort listener let the run reach its result screen in
+      // the same tick, so "Arrêt en cours…" was a race that lost roughly one
+      // run in three under full-suite load. A real rclone doesn't vanish on
+      // SIGINT either — it gets the signal, unwinds, and only then exits, which
+      // is exactly the window this screen exists to fill.
       const uploadArchive: UploadArchiveFn = (_deps, options) => {
         sawAbortSignal = options.signal;
-        return new Promise((resolve) => {
-          options.signal?.addEventListener("abort", () => {
-            resolve({ kind: "aborted", bytesSent: 0 });
-          });
-        });
+        return new Promise(() => undefined);
       };
 
       const { stdin, lastFrame } = render(

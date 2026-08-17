@@ -45,6 +45,60 @@ Ordre de grandeur : une session qui prend 3 heures sans sox prend environ 10 min
 
 Ce n'est pas obligatoire — sans sox, le découpage fonctionne quand même, c'est juste plus long.
 
+## Archiver une sauvegarde en ligne (optionnel)
+
+chiro sait envoyer votre fichier de sauvegarde (`archived/*.zip`, produit par « Sauvegarder les enregistrements découpés ») vers un stockage en ligne bon marché, Scaleway Glacier. C'est utile le jour où le disque qui contient vos fichiers tombe en panne. Fonction **optionnelle** : sans elle, chiro marche exactement pareil.
+
+Quatre étapes à faire une seule fois, sur l'ordinateur qui fait tourner chiro :
+
+**1. Installer rclone** (l'outil qui transporte le fichier) :
+
+- macOS : `brew install rclone`
+- Linux : `sudo apt install rclone`
+
+**2. Configurer le compte Scaleway** :
+
+```bash
+rclone config
+```
+
+Choisissez un nouveau remote, type de stockage **Scaleway**, puis collez la clé d'accès et la clé secrète. Elles se génèrent dans la console Scaleway, section **Identifiants API** (« IAM » → « Clés API »). Retenez le **nom du remote** que vous donnez à cette étape, il sert au réglage suivant.
+
+**3. Créer `~/.chiro/settings.json`** avec le remote, le bucket Scaleway et le préfixe où ranger les fichiers :
+
+```json
+{
+  "coffre": {
+    "remote": "chiro-coffre",
+    "bucket": "mon-bucket-scaleway",
+    "prefix": "vigie-chiro"
+  }
+}
+```
+
+`remote` est le nom donné à l'étape 2 (jamais `remote:bucket`, juste le nom). chiro ne lit jamais vos identifiants, ils restent dans la configuration de rclone (`~/.config/rclone/rclone.conf`).
+
+**4. Poser la règle de cycle de vie sur le bucket**, dans la console Scaleway (Object Storage → votre bucket → Règles de cycle de vie) : **« Abandonner les transferts multiparts incomplets »** (`AbortIncompleteMultipartUpload`) après **7 jours**. Sans cette règle, un envoi coupé par une panne de courant ou de réseau laisse des fragments **facturés** dans le bucket que rien ne vient jamais nettoyer. Ni chiro, ni vous.
+
+Une fois ces réglages en place **et** rclone détecté, l'entrée « Archiver la sauvegarde en ligne » apparaît dans le menu de chiro. Tant que l'un des deux manque, elle reste invisible. C'est voulu : chiro ne signale jamais une fonction à moitié configurée.
+
+## Récupérer une archive
+
+Une fois en ligne, un fichier passe en classe **Glacier** : il n'est plus consultable directement, il faut d'abord demander sa **restauration**, qui prend **24 à 48 heures**, puis le rapatrier. chiro ne le propose pas depuis son interface : c'est un geste technique, à faire une fois tous les quelques années, par la personne qui a installé chiro.
+
+```bash
+# 1. Demander la restauration (remote / bucket / prefixe = ceux de ~/.chiro/settings.json)
+rclone backend restore <remote>:<bucket>/<prefix>/<nom-du-zip> -o lifetime=7
+
+# 2. Vérifier l'état (à refaire 24 à 48 heures plus tard)
+rclone backend restore-status <remote>:<bucket>/<prefix>/<nom-du-zip>
+
+# 3. Une fois restauré, rapatrier le fichier
+rclone copy <remote>:<bucket>/<prefix>/<nom-du-zip> .
+```
+
+Coût : environ 0,009 €/Go restauré (une sauvegarde de 15 Go coûte environ 0,14 € à récupérer). `lifetime=7` garde le fichier consultable 7 jours avant qu'il ne reparte automatiquement en Glacier.
+
 ## Documentation
 
 La spec complète du projet est dans [`docs/`](./docs/) :

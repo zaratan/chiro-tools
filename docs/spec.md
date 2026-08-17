@@ -470,6 +470,127 @@ Il n'existe **pas** de code `entry-too-large-for-volume` : une entrée plus gros
 
 Dans **tous** les cas d'échec, y compris interruption, `upload/` ne contient aucune série partielle.
 
+## Wizard "Archiver la sauvegarde en ligne" — 4 écrans (Phase 10)
+
+```
+[Menu] → [O-Constat] → [O-Confirmation] → [O-Run] → [O-Résultat] → (retour Menu)
+              ↑
+[A-Résultat] ─┘  (touche A, en fin du wizard sauvegarde)
+```
+
+Envoie le zip le plus récent de `archived/` (produit par le wizard « Sauvegarder les enregistrements découpés ») vers un bucket Scaleway Object Storage en classe `GLACIER`, via `rclone`. **Capacité optionnelle** (cf. `architecture.md` § « Les trois statuts possibles d'un binaire externe ») : deux points d'entrée traversent le **même** constat — l'entrée de menu, et la touche `A` en fin de résultat du wizard sauvegarde. Non-destructif vis-à-vis de `archived/` et de `processed/`. Détails complets d'implémentation dans `architecture.md` § `Module lib/offsite`, wordings exacts dans `ux.md`.
+
+### Visibilité
+
+L'entrée de menu **et** la touche `A` n'existent que si `detectRclone()` trouve un `rclone` ≥ 1.53 (plancher de `lsjson --stat`) **et** `~/.chiro/settings.json` contient un bloc `coffre` valide. Les deux sondes tournent **de façon synchrone dans `index.tsx`, avant `render()`** — jamais dans un `useEffect` de `MenuScreen` — pour éviter la course documentée pour `detectSox` en Phase 9 (un focus posé sur un item avant qu'une 7ᵉ entrée n'apparaisse 100-300 ms plus tard). Absence de l'un ou l'autre → silence total, aucun message, six entrées de menu inchangées.
+
+### Réglages — `~/.chiro/settings.json`
+
+Fichier **lu seulement**, jamais écrit par chiro, édité à la main par la personne qui configure le poste :
+
+```json
+{
+  "coffre": {
+    "remote": "chiro-coffre",
+    "bucket": "mon-bucket-scaleway",
+    "prefix": "vigie-chiro"
+  }
+}
+```
+
+`remote` doit être un nom de remote rclone **nu** (jamais `remote:bucket` — la présence d'un `:` est rejetée, c'est la faute de frappe la plus probable en recopiant depuis `rclone config`). `prefix` est normalisé (barres obliques de tête/fin retirées) ; un préfixe qui se réduit à vide après normalisation (ex. `"/"`) est rejeté plutôt que traité comme « pas de préfixe ». Toute forme non conforme → `{ kind: "invalid" }`, fichier absent → `{ kind: "absent" }` : les deux se résolvent en « entrée masquée », sans distinction visible pour l'utilisatrice.
+
+### Écran O-Constat
+
+Deux phases : sélection du fichier local, puis HEAD distant. `pickArchiveToUpload` choisit le zip le **plus récent par mtime** dans `archived/` (au format de nommage du wizard sauvegarde) et compte les autres. `remoteStat` interroge ensuite `<remote>:<bucket>/<prefix>/<nom-du-zip>` via `rclone lsjson --stat`.
+
+**Détection « déjà en ligne » : HEAD distant systématique, jamais une relecture du journal.** `sessions.jsonl` reste write-only comme pour les deux flux zip — la raison est plus forte ici qu'ailleurs : `buildArchiveName` retombe sur le préfixe `"processed"` quand `extractCommonPrefix` ne trouve rien de commun, et le journal est global (`~/.chiro`) alors que le nom du zip est local à un dossier. Deux études traitées le même jour dans deux dossiers différents produiraient toutes deux `processed_20260817.zip` ; une détection par journal aurait affiché « déjà archivée » pour un zip jamais envoyé — le pire échec possible pour une fonction de sauvegarde, silencieux et indiscernable d'un succès.
+
+Cas bloquants/informatifs, tous couverts par un état dédié :
+
+| État                         | Cause                                                                     |
+| ---------------------------- | ------------------------------------------------------------------------- |
+| `no-backup`                  | Aucun zip de sauvegarde dans `archived/`                                  |
+| `scan-error`                 | Erreur `readdir`/`stat` autre qu'`ENOENT` sur `archived/`                 |
+| `ready`                      | Zip local trouvé, absent du bucket                                        |
+| `already-online`             | Zip local trouvé, présent au bucket à la **même** taille                  |
+| `size-mismatch`              | Zip local trouvé, présent au bucket à une taille **différente**           |
+| `verify-error` (transitoire) | `remoteStat` n'a pas pu répondre (réseau, timeout)                        |
+| `verify-error` (définitif)   | `bucket-missing` / `config-error` — réglage cassé, pas un problème réseau |
+
+`remoteStat` borne elle-même son temps de blocage (`--retries 1 --low-level-retries 1 --contimeout 10s --timeout 30s`, `AbortSignal`, kill dur) : sans ça, les valeurs par défaut de rclone (`--retries 3 --low-level-retries 10`) pourraient figer l'écran plusieurs minutes sur un réseau mort, pendant lesquelles le Ctrl+C global de l'app est avalé (`runningRef`) — l'`AbortController` local à l'écran est alors la seule sortie.
+
+### Écran O-Confirmation
+
+Aperçu (nom, taille, durée prévue) puis exécution en place — pas d'écran intermédiaire. La durée prévue vient de `estimateUploadSeconds` (calibré sur 30 Mb/s, volontairement pessimiste — dépasser l'estimation est la mauvaise direction). `pmset -g batt` (macOS uniquement) est lu une fois au montage ; sur batterie, un bloc d'avertissement s'ajoute mais `Entrée` reste possible.
+
+### Le transfert — `uploadArchive`
+
+```bash
+rclone copyto <local> <remote>:<bucket>/<prefix>/<nom> \
+  --s3-storage-class GLACIER --s3-chunk-size 64Mi --s3-upload-concurrency 8 \
+  --low-level-retries 20 --retries 3 \
+  --use-json-log --stats 1s --stats-log-level NOTICE
+```
+
+Sur darwin, la commande est **préfixée** par `caffeinate -i -s` (cf. `architecture.md` § `lib/offsite`) — jamais spawnée en second process séparé. `--low-level-retries 20` absorbe les micro-coupures **sans** repartir de zéro ; `--retries 3` reprend l'objet entier jusqu'à 3 fois — personne n'est là pour appuyer sur « réessayer » à 3 h du matin, et le transfert entrant est gratuit chez Scaleway.
+
+**Contrat de progression** — `totalBytes` et `eta` de rclone sont **entièrement ignorés** (mesurés faux sur trace réelle, cf. `architecture.md` § `lib/offsite`). Le dénominateur est la taille locale du fichier, déjà connue avant le run ; le numérateur est `transferring[0]?.bytes ?? stats.bytes`, clampé **monotone** (un retry ne fait jamais reculer la barre).
+
+**Abandon (Ctrl+C)** — `signal` déclenche un SIGINT immédiat. rclone répond par son propre code de sortie `130`, sans tick final. `uploadArchive` escalade seul, automatiquement : un second SIGINT après `sigintResendMs` (5 s par défaut) si le premier a été ignoré, un SIGKILL dur après `killEscalationMs` (15 s). SIGINT plutôt qu'un SIGKILL immédiat : un SIGKILL laisse les parts multipart en vol, **facturées** et jamais nettoyées par chiro ; un SIGINT donne à rclone la chance de les abandonner proprement.
+
+**La course qui ne doit pas se perdre** : rclone peut sortir `0` dans la fenêtre entre la demande d'abandon et l'arrivée effective du signal — l'objet est alors réellement dans le bucket. Après un abandon, le code de sortie est donc **quand même** consulté : `0` reste un succès. Annoncer « annulé » sans rien journaliser ferait re-proposer l'envoi complet d'un objet déjà présent.
+
+**Vérification post-transfert** — sur un exit `0`, `remoteStat` est appelé une seule fois de plus :
+
+- taille distante = taille locale → `verified: "size-match"` (succès).
+- objet présent à une taille **différente** → `verify-failed` (erreur — l'upload a réellement échoué à produire l'objet attendu, un cas distinct du « déjà en ligne, taille différente » du Constat, qui compare deux objets **antérieurs**).
+- objet **absent** → `verify-absent` (erreur — le magasin a répondu, et sa réponse est non ; la cause réaliste est une clé mal construite).
+- aucune réponse (réseau, timeout, config) → `verified: "unavailable"` (**succès quand même** — l'échec de la revérification n'est pas la preuve que l'envoi a échoué).
+
+### Écran O-Résultat
+
+Trois issues, jamais de branche « erreur » distincte de l'écran de run — `run-error` se rend **sur place**, sans changer d'écran, pour permettre un réessai sans repasser par le Constat :
+
+- **succès** — `verified: "size-match" | "unavailable"`, heure de fin **et** durée.
+- **`aborted`** — rclone a effectivement quitté sur son propre code d'annulation (`130`).
+- **`run-error`** — code brut mappé via `errorMessages.ts` ; `Entrée réessayer` uniquement pour les codes transitoires.
+
+### Schéma v6 — sessions `vigie-upload` (Phase 10)
+
+`schema_version: 6`, `action: "vigie-upload"`. Même patron que v4/v5 : pas de champ `input` (rien que l'utilisatrice choisit), `result` discriminé sur `status`. **Write-only comme v3/v5** : l'événement documente ce qui s'est passé, il n'est **jamais relu** — la détection « déjà en ligne » interroge le coffre directement (§ O-Constat ci-dessus), pas ce journal.
+
+```json
+{
+  "schema_version": 6,
+  "ts": "2026-08-17T23:11:06.004Z",
+  "version": "0.6.0",
+  "cwd": "/Users/.../Vigie-2026-A1",
+  "action": "vigie-upload",
+  "result": {
+    "status": "ok",
+    "zip_name": "Car340581-2026-Pass1-A1_20260814.zip",
+    "zip_bytes": 933232640,
+    "remote": "chiro-coffre",
+    "bucket": "mon-bucket-scaleway",
+    "remote_key": "vigie-chiro/Car340581-2026-Pass1-A1_20260814.zip",
+    "verified": "size-match",
+    "attempts": 1,
+    "duration_ms": 4320000
+  }
+}
+```
+
+`OffsiteResultSerialized` (`src/types.ts`) — union discriminée sur `status` :
+
+- `"ok"` → `zip_name`, `zip_bytes`, `remote`, `bucket`, `remote_key`, `verified: "size-match" | "unavailable"`, `attempts` (compte les `--retries` complets de rclone pour cet objet, pas les `--low-level-retries` internes à une tentative), `duration_ms`.
+- `"aborted"` → `zip_name`, `zip_bytes`, `bytes_sent`, `duration_ms`.
+- `"error"` → `error_code` (le code brut, pas le libellé français), `zip_name`, `zip_bytes`, `bytes_sent`, `duration_ms`.
+
+`duration_ms` mesure la **tentative complète** côté orchestrateur (`useOffsiteRun`), pas le seul temps passé dans `uploadArchive` — même raison que pour v4/v5 : c'est la seule façon d'avoir une durée pour un run interrompu ou en échec.
+
+**`vigie-upload` était délibérément resté libre en Phase 9** (`buildPackageSessionEvent` utilise `vigie-package`, pas `vigie-upload`, pour la même raison que le nom l'indique : préparer des volumes n'est pas déposer). C'est ce nom qu'utilise la Phase 10, exactement comme prévu.
+
 ## Règles métier
 
 ### Détection des `.wav`
