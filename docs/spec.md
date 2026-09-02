@@ -6,10 +6,11 @@
 chiro
 ```
 
-Pas d'argument, pas de flag (au MVP). Trois exceptions :
+Pas d'argument, pas de flag (au MVP). Quatre exceptions :
 
 - `chiro --version` (ou `-v`) → affiche la version puis quitte.
 - `chiro --help` (ou `-h`) → affiche un mini-help (1 paragraphe en français) puis quitte.
+- `chiro --self-test` → **flag caché, volontairement absent de `--help`** : exerce le binaire compilé au-delà d'un simple `--version` (résolution de l'asset worker dans `/$bunfs/`, rendu ink/yoga non-interactif, vrai batch de découpage sur une fixture déterministe, et byte-identité sox↔pool si `sox` est présent). Sort `0` si tout passe, `1` avec le nom du check en échec sinon. Destiné à la CI (`ci.yml` et `release.yml`), pas à l'utilisatrice — d'où l'absence de `--help`.
 - Toute autre forme avec arguments → message "Pas encore supporté, lancez juste `chiro`" et quitte (code 0).
 
 Le dossier ciblé est **toujours `process.cwd()`** (le dossier dans lequel l'utilisatrice a tapé la commande). Les flux Préfixer et Découper cherchent les `.wav` à la racine **et** dans un éventuel sous-dossier `Brut`/`Bruts` (casse indifférente, un seul niveau) — cf. « Détection des `.wav` » dans Règles métier. La sortie du découpage (`processed/`) reste toujours à la racine du `cwd`, quelle que soit la provenance des sources.
@@ -45,10 +46,13 @@ La state machine comporte **5 écrans wizard** (Menu/Constat/Saisie/Confirmation
   - `Découper les enregistrements (pour Tadarida)`
   - `Créer les zips à déposer sur Vigie-Chiro`
   - `Sauvegarder les enregistrements découpés (un seul zip)`
+  - `Archiver la sauvegarde en ligne` — **conditionnelle** (Phase 10)
   - `Vérifier les mises à jour`
   - `Quitter`
 
 Six entrées depuis la Phase 9 : les deux flux zip (dépôt / sauvegarde) sont deux entrées distinctes, pas un sélecteur — les deux sorties coexistent et ne servent pas au même usage. `Préfixer` et `Préparer` partageant leurs quatre premières lettres, le verbe retenu pour le dépôt est **« Créer »** : six initiales restent ainsi distinctes au scan.
+
+**Sept entrées depuis la Phase 10**, quand l'archivage en ligne est configuré : `Archiver la sauvegarde en ligne` s'insère en **5ᵉ position**, entre la sauvegarde et la vérification des mises à jour. C'est la seule entrée conditionnelle du menu — elle n'apparaît que si `rclone` et `~/.chiro/settings.json` sont tous deux en place, sondés **de façon synchrone avant `render()`** (cf. § Visibilité du wizard correspondant). Sinon : six entrées, silence total, aucun message.
 
 - **Auto-check au boot** : un `useEffect` lance `checkForUpdate` au mount (cache disque 6 h, silent fail). Si une version > `CHIRO_VERSION` est dispo, un hint jaune `⚠ Une mise à jour est disponible (vX.Y.Z).` apparaît entre la liste d'items et le footer. Sinon (à jour, erreur réseau, etc.), aucun hint.
 - Navigation : `↑ ↓` pour bouger la sélection, `Entrée` pour valider, `Échap` ou `Ctrl+C` pour quitter.
@@ -261,13 +265,13 @@ Quatre variantes, mêmes principes UX que le rename :
 
 ### Règles métier — Découpage
 
-**Convention de durée** : un chunk couvre **5 secondes de temps réel ultrasonique**. Comme Teensy et AudioMoth produisent tous deux un signal joué en time-expansion ×10 dans le fichier de sortie, **5 s temps réel = 50 s sur la timeline de sortie audio**. C'est la convention Kaleidoscope, et celle attendue par Chirosuf / Tadarida. Les constantes vivent dans `src/lib/audio/constants.ts` (`CHUNK_OUTPUT_SECONDS = 50`, `CHUNK_REAL_SECONDS = 5`).
+**Convention de durée** : un chunk couvre **5 secondes de temps réel ultrasonique**. Comme Teensy et AudioMoth produisent tous deux un signal joué en time-expansion ×10 dans le fichier de sortie, **5 s temps réel = 50 s sur la timeline de sortie audio**. C'est la convention Kaleidoscope, et celle attendue par ChiroSurf / Tadarida. Les constantes vivent dans `src/lib/audio/constants.ts` (`CHUNK_OUTPUT_SECONDS = 50`, `CHUNK_REAL_SECONDS = 5`).
 
 **Mode `preserve`** (Teensy / PaRec) : aucune modification du sample rate (Teensy enregistre déjà à un débit audio expansé). Slice par tranches de `sampleRate × 50` samples.
 
 **Mode `expand-10x`** (AudioMoth / Wildlife Acoustics) : réécriture lossless du `fmt.sampleRate` (= `Math.round(source / 10)`), puis slice par tranches de `outputSampleRate × 50` samples. Les samples PCM eux-mêmes ne sont jamais touchés — seul le champ d'en-tête change, ce qui équivaut à un ralentissement à la lecture.
 
-**Multicanal** : les canaux sont conservés groupés dans chaque chunk (1 fichier stéréo → 1 fichier stéréo par chunk, pas 2 mono). À noter : Kaleidoscope coche par défaut « Split channels » → séparation en mono. Notre v1 garde groupé ; option de split en mono prévue en V2 (cf. `roadmap.md` follow-ups Phase 5).
+**Multicanal** : les canaux sont conservés groupés dans chaque chunk (1 fichier stéréo → 1 fichier stéréo par chunk, pas 2 mono). À noter : Kaleidoscope coche par défaut « Split channels » → séparation en mono. Notre v1 garde groupé ; option de split en mono au backlog (cf. `roadmap.md`, « Option split-channels »).
 
 **Dernier chunk < 5 s temps réel** : conservé tel quel (lossless). Tadarida peut l'analyser avec une confiance moindre. Pas de padding silence, pas de drop. La métadonnée GUANO `Length` reflète la durée réelle de ce tail chunk.
 
@@ -789,39 +793,51 @@ Pour les sessions de découpage, `schema_version: 2`. Format aligné avec v1 (ti
 
 ## Cas dégradés — checklist exhaustive
 
-| Cas                                                       | Comportement attendu                                                                                                                       | Écran                       |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------- |
-| Pas de TTY                                                | Message stderr + quit code 1                                                                                                               | Avant Ink                   |
-| `--version`                                               | Affiche version + quit code 0                                                                                                              | Avant Ink                   |
-| `--help`                                                  | Affiche help + quit code 0                                                                                                                 | Avant Ink                   |
-| Dossier vide                                              | "Aucun fichier .wav trouvé" + chemin affiché                                                                                               | Constat                     |
-| Aucun `.wav` (mais d'autres fichiers)                     | Idem                                                                                                                                       | Constat                     |
-| Tous les `.wav` déjà préfixés                             | Constat passe normalement → Saisie → Confirmation affiche 0 renommage prévu → l'utilisatrice peut quand même valider → Résultat variante B | Tous les écrans             |
-| Dossier non lisible (`R_OK` KO)                           | Message + quit                                                                                                                             | Constat                     |
-| Dossier non writable (`W_OK` KO)                          | Message + bouton retour                                                                                                                    | Constat                     |
-| Erreur inattendue au scan FS                              | Écran Constat affiche le code brut + invite à fermer apps concurrentes                                                                     | Constat                     |
-| `.WAV` majuscule                                          | Normalisé en `.wav` dans le nom cible                                                                                                      | Renommage                   |
-| Collision avec fichier existant                           | Affichage Confirmation + skip Renommage                                                                                                    | Confirmation + Résultat     |
-| `EXDEV` cross-device                                      | Fallback `copyFile + unlink` transparent                                                                                                   | Renommage                   |
-| `EACCES` / `EPERM` sur un fichier                         | Consigner, continuer                                                                                                                       | Renommage                   |
-| `ENOENT` (fichier supprimé entre scan et rename)          | Consigner, continuer                                                                                                                       | Renommage                   |
-| Caractères exotiques (accents, espaces, emojis) dans noms | Aucun traitement spécial, Node gère                                                                                                        | Toujours                    |
-| Symlinks dans le dossier                                  | Ignorés au scan                                                                                                                            | Constat                     |
-| Ctrl+C pendant la saisie                                  | Quit immédiat code 130                                                                                                                     | Toutes                      |
-| Ctrl+C pendant le renommage                               | Stop propre, Résultat variante D                                                                                                           | Renommage → Résultat        |
-| Terminal redimensionné en cours                           | Ink gère ; aucun traitement spécial requis                                                                                                 | Toutes                      |
-| Pas de `processed/` au flow zip                           | Message informatif + deux causes (découpage pas fait / mauvais dossier)                                                                    | A-Constat                   |
-| `processed/` sans fichier archivable                      | « ne contient aucun enregistrement » + guidance découpage interrompu                                                                       | A-Constat                   |
-| `cwd` non writable au flow zip                            | Message « impossible de créer le sous-dossier archived » (ou « upload » selon le flux)                                                     | A-Constat / U-Constat       |
-| Espace disque insuffisant pour le zip                     | Chiffres requis/dispo + rappel qu'un zip est une copie                                                                                     | A-Constat                   |
-| Zip du même jour déjà présent                             | Suffixe `-2`…`-99`, aucun écrasement                                                                                                       | A-Confirmation              |
-| Dossier de série du même jour déjà présent                | Résolu **au commit** : suffixe `-2`…`-99` sur le dossier, volumes inchangés                                                                | U-Confirmation              |
-| Ctrl+C pendant la création de la série                    | État `cleaning` (« Annulation en cours… ») puis U-Résultat interruption ; `upload/` reste vide                                             | U-Confirmation → U-Résultat |
-| Staging caché orphelin d'un run tué (`kill -9`)           | Nettoyé au constat suivant si PID mort **ou** plus vieux que 24 h                                                                          | U-Constat                   |
-| Lot ne tenant pas en un seul volume                       | Bascule automatique de volume, nombre de fichiers annoncé seulement au résultat                                                            | U-Confirmation → U-Résultat |
-| Lot tenant en un seul volume (N = 1)                      | Aucun suffixe `part`, libellés au singulier, compteur de volume masqué                                                                     | U-Confirmation → U-Résultat |
-| Fichier source modifié / supprimé pendant le zip          | `file-changed` → `.tmp` supprimé, aucun zip produit                                                                                        | A-Confirmation              |
-| Disque plein pendant le zip                               | `ENOSPC` (souvent au `sync()`) → `.tmp` supprimé, aucun zip produit                                                                        | A-Confirmation              |
-| Zip écrit mais vérification en échec                      | `verify-failed` → `.tmp` supprimé, rien dans `archived/`                                                                                   | A-Confirmation              |
-| Ctrl+C pendant la création du zip                         | Abort, `.tmp` supprimé, Résultat variante interruption                                                                                     | A-Confirmation → A-Résultat |
-| `.tmp` orphelins d'un run précédent tué                   | Nettoyés au run suivant si le PID embarqué ne tourne plus                                                                                  | A-Confirmation              |
+| Cas                                                       | Comportement attendu                                                                                                                                   | Écran                       |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------- |
+| Pas de TTY                                                | Message stderr + quit code 1                                                                                                                           | Avant Ink                   |
+| `--version`                                               | Affiche version + quit code 0                                                                                                                          | Avant Ink                   |
+| `--help`                                                  | Affiche help + quit code 0                                                                                                                             | Avant Ink                   |
+| Dossier vide                                              | "Aucun fichier .wav trouvé" + chemin affiché                                                                                                           | Constat                     |
+| Aucun `.wav` (mais d'autres fichiers)                     | Idem                                                                                                                                                   | Constat                     |
+| Tous les `.wav` déjà préfixés                             | Constat passe normalement → Saisie → Confirmation affiche 0 renommage prévu → l'utilisatrice peut quand même valider → Résultat variante B             | Tous les écrans             |
+| Dossier non lisible (`R_OK` KO)                           | Message + quit                                                                                                                                         | Constat                     |
+| Dossier non writable (`W_OK` KO)                          | Message + bouton retour                                                                                                                                | Constat                     |
+| Erreur inattendue au scan FS                              | Écran Constat affiche le code brut + invite à fermer apps concurrentes                                                                                 | Constat                     |
+| `.WAV` majuscule                                          | Normalisé en `.wav` dans le nom cible                                                                                                                  | Renommage                   |
+| Collision avec fichier existant                           | Affichage Confirmation + skip Renommage                                                                                                                | Confirmation + Résultat     |
+| `EXDEV` cross-device                                      | Fallback `copyFile + unlink` transparent                                                                                                               | Renommage                   |
+| `EACCES` / `EPERM` sur un fichier                         | Consigner, continuer                                                                                                                                   | Renommage                   |
+| `ENOENT` (fichier supprimé entre scan et rename)          | Consigner, continuer                                                                                                                                   | Renommage                   |
+| Caractères exotiques (accents, espaces, emojis) dans noms | Aucun traitement spécial, Node gère                                                                                                                    | Toujours                    |
+| Symlinks dans le dossier                                  | Ignorés au scan                                                                                                                                        | Constat                     |
+| Ctrl+C pendant la saisie                                  | Quit immédiat code 130                                                                                                                                 | Toutes                      |
+| Ctrl+C pendant le renommage                               | Stop propre, Résultat variante D                                                                                                                       | Renommage → Résultat        |
+| Terminal redimensionné en cours                           | Ink gère ; aucun traitement spécial requis                                                                                                             | Toutes                      |
+| Pas de `processed/` au flow zip                           | Message informatif + deux causes (découpage pas fait / mauvais dossier)                                                                                | A-Constat                   |
+| `processed/` sans fichier archivable                      | « ne contient aucun enregistrement » + guidance découpage interrompu                                                                                   | A-Constat                   |
+| `cwd` non writable au flow zip                            | Message « impossible de créer le sous-dossier archived » (ou « upload » selon le flux)                                                                 | A-Constat / U-Constat       |
+| Espace disque insuffisant pour le zip                     | Chiffres requis/dispo + rappel qu'un zip est une copie                                                                                                 | A-Constat                   |
+| Zip du même jour déjà présent                             | Suffixe `-2`…`-99`, aucun écrasement                                                                                                                   | A-Confirmation              |
+| Dossier de série du même jour déjà présent                | Résolu **au commit** : suffixe `-2`…`-99` sur le dossier, volumes inchangés                                                                            | U-Confirmation              |
+| Ctrl+C pendant la création de la série                    | État `cleaning` (« Annulation en cours… ») puis U-Résultat interruption ; `upload/` reste vide                                                         | U-Confirmation → U-Résultat |
+| Staging caché orphelin d'un run tué (`kill -9`)           | Nettoyé au constat suivant si PID mort **ou** plus vieux que 24 h                                                                                      | U-Constat                   |
+| Lot ne tenant pas en un seul volume                       | Bascule automatique de volume, nombre de fichiers annoncé seulement au résultat                                                                        | U-Confirmation → U-Résultat |
+| Lot tenant en un seul volume (N = 1)                      | Aucun suffixe `part`, libellés au singulier, compteur de volume masqué                                                                                 | U-Confirmation → U-Résultat |
+| Fichier source modifié / supprimé pendant le zip          | `file-changed` → `.tmp` supprimé, aucun zip produit                                                                                                    | A-Confirmation              |
+| Disque plein pendant le zip                               | `ENOSPC` (souvent au `sync()`) → `.tmp` supprimé, aucun zip produit                                                                                    | A-Confirmation              |
+| Zip écrit mais vérification en échec                      | `verify-failed` → `.tmp` supprimé, rien dans `archived/`                                                                                               | A-Confirmation              |
+| Ctrl+C pendant la création du zip                         | Abort, `.tmp` supprimé, Résultat variante interruption                                                                                                 | A-Confirmation → A-Résultat |
+| `.tmp` orphelins d'un run précédent tué                   | Nettoyés au run suivant si le PID embarqué ne tourne plus                                                                                              | A-Confirmation              |
+| `rclone` absent ou < 1.53                                 | Entrée de menu **et** touche `A` inexistantes. Silence total, aucun message                                                                            | Menu / A-Résultat           |
+| `settings.json` absent ou bloc `coffre` invalide          | Idem — `absent` et `invalid` se résolvent tous deux en « entrée masquée », sans distinction visible                                                    | Menu / A-Résultat           |
+| Aucun zip dans `archived/`                                | `no-backup` — renvoie vers le wizard sauvegarde                                                                                                        | O-Constat                   |
+| Zip déjà en ligne, **même** taille                        | `already-online` — aucun transfert lancé                                                                                                               | O-Constat                   |
+| Zip en ligne, taille **différente**                       | `size-mismatch` — remplacement de l'objet distant proposé sur `Entrée` ; seule écriture destructive de chiro, sans versionnage au bucket               | O-Constat                   |
+| `remoteStat` injoignable (réseau, timeout)                | `verify-error` **transitoire** — réessai proposé                                                                                                       | O-Constat                   |
+| Bucket introuvable / remote inconnu                       | `verify-error` **définitif** (`bucket-missing` / `config-error`) — pas de réessai, aucun réglage n'étant accessible depuis la TUI                      | O-Constat                   |
+| Machine sur batterie (macOS)                              | `caffeinate -s` inopérant hors secteur : la veille interrompra le transfert. Seule protection = la phrase de l'écran de confirmation                   | O-Confirmation              |
+| Coupure réseau pendant le transfert                       | Réessais automatiques bornés de rclone, ligne `⚠ connexion ralentie` ; épuisés → `transient`, réessai proposé                                          | O-Run                       |
+| Ctrl+C pendant le transfert                               | SIGINT à rclone, renvoyé à 5 s, SIGKILL à 15 s — jamais SIGKILL d'emblée, sinon les parts multipart resteraient en vol et **facturées**                | O-Run → O-Résultat          |
+| rclone sort `0` juste après une demande d'abandon         | Traité en **succès** : le code de sortie est consulté même après un abandon. L'abandon se détecte par l'intention de chiro, pas par la forme de sortie | O-Run                       |
+| Fichier introuvable en ligne après un transfert réussi    | `verify-absent` — transitoire ; le transfert complet est à recommencer, rclone ne reprenant pas un multipart                                           | O-Résultat                  |

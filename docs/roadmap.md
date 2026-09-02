@@ -1,347 +1,123 @@
 # Roadmap
 
-Le MVP est découpé en **5 phases** (0 à 4) + V2. Chaque phase a un **critère de sortie** clair. On ne démarre pas la phase suivante tant que la précédente n'est pas validée manuellement par l'utilisateur.
+Ce document sert à **décider quoi faire ensuite**. Il ne raconte pas ce qui a été fait : le détail technique des phases livrées vit dans [`architecture.md`](./architecture.md) et [`../CLAUDE.md`](../CLAUDE.md), et git garde l'historique.
 
-## Phase 0 — Outillage et validation de la stack ✓
+## 1. Où on en est
 
-**Objectif** : s'assurer que la stack tient avant d'investir sur le code métier. Cette phase est délibérément en premier (pas en dernier) : si `bun --compile` ne marche pas avec Ink 6 + React 19, on doit le savoir avant d'écrire 1000 lignes de code.
+Version `0.1.0`. Cinq flux dans le menu, 1083 tests sur 102 fichiers, deux binaires (macOS arm64, Linux x64) publiés par tag.
 
-**Cible Phase 0 : macOS arm64 NON signé uniquement.** Linux x64 + signature/notarisation Apple sont reportés en Phase 4 (intégrés à la pipeline GitHub Actions).
+| Phase | Ce que ça a apporté                                                       | Détails                                   |
+| ----- | ------------------------------------------------------------------------- | ----------------------------------------- |
+| 0     | Stack validée : Bun + Ink + React 19, `bun --compile` en binaire autonome | `architecture.md` § Stack                 |
+| 1     | Couche métier pure en TDD : scan, plan de renommage, application          | `architecture.md` § Structure du repo     |
+| 2     | TUI Ink : menu, wizard préfixage, state machine, Ctrl+C sûr               | `architecture.md` § State machine         |
+| 3     | Wordings calibrés pour la cible non-tech                                  | [`ux.md`](./ux.md)                        |
+| 4     | Distribution : GitHub Actions, 2 binaires par tag, `install.sh`           | `architecture.md` § Build, § Distribution |
+| 4.6   | Self-update depuis le menu + hint au boot (cache 6 h)                     | `CLAUDE.md` § Self-update                 |
+| 5     | **Découper les enregistrements** : split + TE ×10, non-destructif         | `architecture.md` § Lib audio             |
+| 6     | Performance : worker pool (3–6×) + fast-path sox (~22×)                   | `architecture.md` § Performance pipeline  |
+| 7     | Découpe à 50 s output (5 s réel) + métadonnées GUANO/wamd                 | `CLAUDE.md` § Découpage et métadonnées    |
+| —     | Durcissement post-audit + `--self-test` du binaire compilé                | `architecture.md` § Safety nets           |
+| 8     | **Sauvegarder** : `processed/` → un zip unique (ZIP64 nominal)            | `architecture.md` § Module `lib/archive`  |
+| 9     | **Déposer** : série de volumes 3,5 Go sans ZIP64                          | `architecture.md` § Série de volumes      |
+| 10    | **Archiver en ligne** : Scaleway Glacier via rclone (optionnel)           | `architecture.md` § Module `lib/offsite`  |
 
-### Tâches
+La chaîne complète est validée en conditions réelles : une série de volumes déposée sur le portail Vigie-Chiro, et un zip de sauvegarde archivé en classe Glacier sur Scaleway. Ce ne sont plus des hypothèses.
 
-1. `pnpm init`, `package.json` aligné sur les conventions arkham-proba (mono-package, sans `bin`, `engines.bun`).
-2. `tsconfig.json` strict (avec `noUncheckedIndexedAccess`), `vitest.config.ts`, `eslint.config.js`, `.prettierrc`, `.prettierignore`, `.gitignore` (incl. `*.tsbuildinfo`).
-3. Husky + lint-staged (pre-commit = `lint-staged && typecheck`).
-4. Dépendances : `ink`, `ink-text-input`, `react`, `react-devtools-core` (devDep — nécessaire pour `bun --compile` car Ink l'importe statiquement). DevDeps tooling : `typescript`, `vitest`, `ink-testing-library`, `eslint`, `prettier`, etc.
-5. Arborescence `src/lib/`, `src/screens/`, `src/components/` avec `.gitkeep`.
-6. `src/index.tsx` Hello Ink **vraiment représentatif** : `useState`, `useInput`, `readdirSync(".")` — pour tester yoga-wasm-web et Bun SEA, pas un Hello statique.
-7. `src/smoke.test.ts` trivial pour valider vitest.
-8. Valider la chaîne dev : `pnpm dev`, `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm format:check`.
-9. Mode dev hot-reload : `pnpm dev:watch` (`bun --watch`).
-10. **Build binaire macOS arm64** : `pnpm build:darwin-arm64` → `dist/chiro-darwin-arm64` (~62 MB).
-11. Tester `./dist/chiro-darwin-arm64` localement (post `xattr -d com.apple.quarantine` si Gatekeeper bloque) → TUI s'affiche, espace incrémente, q/Échap quitte, `readdirSync` reflète le cwd.
-12. **README.md racine** minimal + mise à jour `docs/roadmap.md`.
+## 2. Prochain chantier — Phase 11 : dépôt direct via l'API Vigie-Chiro
 
-### Critère de sortie
+**Objectif** : supprimer le dépôt manuel. Aujourd'hui, après le découpage, l'utilisatrice crée une série de zips, ouvre le portail, et dépose les volumes un par un — plusieurs heures d'attention pour une session. Le portail expose une API (backend Eve/Flask, [Scille/vigiechiro-api](https://github.com/Scille/vigiechiro-api)) qui permet de créer la participation, d'uploader les WAV et de déclencher l'analyse Tadarida depuis un programme.
 
-- [x] `pnpm dev` affiche la TUI Ink interactive avec compteur.
-- [x] `dist/chiro-darwin-arm64` NON signé lancé localement affiche la TUI, incrémente, quitte, et lit le cwd.
-- [x] `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm format:check` passent tous.
-- [x] Pre-commit husky bloque un commit avec une erreur lint ou tsc.
+Faisabilité **démontrée** par [ChiroTool](https://github.com/kevin-guille/ChiroTool), qui le fait en production chez plusieurs utilisateurs.
 
-**Si bloquant** : plan B documenté = Node + tsup + `@yao-pkg/pkg` ; ou abandon `bun --compile` au profit de `pnpm i -g` côté distribution.
+Découpage sur le modèle de la Phase 10 — dont la sous-phase de mesure a invalidé deux affirmations du plan avant la première ligne de `src/`, et c'est exactement pour ça qu'elle passe en premier.
 
-## Phase 1 — Logique métier pure (TDD)
+### 11.0 — Mesure, avant toute ligne de `src/`
 
-**Objectif** : implémenter et tester toute la couche `src/lib/` en TDD, sans toucher à Ink. À la fin de cette phase, on a un moteur 100% testé qui sait scanner un dossier, planifier des renommages, et les exécuter.
+Contre l'API réelle, sur un compte de test :
 
-### Tâches (par ordre TDD)
+- authentification (HTTP Basic, token en username, mot de passe vide) ;
+- création d'une participation, upload d'un WAV (voie simple **et** multipart S3), `trigger_compute`, polling de l'état ;
+- comportement sur les cas dégradés : token expiré, coupure en cours d'upload, participation déjà existante.
 
-1. `lib/vigie-chiro/validation.ts` + tests : 4 validators (carre, annee, passage, point).
-2. `lib/vigie-chiro/prefix.ts` + tests : construction du préfixe.
-3. `lib/vigie-chiro/isAlreadyPrefixed.ts` + tests.
-4. `lib/fs/scanWavFiles.ts` + tests (`mkdtemp` fixtures : .wav, .WAV, .txt, dotfile, sous-dossier).
-5. `lib/fs/planRenames.ts` + tests : idempotence, collisions au plan-time, ordre alphabétique, normalisation `.WAV → .wav`.
-6. `lib/fs/applyRenames.ts` + tests : succès, fallback EXDEV (mock), erreur partielle, ordre séquentiel.
-7. `lib/logging/log.ts` + tests : append JSONL, création du dossier.
-8. `lib/e2e.test.ts` : round-trip complet sur dossier temporaire.
+Traces réelles committées dans `test-data/`, comme `test-data/rclone-stats/`, avec un README des invariants observés.
 
-### Critère de sortie
+**Accélérateur** : `vigiechiro_api.py` de ChiroTool est sous licence MIT et documente l'API mieux que sa documentation officielle — sérialisation RFC 1123 forcée en anglais (sinon Eve refuse les dates sous une locale française), ETag obligatoire sur les PUT, pagination Eve, politique de retry séparée avant-plan/arrière-plan. **À lire comme référence, avec attribution. Pas à copier.**
 
-- [ ] Couverture `src/lib/` ≥ 95% (cible 100%).
-- [ ] Le test E2E `lib/e2e.test.ts` passe et reflète un scénario réaliste.
-- [ ] `bun run test` complet en moins de 5 secondes.
+### 11.A — Le mur du token
 
-## Phase 2 — UI Ink
+**Risque produit n° 1 du chantier, à trancher avant d'écrire un écran.** Le token s'obtient aujourd'hui en ouvrant les outils développeur du navigateur et en lisant `auth-session-token` dans le `localStorage`. Pour notre utilisatrice, c'est infranchissable seule — et si on n'a pas de réponse acceptable, la Phase 11 ne vaut pas mieux que le dépôt manuel qu'elle remplace.
 
-**Objectif** : brancher la couche `lib/` à une TUI Ink fonctionnelle. À la fin, l'outil tourne en dev (`bun src/index.tsx`) avec un wizard utilisable de bout en bout.
+Pistes à explorer et à arbitrer : configuration faite une fois par un tiers ; assistant guidé avec capture d'écran ; stockage dans le trousseau macOS.
 
-### Tâches
+### 11.B → 11.E
 
-1. `components/TextField.tsx` (label + `ink-text-input` + aide/erreur).
-2. `components/Footer.tsx` (barre de raccourcis stylée, prop `hints: Array<{key, label}>`).
-3. `screens/MenuScreen.tsx` (1 item + Quitter).
-4. `screens/vigie-chiro/ConstatScreen.tsx` (appelle `scanWavFiles`, vérifie W_OK, R_OK).
-5. `screens/vigie-chiro/FormScreen.tsx` (4 champs, focusedIndex, validation hybride).
-6. `screens/vigie-chiro/ConfirmScreen.tsx` (appelle `planRenames`, affiche 3 exemples).
-7. `screens/vigie-chiro/ResultScreen.tsx` (4 variantes A/B/C/D).
-8. `app.tsx` (state machine et transitions).
-9. `index.tsx` (boot : TTY check, `--version`, `--help`, args inattendus, puis `render(<App />)`).
-10. Handler `SIGINT` global pendant `applyRenames` (cf. spec).
-11. Logging à la fin de chaque session (succès/erreur/interruption).
-12. 1 test `ink-testing-library` du parcours nominal (Constat OK → Form valide → Confirm → Result A).
+Aligné sur le découpage 10.A1 / 10.A2 / 10.B / 10.C : logique pure d'abord, puis ce qui parle au réseau, puis les écrans, puis les docs.
 
-### Critère de sortie
+### Question ouverte, à ne pas trancher maintenant
 
-- [ ] `bun src/index.tsx` dans un dossier de test affiche le Menu.
-- [ ] Parcours complet manuel : Menu → Constat → Saisie → Confirmation → Résultat avec renommage effectif sur disque.
-- [ ] Ctrl+C pendant la saisie quitte proprement.
-- [ ] Ctrl+C pendant le rename produit la variante D et laisse l'état correct.
-- [ ] `~/.chiro/last-run.log` contient une entrée JSON valide par session.
-- [ ] `chiro --version` affiche la version, `chiro --help` affiche l'aide.
+Si la Phase 11 aboutit, le flux « Créer les zips à déposer » devient une roue de secours (portail en panne, API cassée par une mise à jour). Le flux « Sauvegarder » et l'archivage Glacier, eux, restent : ils servent un besoin différent — retrouver une étude trois ans plus tard.
 
-## Phase 3 — Polish UX
+## 3. Backlog
 
-**Objectif** : tous les wordings finalisés selon `ux.md`, ergonomie peaufinée, test utilisateur avec la conjointe.
+Estimations conservées depuis leur évaluation initiale.
 
-### Tâches
+### Confort d'usage
 
-1. Relecture mot à mot de chaque écran contre `ux.md` (ne JAMAIS reformuler à la volée).
-2. Vérifier les couleurs (cyan/green/yellow/red/dimColor) sur 2 émulateurs minimum (iTerm2, Terminal.app).
-3. Vérifier le rendu sur largeur de terminal 80 et 120 colonnes.
-4. Vérifier `process.stdout.isTTY === false` (redirect stdout via fichier) → message stderr correct.
-5. **Test utilisateur** : la conjointe utilise l'outil sur un vrai dossier de sa dernière nuit, sans aide. Observer (où elle hésite, où elle ne sait pas quoi taper). Itérer.
+| #   | Item                                                                                                                                                                                                                                                                                                                                                       | Estim. |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| 1   | **Pré-remplissage de la dernière session** (`~/.chiro/last-session.json`). Gain UX majeur nuit après nuit.                                                                                                                                                                                                                                                 | 2 h    |
+| 2   | **Annuler la dernière opération** (journal `.chiro-undo.json` posé au moment du rename). Rassurance maximale.                                                                                                                                                                                                                                              | 4 h    |
+| 3   | **Manifest de session dans le dossier traité** — un `.chiro-session.json` qui liste ce qui a été fait et quels fichiers ont été produits. Rend chaque étape idempotente et reprenable, et **débloque l'item 15** : ses préconditions « re-scanner `processed/` juste avant » et « liste nominative des entrées archivées » deviennent triviales.           | 0,5 j  |
+| 4   | **Écran « Vérifier un dossier »** — verdict PASS / PARTIAL / FAIL par invariant, lançable après coup sur un dossier douteux. ⚠️ Choisir les invariants pour attraper le cas _silencieux_ : celui de ChiroTool retourne PASS sur une perte de fichier réelle, parce qu'il vérifie « chaque source a au moins un segment » au lieu de « tous ses segments ». | 1 j    |
+| 5   | **Auto-détection de l'enregistreur** depuis le header (`fmt.sampleRate` : 38 400 → `preserve`, > 100 000 → `expand-10x`). Évite l'écran de saisie du flux Découper.                                                                                                                                                                                        | 2 h    |
+| 6   | **Lecture des métadonnées WAV** pour suggérer l'année et alerter en cas d'incohérence.                                                                                                                                                                                                                                                                     | 1 j    |
+| 7   | **Mode batch CLI** : `chiro vigie --carre 040962 --pass 3 --point A1`.                                                                                                                                                                                                                                                                                     | 0,5 j  |
+| 8   | **Linux arm64 / macOS Intel x64** — conditionnel : seulement si un collègue en a besoin.                                                                                                                                                                                                                                                                   | 1 h    |
 
-### Critère de sortie
+### Découpage
 
-- [ ] Tous les wordings matchent `ux.md` à la virgule près.
-- [ ] La conjointe complète une session de bout en bout sans aide téléphonique en < 2 min (= critère de succès du `vision.md`).
-- [ ] Aucun écran ne déborde de 70 colonnes ou ne casse en hauteur sur 24 lignes.
+| #   | Item                                                                                                                                                                                                                                                                                     | Estim.        |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| 9   | **Stabiliser l'ETA du découpage** — l'estimation est proche de la réalité mais oscille encore sensiblement en cours de run. Le lissage byte-weighted (`etaTracker.ts`) mérite une passe : fenêtre glissante, ou amortissement des variations entre fichiers de tailles très différentes. | à évaluer     |
+| 10  | **Streaming pour fichiers > 500 Mo** — `wavefile` charge tout en RAM ; parseur RIFF streaming (~150 lignes).                                                                                                                                                                             | 1 j           |
+| 11  | **Option split-channels** pour détecteurs stéréo (SM2BAT+, SM4BAT), alignée sur Kaleidoscope.                                                                                                                                                                                            | 2 h           |
+| 12  | **Durée de découpe paramétrable** — aujourd'hui 50 s output / 5 s réel, figé. Nécessaire pour un protocole autre que Point Fixe.                                                                                                                                                         | 1 h           |
+| 13  | **Modes TE additionnels** (×8, ×20) si un détecteur l'exige.                                                                                                                                                                                                                             | 30 min / mode |
+| 14  | **Conservation du chunk `LIST/INFO`** (métadonnées AudioMoth), aujourd'hui droppé — cohérent avec Kaleidoscope. Seulement si Tadarida en a besoin.                                                                                                                                       | 4 h           |
 
-## Phase 4 — Distribution
+### Archive
 
-**Objectif** : automatiser entièrement le build des binaires macOS arm64 et Linux x64 via GitHub Actions, publier en GitHub Releases, fournir un `install.sh` opérationnel. Linux x64 et signature sont traités ici (différés depuis Phase 0).
+| #   | Item                                                                                                                                    | Estim. |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| 15  | **Suppression de `processed/` après zip vérifié** — le vrai gain d'espace disque. Préconditions non négociables, détaillées ci-dessous. | 1,25 j |
 
-### Hypothèse signature Apple
+**Préconditions de l'item 15** — aucune n'est optionnelle :
 
-Un binaire CLI distribué via `curl ... | bash` ne reçoit pas l'attribut `com.apple.quarantine` (pas de navigateur dans la chaîne). **On démarre sans signature.** Si un test sur machine vierge révèle un blocage Gatekeeper, la Phase 4.5 active la signature Developer ID + notarisation.
+1. `verifyZipArchive` en `crcMode: "full"`, avec `AbortSignal` propagé et progression émise : en `full` sur 10–20 Go la vérification dure plusieurs minutes, pendant lesquelles la TUI serait figée et Ctrl+C inopérant.
+2. ~~`fsync` du répertoire `archived/`~~ — **soldée en Phase 9**, remontée en `durable: boolean`. Le flux destructif devra exiger `durable === true`.
+3. Écran de confirmation explicite, distinct du flux actuel : la réassurance « rien n'est supprimé » disparaît, tout le wording est à revoir.
+4. Re-scanner `processed/` juste avant la suppression et ne supprimer que l'intersection avec ce qui a été archivé — `opts.entries` vient du scan de l'écran Constat, potentiellement plusieurs minutes plus tôt.
+5. `createZipArchive` doit retourner la **liste nominative** des entrées archivées, pas un compteur, sans quoi (4) n'est pas implémentable.
+6. **Garde-fou de ratio** : bloquer la suppression si elle dépasse un seuil du total, écrire les statistiques **avant** toute suppression, et ne pas marquer l'opération faite en cas de blocage. _(Repris du `cleanup.py` de ChiroTool, où le garde-fou est testé sur ses deux branches.)_
 
-### Tâches (réalisées en 4A/4B/4C/4D)
+> La Phase 10 ne facilite **rien** de tout ça et ne doit pas être invoquée pour l'assouplir. « Le CRC intégral local est moins critique, on a une copie en ligne » est faux : la copie en ligne n'a jamais été vérifiée autrement que par sa **taille** (`verified: "size-match" | "unavailable"`, jamais un CRC). Elle ne prouve rien de plus que le zip local qu'elle duplique.
 
-- [x] `package.json` : scripts `build:linux-x64` + `build` (les 2 cibles en un coup) — **4A**
-- [x] Build local du binaire Linux x64 (cross-compile depuis macOS via Bun) — **4A** (99 MB, ELF x86-64)
-- [x] `scripts/install.sh` : détection OS/arch via `uname`, download atomique, warning PATH — **4B**
-- [x] `.github/workflows/release.yml` : déclenché sur tag `v[0-9]+.[0-9]+.[0-9]+` (et `-suffix`), 3 jobs `build-macos` + `build-linux` + `release`, `typecheck` avant build, permissions least-privilege — **4C**
-- [x] `.github/dependabot.yml` : updates mensuelles des actions GitHub — **4C**
-- [x] `README.md` racine : section Installation avec one-liner curl + alternative auditable + variante `CHIRO_VERSION=...` — **4D**
+## 4. Écarté, et pourquoi
 
-### Étape conditionnelle Phase 4.5 — Signature Developer ID
+Consigné ici pour ne pas re-litiger.
 
-Activer **uniquement si** un test sur machine vierge révèle un blocage Gatekeeper. L'utilisateur a un Apple Developer ID actif.
+- **Brew tap** et **internationalisation (EN)** — ne servent qu'à élargir l'audience. L'audience visée reste l'utilisatrice cible et son cercle proche.
+- **Support Titley Anabat / Wildlife SM4** — malgré ChiroTool qui les gère et y gagne des utilisateurs. Même raison. À rouvrir si quelqu'un du cercle le demande (~3 h : un parseur de nom de plus).
+- **`--self-test` étendu au zip ou à la série** — ni asset bundlé ni worker, donc aucun piège de `bun --compile` à couvrir. Ne pas le « compléter » par réflexe de symétrie.
+- **`A-LIRE.txt` dans le dossier de série** (liste des fichiers + cases à cocher pour suivre un dépôt de plusieurs heures) — à re-poser après un dépôt réel. Devient sans objet si la Phase 11 aboutit.
+- **Upload API comme hors-scope définitif** — position tenue jusqu'ici par `vision.md`, abandonnée : la douleur du dépôt manuel est réelle et la faisabilité est démontrée. C'est devenu la Phase 11.
 
-- Configurer les GitHub Secrets : `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_DEVELOPER_ID_CERT` (`.p12` en base64), `APPLE_DEVELOPER_ID_CERT_PASSWORD`.
-- Étendre `release.yml` (job `build-macos`) avec une étape `codesign --sign "Developer ID Application: …" --options runtime --timestamp` puis `xcrun notarytool submit --wait`.
-- Re-tag (`v0.1.1`) et re-tester.
-
-### Critère de sortie
-
-- [ ] Un tag `v0.1.0` (ou `v0.1.0-rc.1`) produit automatiquement les 2 binaires en GH Release.
-- [ ] Une machine macOS arm64 vierge installe via curl one-liner et lance `chiro` (avec ou sans signature selon nécessité observée).
-- [ ] Une machine Linux x64 vierge installe via le même curl one-liner et lance `chiro`.
-
-**Action utilisateur restante** : pousser `git tag v0.1.0 && git push origin v0.1.0`, vérifier que les 3 jobs CI passent verts, puis tester l'install one-liner sur une machine vierge.
-
-## Phase 4.6 — Self-update intégré ✓
-
-**Objectif** : permettre à l'utilisatrice de mettre à jour chiro sans toucher au terminal. Item de menu **"Vérifier les mises à jour"** + auto-check silencieux au boot avec hint jaune si une version est dispo.
-
-### Tâches (réalisées en 4.6 A/B/C/D)
-
-- [x] `src/lib/update/` — logique pure : parseVersion, compareVersions, fetchLatestVersion (GitHub Releases API), cache disque 6 h, orchestrateur checkForUpdate. 100% coverage. — **4.6A**
-- [x] `src/screens/UpdateScreen.tsx` + `updateErrorMessages.ts` — 4 états (checking / available / up-to-date / error), mapping FR pour 6 codes d'erreur. — **4.6B**
-- [x] Intégration App + Menu + index — item de menu, hint jaune au boot, drapeau post-Ink, `spawnSync` d'`install.sh` avec stdio hérités. — **4.6C**
-- [x] Documentation — `ux.md` (Écran 5 + mapping codes), `spec.md` (Écran 5 + flux post-Ink), `architecture.md` (arbo `lib/update/`, pattern drapeau post-Ink, contrat install.sh). — **4.6D**
-
-### Critère de sortie
-
-- [x] `pnpm check` vert, 227+ tests
-- [ ] Test manuel : nouvelle version dispo sur GitHub → hint jaune apparaît au boot après ~1-2s
-- [ ] Test manuel : Menu → "Vérifier les mises à jour" → Entrée → install se lance en sortie de Ink, ré-install bien le binaire
-
-## Phase 5 — Découper les enregistrements (split + TE ×10) ✓
-
-**Objectif** : internaliser dans `chiro` les étapes Kaleidoscope du protocole Vigie-Chiro Point Fixe (expansion temporelle ×10 pour les détecteurs full-spectrum, puis découpe en fichiers de 5 secondes) — non-destructivement, dans un sous-dossier `processed/`. Référence canonique : `test-data/Tutoriel Vigie Chiro - Perso.pdf` (page 7).
-
-### Tâches (réalisées en 5.A / 5.B / 5.C / 5.D)
-
-- [x] **5.A** Spike `wavefile` × `bun --compile` × round-trip bit-exact sur Teensy + AudioMoth réels. `.gitattributes` LFS pour `test-data/`. Lib `src/lib/audio/` (`splitWavFile` générateur sync, `processWavFiles` orchestrateur), extraction `src/lib/fs/safeFsOps.ts` (`renameWithFallback` + `writeFileAtomic` EXDEV-safe). Allowlist `audioFormat ∈ {1, 0xFFFE}`, hard cap 500 MB, filtre `_NNN.wav$`, pre-clean orphan `.tmp`.
-- [x] **5.B** Screens `vigie-process/` : Constat (perms + `processed/` existant en jaune + `statfs` espace disque), Form (sélecteur Teensy/Autre inline), Confirm (preview durée + rappel non-destructif), Result (4 variantes : success / interrupted / all-failed / partial avec groupage erreurs).
-- [x] **5.C** Logging : `SessionEvent` discriminé sur `schema_version` (v1 = vigie-prefix byte-stable, v2 = vigie-process). Snapshot test assert l'immuabilité de la sérialisation v1. E2E test du flow process complet.
-- [x] **5.D** Docs sync + workflow CI `ci.yml` (lint + typecheck + test + smoke build) en plus de `release.yml`.
-- [x] **5.E** Progression intra-batch du flow Découper : `ProgressEvent` (file-start/chunk-written/file-done), `etaTracker` byte-weighted (`src/lib/audio/etaTracker.ts`), hook `useProgressState` colocalisé (`src/screens/vigie-process/useProgressState.ts`) avec throttle 100 ms + `finalizeRender()` synchrone, composant `RunningView` (chemin + fichier courant + barre 40 chars `█░` + ligne stats + adaptive masking < 5 fichiers + réassurance non-destructive en `dimColor`).
-
-### Critère de sortie
-
-- [x] `pnpm check` vert, 267+ tests (unit + integration sur fichiers réels Teensy/AudioMoth via git-lfs).
-- [x] Spike validé : round-trip bit-exact sur fichiers réels + `bun --compile` clean (27 modules, 0 warning).
-- [ ] Test manuel : dossier Teensy → mode `preserve` → chunks à 38 400 Hz dans `processed/`.
-- [ ] Test manuel : dossier AudioMoth → mode `expand-10x` → chunks à 25 000 Hz, durée 50 s expansée (5 s réel — critère réécrit par la Phase 7).
-- [ ] Test manuel : `processed/` existant → warning jaune ⚠ avec « renommer l'ancien dossier ».
-- [ ] Test manuel : Ctrl+C pendant un gros fichier → aucun `.tmp` orphelin, `interrupted: true` loggé.
-- [ ] Test manuel : batch nominal de 100 AudioMoth → ETA `Calcul du temps restant…` au 1ᵉʳ fichier, ETA convergé ±10 % dès le 2ᵉ, barre fluide visible toutes les ~10 s, barre à 100 % avant le ResultScreen.
-
-### Hard guardrails de scope (à ne JAMAIS franchir)
-
-> **In scope** : tout ce que la cible doit faire entre la sortie Teensy/AudioMoth et l'upload Vigie-Chiro (rename, split + TE×10, peut-être un jour : check fichier corrompu, contrôle metadata Vigie-Chiro).
->
-> **Out of scope** : spectrogramme, lecteur audio, classification, ID auto, anything Tadarida does, anything Kaleidoscope analysis-side does.
-
-## Phase 6 — Performance pipeline (worker pool + fast-path sox) ✓
-
-**Objectif** : le découpage est CPU-bound (`wavefile.toBuffer()` ré-encode header + samples par chunk). Sur le dataset réel de l'utilisatrice (9301 fichiers AudioMoth/Teensy déjà préfixés), le pipeline mono-thread de la Phase 5 prenait ~3h30 — inacceptable pour un usage nuit après nuit. Phase 6 livre deux optimisations cumulables, détaillées dans `docs/architecture.md` § « Performance pipeline ».
-
-### Tâches
-
-- **Pipeline A — worker pool wavefile** (`src/lib/audio/splitWorkerPool.ts`) : N workers `node:worker_threads` calculés dynamiquement depuis la RAM et le nombre de cores (`Math.max(2, Math.min(RAM-based, cpuCount - 1, 12))`), surchargeable via `CHIRO_WORKER_COUNT`. Toujours actif. Gain attendu 3–6× selon la machine (non mesuré sur le dataset réel). Abort propre (attente des `{kind:"aborted"}` avec timeout, puis `terminate()` forcé) + pre-clean des `.tmp` orphelins au démarrage de chaque run.
-- **Pipeline B — fast-path sox** (`src/lib/audio/soxFastPath.ts`) : opt-in si `sox` est détecté au boot (`detectSox`, désactivable via `CHIRO_DISABLE_FASTPATH=1`). Gain validé en PoC : ~22× wall sur AudioMoth (1802/1802 chunks bit-exact). ffmpeg a été testé et définitivement écarté (`-f segment -c copy` ne peut pas aligner les frontières de chunk au sample près sur du stream-copy PCM — 0/1802 MATCH sur le même PoC).
-- **Header canonique unique A/B** (`src/lib/audio/wavHeader.ts`, `rewriteHeaderToStandardPcm`) : les deux pipelines produisent des fichiers bit-identiques, validé par un golden test SHA256 (`__tests__/golden.test.ts`).
-- **Politique fallback per-batch first-error** : si sox crashe ou si le spot-check stratifié (3 chunks du 1er fichier : premier, milieu, dernier, comparés à la référence produite par le pipeline wavefile (A-vs-B, 100 samples au milieu de chaque chunk)) échoue, **tout le batch** retraite via le worker pool — jamais de mix de pipelines au sein d'un batch. Le pipeline réellement utilisé et le nombre de fallbacks sont tracés dans `~/.chiro/sessions.jsonl` (`engine`, `engine_fallback_count`).
-- Asset embedding du worker pour `bun --compile` : `splitWorker.ts` est pré-bundlé (`pnpm build:worker`) en `.mjs` importé via `with { type: "file" }` pour survivre à la compilation en binaire (cf. `resolveWorkerPath()`).
-
-### Critère de sortie
-
-- [x] `pnpm check` vert.
-- [x] Golden test SHA256 : pipelines A et B produisent des chunks bit-identiques.
-- [x] Gain sox validé en PoC (~22× wall, 1802/1802 chunks bit-exact — `scripts/poc-*.ts`) ; worker pool : 3–6× attendu, non mesuré sur le dataset réel.
-- [ ] Test manuel : run complet sur le dataset réel de l'utilisatrice, comparaison du temps total avant/après.
-
-## Phase 7 — Découpage 50 s output et métadonnées GUANO/wamd (convention Kaleidoscope) ✓
-
-**Objectif** : corriger un bug de la Phase 5 — le découpage coupait à 5 s sur la timeline de **sortie**, alors que la convention Kaleidoscope (Teensy natif TE×10, AudioMoth réécrit ×10) veut que le « Split to max duration = 5 s » du protocole Vigie-Chiro Point Fixe soit mesuré en **temps réel**, soit 50 s sur la timeline de sortie. Avant cette phase, les chunks produits par chiro étaient 10× trop courts en temps réel et Chirosuf affichait les chunks comme « compactés au début ». Phase 7 corrige ce calcul et ajoute les métadonnées ancillaires attendues par la chaîne Vigie-Chiro/Kaleidoscope.
-
-### Tâches
-
-- **Constantes centralisées** (`src/lib/audio/constants.ts`) : `CHUNK_OUTPUT_SECONDS = 50`, `CHUNK_REAL_SECONDS = 5`, `TIME_EXPANSION_FACTOR = 10`. Les deux pipelines (worker pool et sox) et l'estimation de progression (`estimateChunks.ts`) consomment ces constantes — plus de valeur `5` en dur pour la durée de coupe.
-- **Métadonnées GUANO + wamd** (`src/lib/audio/finalizeChunk.ts`, `src/lib/audio/metadata/`) : après le split, chaque chunk reçoit un chunk RIFF ancillaire `guan` (GUANO 1.0) et `wamd` (Wildlife Acoustics), appendés après la zone `data` avec padding 2-byte et recalcul de la `RIFF size`. Les deux pipelines (A et B) produisent des sorties byte-identiques, vérifié manuellement sur `test-data/real_process_teensy/`.
-- **Timestamp source** (`src/lib/files/parseTimestamp.ts`) : parsing du nom de fichier Teensy/AudioMoth (`_YYYYMMDD_HHMMSS`), ancré pour ne jamais matcher l'année du préfixe Vigie-Chiro (`Car340581-2026-…`). Si non parsable, le champ `Timestamp` est omis plutôt qu'écrit comme `Invalid Date`.
-- **Kill-switch** `CHIRO_DISABLE_METADATA=1` : désactive entièrement l'ajout des chunks ancillaires (utile si un outil aval rejette un wamd inattendu, sans rebuild). État tracé dans `SessionEvent.result.metadata: "full" | "off"`.
-
-### Critère de sortie
-
-- [x] `pnpm check` vert.
-- [x] `CHUNK_OUTPUT_SECONDS = 50` appliqué de bout en bout (les deux pipelines + l'estimation de progression).
-- [x] Sorties byte-identiques worker pool / sox pour les métadonnées, vérifié manuellement sur données réelles.
-- [ ] Test manuel : ouvrir un chunk produit dans Kaleidoscope/Chirosuf, vérifier que la durée et les métadonnées GUANO/wamd sont lues correctement (pas de chunks « compactés au début »).
-
-## Passe de durcissement post-audit (août 2026) ✓
-
-**Objectif** : un audit du code a mis en lumière des angles morts de résilience dans le pipeline de performance (Phase 6). Cette passe corrige la robustesse sans changer le comportement nominal, et ajoute un `--self-test` binaire pour prouver que le binaire compilé fonctionne réellement (au-delà des smoke tests `--version`/`--help`).
-
-### Tâches
-
-- [x] Détection worker mort (`node:worker_threads` `"error"` + `"exit"`) dans `splitWorkerPool.ts`, pour ne plus jamais laisser un batch pendre indéfiniment si un worker crashe sans message.
-- [x] No-throw de bout en bout côté sox (`soxFastPath.ts`, `processOneFile`) avec cleanup per-fichier garanti (`cleanPartialOutput`).
-- [x] Nouveaux écrans / mappings d'erreur pour les cas de run-error côté `vigie-process`.
-- [x] `--self-test` (`src/lib/selftest/selfTest.ts`) : exercice du binaire compilé de bout en bout — résolution de l'asset worker en `/$bunfs/`, un vrai split, et (si sox est installé) la garantie de byte-identité sox↔pool. Intégré à `ci.yml` (`smoke-build`) et `release.yml`.
-
-### Critère de sortie
-
-- [x] `pnpm check` vert ; `--self-test` passe sur les deux binaires compilés en CI (avec et sans sox).
-
-Détails d'implémentation complets dans `CLAUDE.md` (« Pièges connus », § worker pool) et `docs/architecture.md` § « Safety nets ».
-
-## Phase 8 — Créer un zip des enregistrements découpés ✓
-
-**Objectif** : fermer la boucle du protocole. Une fois le découpage fait, l'utilisatrice doit déposer ses fichiers sur Vigie-Chiro — ce qui suppose de zipper `processed/` à la main dans le Finder, sur des dossiers de milliers de fichiers et des dizaines de Go. Phase 8 internalise cette étape : `processed/` → `archived/processed_YYYYMMDDHHMM.zip`, **non-destructif**. Détails complets dans `docs/architecture.md` § « Module `lib/archive` ».
-
-> **Repositionné par la Phase 9** : le portail refuse le ZIP64, dans lequel ce zip tombe sur des volumes réels. Ce flow est devenu « Sauvegarder les enregistrements découpés (un seul zip) » — la copie de sauvegarde — et le dépôt passe par la série de volumes. Son nommage est aussi passé à `{préfixe}_YYYYMMDD.zip`.
-
-### Tâches (réalisées en 8.A / 8.B / 8.C / 8.D)
-
-- **Writer ZIP maison** (`src/lib/archive/`) : `crc32.ts`, builders binaires purs (`zipFormat.ts`), plan et nommage (`planArchive.ts`), orchestration streaming (`createZipArchive.ts`), vérification post-écriture (`verifyZipArchive.ts`). Zéro dépendance ajoutée — ADR dans `architecture.md` (npm type yazl, `spawn zip` et tar/tar.gz écartés, ce dernier parce que le format zip est imposé par le portail).
-- **Deflate niveau 6** via `node:zlib` plutôt que `stored` : mesuré ≈ 36 % de la taille source sur du contenu Teensy réel, ≈ 28 Mio/s bout en bout. L'usage étant le dépôt en ligne, compresser fait gagner du temps d'upload.
-- **ZIP64 conditionnel** (central directory + EOCD seulement, jamais les local headers ; saturation par champ) avec **seuils injectables**, ce qui permet d'exercer tout le chemin en CI sans fixture de 4 Go.
-- **Vérification avant publication** : complétude contre le plan (égalité d'ensembles), structure (dont relecture des octets patchés de chaque local header et contiguïté), CRC en mode `spot`. Ordre `sync()` → verify → `close()` → `rename` — `ENOSPC` se manifeste au fsync, pas au write.
-- **3 écrans** (`src/screens/archive/`) sans écran de saisie, progression pilotée par les octets lus en source + ETA byte-weighted réutilisé du flow Découper. Ctrl+C câblé localement pendant le run.
-- **Extractions à leur 2ᵉ usage** : `src/lib/format/{bytes,progress}.ts` (déplacé en `src/format/` par la Phase 9.0), `isVisibleNonTmpEntry` partagé entre le flow Découper et le flow zip, `src/screens/fsErrorMessages.ts` (règle de trois atteinte).
-- **`SessionEvent` v3** (`action: "vigie-archive"`, sans `input`, `result` discriminé sur `status`) + frontière eslint pour le 3ᵉ flow d'écrans.
-
-### Critère de sortie
-
-- [x] `pnpm check` vert.
-- [x] Archives validées par trois extracteurs indépendants (`unzip -t`, `python3 -m zipfile -t`, `bsdtar -tf`) — échec dur si un outil manque en CI.
-- [x] Chemin ZIP64 couvert de bout en bout en CI via des seuils injectés.
-- [x] Non-destructivité : `processed/` intact après succès, abort et échec ; aucun zip partiel dans `archived/` dans les trois cas.
-- [ ] Test manuel : parcours complet dans un dossier réel, zip ouvert avec Archive Utility, dépôt accepté par Vigie-Chiro comme un zip manuel.
-- [ ] Test manuel : run sur un dossier > 4 Gio (confirmation du chemin ZIP64 déjà couvert en CI).
-
-## Phase 9 — Dépôt Vigie-Chiro : série de zips sans ZIP64 ✓
-
-**Objectif** : le zip unique de la Phase 8 est **indéposable**. Sur des volumes réels (10–20 Go) il est en ZIP64, et le portail Vigie-Chiro refuse le ZIP64 (confirmé par l'utilisatrice ; aucune limite de taille imposée par ailleurs) — donc le dépôt, finalité de l'outil, était bloqué. Phase 9 ajoute une **série** de zips de 3,5 Go, chacun prouvé sans ZIP64. Le gros zip reste, comme objet unique de sauvegarde (cas d'usage précis : « dans trois ans, un client redemande les données de son étude »). Détails complets dans `docs/architecture.md` § « Série de volumes ».
-
-Décisions produit : volumes de **3,5 Go réels** · **deux entrées de menu** (pas de sélecteur) · **les deux sorties coexistent** · **incitation à sauvegarder** en fin de dépôt · **tout ou rien** sur la série.
-
-### Tâches (réalisées en 9.0 / 9.A / 9.B / 9.C / 9.D)
-
-- **9.0 — Facteur commun** : `src/lib/format/` → **`src/format/`** (+ sa règle eslint), extraction de `components/ProgressPanel.tsx` (cadre commun des trois `RunningView`) et de `src/lib/progress/renderThrottle.ts`. Aucun changement fonctionnel : les tests du flow découpage passent sans modification d'assertion. Le déplacement, plutôt qu'une exception à la règle `components/ ∌ lib/`, est ce qui garde la frontière binaire.
-- **9.A — Fondations lib** : borne de compression **inconditionnelle** (`deflateBound.ts`), `maxBytes`/`volume-full` dans `createZipArchive`, garde-fou `zip64: "allow" | "forbid"` (3 points), clamp dur de `CHIRO_MAX_VOLUME_BYTES`, `extractCommonPrefix`, nommage daté **au jour** (y compris bascule du flow sauvegarde, `YYYYMMDDHHMM` → `YYYYMMDD`), `noZip64.test.ts` (« la preuve », détection structurelle) + contre-témoin par trois extracteurs réels.
-- **9.B — Orchestration** : `createZipVolumes` (bascule dynamique sur la taille réelle, staging caché, commit par un `rename` unique avec collision en boucle, nommage `partN` attribué au commit, ré-offset de progression en coordonnées globales, complétude de série), `cleanOrphanStagingDirs` (liveness PID + garde d'âge 24 h, suppression fichier par fichier), `SessionEvent` v4, `buildPackageSessionEvent`.
-- **9.C — UI** : menu à 6 entrées, routage `package:*` dans `app.tsx`, injection du triplet comportemental dans `useArchiveRun` (le hook ne connaît plus le mode), état `cleaning`, `UploadResultScreen`, réessai limité aux codes transitoires, corrections du wording du flow sauvegarde.
-- **9.D — Docs** : `CLAUDE.md` (deux flux, ZIP64 nominal **pour la sauvegarde uniquement**, 4 nouveaux pièges), `architecture.md` (§ « Série de volumes », ADR staging, invariant de non-destructivité reformulé, `fsync` fait), `spec.md` (wizard dépôt, schéma v4, codes), `ux.md` (menu, nouveau flow, colonne transitoire/définitif, règles de vocabulaire), `roadmap.md`.
-
-### Critère de sortie
-
-- [x] `pnpm check` vert, 833 tests.
-- [x] Absence de ZIP64 prouvée structurellement sur chaque volume + contre-témoin `unzip` / `python3 -m zipfile` / `bsdtar` (`extract_version == 20` partout).
-- [x] Câblage `zip64: "forbid"` testé (et pas seulement le garde) : seuils injectés → `zip64-required` **et** `upload/` vide.
-- [x] Atomicité : abort, erreur, complétude en échec → `upload/` vide, `processed/` intact.
-- [x] `fsync` de répertoire dans les deux flux, remonté en `durable` (dette Phase 8 soldée).
-- [x] Test manuel en terminal réel : série multi-volumes, cas N = 1, Ctrl+C en cours de série, staging orphelin nettoyé, collision de dossier.
-- [ ] Test manuel sur le **binaire compilé**, sur un vrai `processed/` > 4 Gio sans override : trois extracteurs OK sur chaque volume, aucune mention « Zip64 » dans `unzip -v`, double-clic Archive Utility, une ligne `schema_version: 4` dans `~/.chiro/sessions.jsonl`.
-- [ ] **Recette finale** : dépôt effectif d'une série complète sur le portail Vigie-Chiro. C'est le seul critère qui compte.
-
-### Écarté de la V1, à reconsidérer
-
-- **Un `A-LIRE.txt` dans le dossier de série** (liste des fichiers + cases à cocher) : proposé en review UX comme le meilleur rapport valeur/coût des ajouts possibles — l'écran de résultat disparaît alors qu'elle a plusieurs heures de dépôt devant elle. Écarté comme pièce mobile supplémentaire ; à re-poser après le premier dépôt réel.
-- **`--self-test` n'est pas étendu** au zip ni à la série : ni asset bundlé ni worker, donc aucun piège de `bun --compile` à couvrir. Écrit ici pour qu'un futur reviewer ne re-litige pas.
-
-## Phase 10 — Archiver la sauvegarde en ligne ✓
-
-**Objectif** : l'archivage long terme du zip de sauvegarde (§ Phase 8) était **manuel** — le fichier reste sur le disque externe qui contient déjà les originaux, sans copie hors site pour le cas d'usage qui le justifie (« dans trois ans, un client redemande les données de son étude »). Phase 10 envoie ce zip vers un bucket Scaleway en classe `GLACIER` via `rclone`, avec vérification de ce qui est arrivé et de ce qui l'est déjà. Statut : **capacité optionnelle** (cf. `architecture.md` § « Les trois statuts possibles d'un binaire externe ») — absente, l'utilisatrice ne perd rien de ce dont elle a besoin. Détails complets dans `architecture.md` § « Module `lib/offsite` ».
-
-Décisions produit : objet envoyé = **le gros zip du flow sauvegarde uniquement**, jamais la série de dépôt · **détection « déjà en ligne » par HEAD distant systématique**, jamais par relecture du journal · **deux points d'entrée** (menu + touche `A` en fin de sauvegarde) vers le même constat · même nom, taille différente → **remplacement** de l'objet distant, exception documentée à l'ADR · réessais automatiques bornés, calibrés pour un run lancé le soir et laissé tourner toute la nuit.
-
-### Tâches (réalisées en 10.0 / 10.A1 / 10.A2 / 10.B1 / 10.B2 / 10.C)
-
-- **10.0 — Mesure, avant toute ligne de `src/`** : contre le vrai bucket Scaleway, rclone v1.75.0, le 17/08/2026 — classe `GLACIER` acceptée directement à l'écriture, comportement de `lsjson --stat` sur un objet absent (le piège `IsDir`, code de sortie 0), absence de reprise multipart, tarification et cycle de vie, capture de vraies traces `--use-json-log --stats` (nominale, avec retry forcé, courte) committées dans `test-data/rclone-stats/`. Deux affirmations du plan initial invalidées par la mesure et corrigées avant l'implémentation (contrat de progression `totalBytes`/`eta`, délai de restauration).
-- **10.A1 — Pur, aucun spawn** : `settings.ts`, `pickArchiveToUpload.ts`, `parseRcloneStats.ts`, `buildRcloneCommand.ts`, `buildOffsiteSessionEvent.ts`, `estimatedDuration.ts`, `types.ts` v6.
-- **10.A2 — Tout ce qui spawne** : `detectRclone`, `remoteStat`, `powerState`, `uploadArchive` (SIGINT + escalade, vérification post-transfert). Harnais de faux rclone en scripts shell + rejeu des fixtures réelles à des tailles de chunk adverses.
-- **10.B1 — Écrans sans transfert** : `ConstatScreen` (tous les états), `ConfirmScreen`, entrée de menu conditionnelle sondée synchrone dans `index.tsx` (pas de course avec un `useEffect` tardif), deux routes vers le même constat, touche `A` sur `archive/ResultScreen.tsx`, 4 blocs eslint générés.
-- **10.B2 — Le run** : `RunScreen`, `RunningView`, `ResultScreen`, `useOffsiteRun`, `useOffsiteProgressState`, `errorMessages.ts`, prop `noticeLine` sur `ProgressPanel`.
-- **10.C — Docs** : `README.md` (installer rclone, configurer le remote Scaleway, `settings.json`, règle de cycle de vie, récupération), `ux.md` (menu à 7 entrées, écrans `O-*`, table des codes, règles de vocabulaire 4-8), `spec.md` (wizard, schéma v6), `architecture.md` (§ `lib/offsite`, exception à l'ADR, `verify-absent` vs `unavailable`, ce qui reste manuel), `roadmap.md`, `CLAUDE.md`.
-
-### Critère de sortie
-
-- [x] `pnpm check` vert, 1053 tests.
-- [x] Le piège `IsDir` de `lsjson --stat` documenté et testé (`remoteStat.test.ts`) — le discriminant est `IsDir`, jamais le seul code de sortie.
-- [x] Contrat de progression basé sur la taille locale, jamais `totalBytes`/`eta` de rclone (mesurés faux sur trace réelle) — rejoué contre les fixtures de `test-data/rclone-stats/` à plusieurs tailles de chunk.
-- [x] Escalade SIGINT → SIGINT (resend) → SIGKILL testée contre de faux binaires rclone (ignore SIGINT, piège SIGINT et sort 0, sort 130, sort 5/7…).
-- [x] Vérifié à la main le 17/08/2026, contre le vrai bucket : classe `GLACIER` atterrit bien en `GLACIER` (`Tier` relu) ; comportement de `lsjson --stat` sur un objet Glacier conforme à la table mesurée ; un Ctrl+C en plein transfert fait bien abandonner les multiparts (`rclone backend list-multipart-uploads` vide après coup).
-- [x] Entrée de menu et touche `A` invisibles en silence total sans `rclone`/`settings.json` — pas de message, pas de branche qui plante.
-- [ ] Test manuel du parcours complet sur le **binaire compilé** : plusieurs zips dans `archived/` (le plus récent, annoncé), taille différente (écran `⚠`, remplacement effectif), wifi coupé (ligne `⚠ connexion ralentie` puis écran d'erreur avec réessai), `settings.json` retiré en cours de route (entrée disparaît).
-- [ ] **La mesure de débit chez l'utilisatrice finale** — non bloquante depuis la décision « lancer le soir, laisser tourner la nuit » (elle ne calibre plus que le « comptez environ… » de la confirmation), mais toujours ouverte.
-- [ ] **Recette finale** : un premier archivage réel d'un zip de 10-20 Go, relu en classe `GLACIER` (`-M`), avec une ligne `schema_version: 6` dans `~/.chiro/sessions.jsonl`. C'est le seul critère qui compte.
-
-## V2 (post-MVP, hors scope)
-
-Idées priorisées par valeur utilisateur :
-
-1. **Pré-remplissage de la dernière session** (`~/.config/chiro/last-session.json`). Énorme gain UX pour utilisation nuit après nuit. Estimation : 2 h.
-2. **Annuler la dernière opération** (journal `.chiro-undo.json` posé dans le dossier au moment du rename). Rassurance maximale. Estimation : 4 h.
-3. **Lecture des métadonnées WAV** (date d'enregistrement, GPS si SM4+) pour auto-suggérer l'année et alerter en cas d'incohérence. Estimation : 1 j.
-4. **Mode batch CLI** pour utilisateurs avancés : `chiro vigie --carre 040962 --pass 3 --point A1`. Estimation : 0.5 j.
-5. **Brew tap perso** (`homebrew-chiro`) — formula pointant sur les GH Releases existantes. Estimation : 1 h.
-6. **Linux arm64**, **macOS Intel x64**. Estimation : 1 h (juste 2 targets de build à ajouter).
-7. **Internationalisation** (EN) si l'usage déborde le réseau Vigie-Chiro français.
-
-### Follow-ups Phases 8-9 (zip) — différés
-
-14. **Suppression de `processed/` après zip vérifié** — le vrai gain d'espace disque pour l'utilisatrice. Il reste **trois** préconditions, non négociables : (1) `verifyZipArchive` en **`crcMode: "full"`** — le mode existe, mais l'activer suppose aussi de lui **propager un `AbortSignal` et d'émettre une progression** : en `full` sur 10–20 Go la vérification dure plusieurs minutes pendant lesquelles la TUI serait figée et Ctrl+C inopérant ; ~~(2) **`fsync` du répertoire `archived/`** après le rename~~ — **soldée en Phase 9** (§ « `fsync` de répertoire », mesurée à 0,12 ms, faite dans les deux flux et remontée en `durable` ; le flux destructif devra exiger `durable === true`) ; (3) écran de confirmation explicite, distinct du flow non-destructif actuel — la réassurance « rien n'est supprimé » disparaît, tout le wording est à revoir ; (4) **re-scanner `processed/` juste avant la suppression** et ne supprimer que l'intersection avec ce qui a été archivé : `opts.entries` vient du scan de l'écran Constat, potentiellement plusieurs minutes plus tôt, et un fichier apparu depuis n'est pas dans le zip ; (5) `createZipArchive` doit **retourner la liste nominative** des entrées archivées et non un simple compteur, sans quoi (4) n'est pas implémentable. **La Phase 10 ne facilite rien de tout ça, et ne doit pas être invoquée pour l'assouplir** : la tentation « le CRC intégral local est moins critique, on a désormais une copie en ligne » est fausse — la copie en ligne n'a jamais été vérifiée autrement que par sa **taille** (`verified: "size-match" | "unavailable"`, jamais un CRC), donc elle ne prouve rien de plus que le zip local qu'elle duplique. Estimation : 1,25 j.
-
-### Follow-ups Phase 5 (split / TE) — différés
-
-8. **Option « split-channels » pour détecteurs stéréo** (SM2BAT+, SM4BAT) — alignée sur la case « Split channels » de Kaleidoscope. Aujourd'hui les canaux restent groupés ; un user avec stéréo devrait choisir explicitement de séparer (ou pas). Estimation : 2 h (passe `slices.map` en `slices.forEach` + boucle par canal).
-9. **Streaming pour fichiers > 500 MB** : `wavefile` charge tout en RAM. Pour passer les très gros fichiers, écrire un parseur RIFF streaming (~150 lignes). Estimation : 1 j.
-10. **Durée de découpe paramétrable** (UI) : aujourd'hui 50 s output / 5 s réel, figé. Devrait être un champ optionnel du FormScreen pour les protocoles autres que Point Fixe (5 s pour Routier, par ex.). Estimation : 1 h.
-11. **Modes TE additionnels** : actuellement `preserve` (Teensy) et `expand-10x` (Autre). Si un détecteur émerge avec TE ×8 ou ×20, ajouter au type `TimeExpansionMode` + un sélecteur plus riche. Estimation : 30 min par mode.
-12. **Mode batch automatique** : détection auto Teensy vs AudioMoth via header `fmt.sampleRate` (38 400 → preserve, > 100 000 → expand-10x). Évite l'étape Form, à risque modéré. Estimation : 2 h.
-13. **Conservation du chunk `LIST/INFO`** (metadata AudioMoth « Recorded at … by AudioMoth … ») — aujourd'hui droppé par `wavefile.fromScratch`, cohérent avec Kaleidoscope. Si Tadarida en a besoin, écrire un patcheur post-encode qui réinjecte le LIST. Estimation : 4 h.
-
-## Définition de "Terminé"
+## 5. Définition de « Terminé »
 
 Le MVP est livrable quand :
 
-- Phases 0 à 4 ont leurs critères de sortie cochés.
-- Le `README.md` racine permet à un naturaliste non-tech d'installer et d'utiliser l'outil sans intermédiaire technique.
-- Le critère de succès du `vision.md` est tenu : **conjointe seule, < 2 min, sans peur**.
+- le `README.md` permet à un naturaliste non-tech d'installer et d'utiliser l'outil sans intermédiaire technique ;
+- le critère de succès de [`vision.md`](./vision.md) est tenu : **conjointe seule, < 2 min, sans peur**.
+
+⚠️ Ce critère de succès ne décrit plus que le flux de préfixage, alors que l'outil en a cinq. Il devra être réécrit quand la Phase 11 aura fixé le périmètre final — pas avant, pour ne pas viser une cible mouvante.

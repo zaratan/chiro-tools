@@ -22,7 +22,7 @@ export type ProcessInput = {
  * Metadata configuration for chunk output. When `enabled`, every chunk gets
  * `wamd` and `guan` (GUANO) RIFF chunks appended after the audio data — this
  * matches Kaleidoscope's behaviour and is required for downstream tools like
- * Chirosuf to interpret the time-expansion factor.
+ * ChiroSurf to interpret the time-expansion factor.
  *
  * The kill switch is controlled by the `CHIRO_DISABLE_METADATA=1` environment
  * variable. The version string flows into `WA|chiro|Version` (GUANO) and

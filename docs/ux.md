@@ -1582,7 +1582,7 @@ Votre sauvegarde est toujours dans ./archived/.
 
 **Cet écran porte l'heure de fin ET la durée** (« Terminé à 2 h 47, après 1 h 12 ») — écart assumé avec les quatre autres écrans de résultat, qui n'affichent qu'une durée. Découvert au réveil, l'heure situe (« ça s'est terminé pendant la nuit ») ; la durée reste la seule information utile sur un run court, en pleine journée. Les deux cohabitent, sans branche conditionnelle.
 
-**Jamais de suggestion de supprimer la copie locale** : ce serait contourner sans code l'interdit que la Phase 9 et l'item 14 de `roadmap.md` posent explicitement.
+**Jamais de suggestion de supprimer la copie locale** : ce serait contourner sans code l'interdit que la Phase 9 et l'item « Suppression de `processed/` après zip vérifié » de `roadmap.md` posent explicitement.
 
 ### O-Résultat (succès, non vérifié)
 

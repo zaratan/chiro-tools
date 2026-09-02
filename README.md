@@ -1,8 +1,37 @@
 # chiro-tools
 
-CLI interactive pour préparer des enregistrements `.wav` au format **Vigie-Chiro** (programme français de sciences participatives sur les chauves-souris).
+`chiro` prépare vos enregistrements `.wav` de chauves-souris pour **Vigie-Chiro**, le programme de sciences participatives du Muséum national d'Histoire naturelle.
 
-L'outil ouvre une interface dans le terminal et guide l'utilisatrice à travers les étapes pour préfixer ses fichiers selon le format attendu par Vigie-Chiro, sans rien casser.
+Vous rentrez du terrain avec une carte SD pleine. `chiro` s'occupe de tout ce qui sépare ces fichiers du dépôt sur le portail : les renommer, les découper au format attendu, préparer les fichiers zip à déposer, et garder une copie de sauvegarde.
+
+C'est une application qui s'utilise dans le Terminal, mais **il n'y a rien à taper d'autre que `chiro`** : tout se fait ensuite au clavier, dans un menu.
+
+## Ce que fait chiro
+
+Les cinq entrées du menu, dans leur ordre d'utilisation :
+
+| Entrée du menu                                    | Ce que ça fait                                                                                              | En détail                                 |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| **Préfixer des enregistrements pour Vigie-Chiro** | Renomme vos `.wav` au format attendu, en gardant le nom d'origine                                           | [doc](docs/features/prefixer.md)          |
+| **Découper les enregistrements (pour Tadarida)**  | Découpe en fichiers de 5 s réelles avec les métadonnées attendues — remplace Kaleidoscope                   | [doc](docs/features/decouper.md)          |
+| **Créer les zips à déposer sur Vigie-Chiro**      | Prépare une série de fichiers acceptés par le portail                                                       | [doc](docs/features/deposer.md)           |
+| **Sauvegarder les enregistrements découpés**      | Réunit tout dans un fichier zip unique, pour le conserver                                                   | [doc](docs/features/sauvegarder.md)       |
+| **Archiver la sauvegarde en ligne**               | Envoie cette sauvegarde sur un stockage en ligne — optionnel, absent du menu tant qu'il n'est pas configuré | [doc](docs/features/archiver-en-ligne.md) |
+
+Chaque doc dit aussi ce que la fonction **ne fait pas** et ce qui n'a pas été vérifié. C'est volontaire : vos enregistrements ne sont pas remplaçables, vous devez savoir sur quoi vous comptez.
+
+Sur une session type, on enchaîne les trois premières, puis on sauvegarde une fois le dépôt terminé.
+
+### Concrètement
+
+```
+PaRec12_20250919_200134.wav
+→ Car340581-2026-Pass1-A1-PaRec12_20250919_200134.wav       (préfixer)
+→ processed/Car340581-2026-Pass1-A1-PaRec12_..._000.wav      (découper)
+→ upload/Car340581-2026-Pass1-A1_20260902/..._part1.zip       (déposer)
+```
+
+**Rien n'est jamais supprimé.** Le découpage, les fichiers zip et la sauvegarde écrivent tous à côté de vos fichiers, sans y toucher.
 
 ## Installation
 
@@ -10,15 +39,11 @@ L'outil ouvre une interface dans le terminal et guide l'utilisatrice à travers 
 curl -fL https://raw.githubusercontent.com/zaratan/chiro-tools/main/scripts/install.sh | bash
 ```
 
-Cette commande télécharge le binaire adapté à votre système (macOS Apple Silicon ou Linux x86_64) et l'installe dans `~/.local/bin/chiro`. Si ce dossier n'est pas déjà dans votre `PATH`, le script affiche la ligne à ajouter dans `~/.zshrc` ou `~/.bashrc`.
+La commande télécharge le programme adapté à votre ordinateur et l'installe dans `~/.local/bin/chiro`. Si ce dossier n'est pas déjà connu de votre Terminal, le script affiche la ligne à ajouter dans `~/.zshrc` ou `~/.bashrc`.
 
-Lancez ensuite `chiro` dans n'importe quel dossier contenant des enregistrements `.wav`.
+**Ordinateurs supportés** : macOS Apple Silicon (M1 et suivants), Linux 64 bits.
 
-**Plateformes supportées** : macOS arm64 (Apple Silicon), Linux x64.
-
-### Alternative (lire le script avant exécution)
-
-Si vous préférez auditer le script avant de l'exécuter :
+Si vous préférez lire le script avant de l'exécuter :
 
 ```bash
 curl -fL https://raw.githubusercontent.com/zaratan/chiro-tools/main/scripts/install.sh -o install.sh
@@ -26,110 +51,47 @@ less install.sh
 bash install.sh
 ```
 
-### Pinner une version
+Pour installer une version précise :
 
 ```bash
 CHIRO_VERSION=v0.1.0 bash <(curl -fL https://raw.githubusercontent.com/zaratan/chiro-tools/main/scripts/install.sh)
 ```
 
-## Pour aller plus vite (optionnel)
+## Utilisation
 
-Le découpage peut prendre du temps sur une grosse session (par ex. une nuit complète d'AudioMoth). Pour accélérer fortement cette étape, vous pouvez installer **sox** :
+Placez-vous dans le dossier qui contient les enregistrements d'une nuit, puis lancez `chiro` :
+
+```bash
+cd /chemin/vers/ma-nuit
+chiro
+```
+
+Le menu s'ouvre. Déplacez-vous avec ↑ ↓, validez avec `Entrée`, quittez avec `Échap`.
+
+`chiro` travaille toujours dans le dossier depuis lequel vous l'avez lancé, et vous affiche ce chemin à chaque écran. Il vous montre ce qu'il va faire **avant** de le faire, et attend `Entrée`.
+
+**Un dossier = une nuit sur un point d'écoute.** C'est l'organisation prévue ; `chiro` ne descend jamais dans les sous-dossiers.
+
+## Aller plus vite (optionnel)
+
+Le découpage peut être long sur une grosse session. L'outil **sox** l'accélère nettement :
 
 - macOS : `brew install sox`
 - Linux : `sudo apt install sox`
 
-Chiro-tools le détecte automatiquement au lancement suivant.
+`chiro` le détecte tout seul au lancement suivant. Sans lui, le découpage fonctionne quand même, c'est juste plus long. Détails et chiffres dans la [doc du découpage](docs/features/decouper.md#vitesse).
 
-Ordre de grandeur : une session qui prend 3 heures sans sox prend environ 10 minutes avec.
+## Mises à jour
 
-Ce n'est pas obligatoire — sans sox, le découpage fonctionne quand même, c'est juste plus long.
+`chiro` vous signale discrètement quand une nouvelle version existe. L'entrée « Vérifier les mises à jour » du menu s'occupe de l'installation.
 
-## Archiver une sauvegarde en ligne (optionnel)
+## En cas de souci
 
-chiro sait envoyer votre fichier de sauvegarde (`archived/*.zip`, produit par « Sauvegarder les enregistrements découpés ») vers un stockage en ligne bon marché, Scaleway Glacier. C'est utile le jour où le disque qui contient vos fichiers tombe en panne. Fonction **optionnelle** : sans elle, chiro marche exactement pareil.
+Chaque session laisse une trace dans `~/.chiro/sessions.jsonl`. C'est le fichier à joindre si vous demandez de l'aide, avec le message d'erreur affiché en bas de l'écran.
 
-Quatre étapes à faire une seule fois, sur l'ordinateur qui fait tourner chiro :
+Les [docs par fonction](docs/features/) listent les limites connues et ce qu'il faut faire quand ça se passe mal.
 
-**1. Installer rclone** (l'outil qui transporte le fichier) :
+## Aller plus loin
 
-- macOS : `brew install rclone`
-- Linux : `sudo apt install rclone`
-
-**2. Configurer le compte Scaleway** :
-
-```bash
-rclone config
-```
-
-Choisissez un nouveau remote, type de stockage **Scaleway**, puis collez la clé d'accès et la clé secrète. Elles se génèrent dans la console Scaleway, section **Identifiants API** (« IAM » → « Clés API »). Retenez le **nom du remote** que vous donnez à cette étape, il sert au réglage suivant.
-
-**3. Créer `~/.chiro/settings.json`** avec le remote, le bucket Scaleway et le préfixe où ranger les fichiers :
-
-```json
-{
-  "coffre": {
-    "remote": "chiro-coffre",
-    "bucket": "mon-bucket-scaleway",
-    "prefix": "vigie-chiro"
-  }
-}
-```
-
-`remote` est le nom donné à l'étape 2 (jamais `remote:bucket`, juste le nom). chiro ne lit jamais vos identifiants, ils restent dans la configuration de rclone (`~/.config/rclone/rclone.conf`).
-
-**4. Poser la règle de cycle de vie sur le bucket**, dans la console Scaleway (Object Storage → votre bucket → Règles de cycle de vie) : **« Abandonner les transferts multiparts incomplets »** (`AbortIncompleteMultipartUpload`) après **7 jours**. Sans cette règle, un envoi coupé par une panne de courant ou de réseau laisse des fragments **facturés** dans le bucket que rien ne vient jamais nettoyer. Ni chiro, ni vous.
-
-Une fois ces réglages en place **et** rclone détecté, l'entrée « Archiver la sauvegarde en ligne » apparaît dans le menu de chiro. Tant que l'un des deux manque, elle reste invisible. C'est voulu : chiro ne signale jamais une fonction à moitié configurée.
-
-## Récupérer une archive
-
-Une fois en ligne, un fichier passe en classe **Glacier** : il n'est plus consultable directement, il faut d'abord demander sa **restauration**, qui prend **24 à 48 heures**, puis le rapatrier. chiro ne le propose pas depuis son interface : c'est un geste technique, à faire une fois tous les quelques années, par la personne qui a installé chiro.
-
-```bash
-# 1. Demander la restauration (remote / bucket / prefixe = ceux de ~/.chiro/settings.json)
-rclone backend restore <remote>:<bucket>/<prefix>/<nom-du-zip> -o lifetime=7
-
-# 2. Vérifier l'état (à refaire 24 à 48 heures plus tard)
-rclone backend restore-status <remote>:<bucket>/<prefix>/<nom-du-zip>
-
-# 3. Une fois restauré, rapatrier le fichier
-rclone copy <remote>:<bucket>/<prefix>/<nom-du-zip> .
-```
-
-Coût : environ 0,009 €/Go restauré (une sauvegarde de 15 Go coûte environ 0,14 € à récupérer). `lifetime=7` garde le fichier consultable 7 jours avant qu'il ne reparte automatiquement en Glacier.
-
-## Documentation
-
-La spec complète du projet est dans [`docs/`](./docs/) :
-
-- [`docs/README.md`](./docs/README.md) — index et ordre de lecture
-- [`docs/vision.md`](./docs/vision.md) — utilisatrice cible, contexte
-- [`docs/spec.md`](./docs/spec.md) — spec fonctionnelle
-- [`docs/ux.md`](./docs/ux.md) — wordings et conventions visuelles
-- [`docs/architecture.md`](./docs/architecture.md) — stack et build
-- [`docs/roadmap.md`](./docs/roadmap.md) — phases d'implémentation
-
-## Développement
-
-```bash
-pnpm install          # installer les dépendances
-pnpm dev              # lancer la TUI en mode dev
-pnpm dev:watch        # lancer la TUI avec hot-reload (relance auto à chaque save)
-pnpm test             # lancer les tests vitest
-pnpm check            # lint + typecheck + format:check + test (à passer avant chaque commit)
-pnpm build:darwin-arm64   # produire le binaire macOS arm64
-pnpm build:linux-x64      # produire le binaire Linux x64 (cross-compile depuis macOS)
-pnpm build                # produit les 2 binaires
-```
-
-### Release
-
-Pousser un tag matchant `vX.Y.Z` ou `vX.Y.Z-suffix` déclenche le workflow GitHub Actions (`.github/workflows/release.yml`) qui builde les 2 binaires sur runners natifs (`macos-latest` + `ubuntu-latest`) et publie une GitHub Release avec les assets.
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-L'utilisatrice cible ne touche jamais aux tags — elle utilise simplement la commande `curl ... | bash` ci-dessus.
+- [`docs/`](docs/) — la conception du projet : vision, spec fonctionnelle, wordings, architecture, roadmap
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — développer, tester, publier une version

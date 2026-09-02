@@ -2,7 +2,7 @@
 
 ## Tagline
 
-> `chiro` outille **toute la préparation des enregistrements** entre la sortie d'enregistreur (Teensy/PaRec ou AudioMoth/full-spectrum) et l'upload sur **Vigie-Chiro** — pas seulement le renommage.
+> `chiro` outille **tout ce qui sépare une carte SD du dépôt sur Vigie-Chiro** — renommer, découper, préparer les fichiers à déposer, sauvegarder — pas seulement le renommage.
 
 ## Le besoin concret
 
@@ -46,7 +46,7 @@ Aujourd'hui, ces deux étapes se font à la main et avec plusieurs outils, parfo
 
 - Pas un outil pour développeurs (pas de flags exotiques, pas de pipe-friendly, pas de mode batch CLI au MVP).
 - Pas un éditeur de métadonnées WAV (V2 peut-être). Le découpage écrit des nouveaux fichiers WAV mais n'altère JAMAIS le contenu audio (lossless — seul le header `fmt.sampleRate` change en mode TE×10).
-- Pas un uploader Vigie-Chiro (l'upload reste manuel sur le site).
+- ~~Pas un uploader Vigie-Chiro~~ — **position abandonnée.** `chiro` prépare aujourd'hui les fichiers zip et le dépôt reste manuel sur le portail, mais la douleur est réelle (plusieurs heures d'attention par session) et la faisabilité du dépôt direct via l'API est démontrée. C'est devenu le prochain chantier, cf. [`roadmap.md`](./roadmap.md) § Phase 11. Ce que `chiro` ne fera toujours pas : gérer les sites, les participations passées ou les identifications — seulement déposer ce qu'il vient de préparer.
 - Pas un outil d'**analyse** acoustique (spectrogramme, classification, ID auto). On prépare les fichiers pour Tadarida/Kaleidoscope — ces outils-là font l'analyse.
 - **Pipeline `Teensy`/`AudioMoth` → upload Vigie-Chiro**. Out of scope : visualisation, classification, anything Tadarida does.
 

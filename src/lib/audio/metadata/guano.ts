@@ -49,7 +49,7 @@ const formatTimezoneOffset = (date: Date): string => {
  * purpose. chiro wrote a space in both until this was caught.
  *
  * The earlier space form did reach the portal successfully, but by
- * tolerance rather than conformance: every downstream tool (Chirosuf,
+ * tolerance rather than conformance: every downstream tool (ChiroSurf,
  * Tadarida) is built against Kaleidoscope output, so `T` is the form they
  * are guaranteed to parse.
  */

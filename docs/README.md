@@ -4,19 +4,23 @@ CLI `chiro` pour préparer des enregistrements `.wav` au format **Vigie-Chiro** 
 
 ## État actuel
 
-**Pré-implémentation.** Ce dossier `docs/` contient la spec figée du MVP. Aucun code n'a encore été écrit. Les phases d'implémentation sont décrites dans [`roadmap.md`](./roadmap.md).
+**En production.** Cinq flux livrés (préfixer, découper, déposer, sauvegarder, archiver en ligne), utilisés sur de vraies sessions de terrain. Ce dossier contient la conception du projet ; ce qui vient ensuite est dans [`roadmap.md`](./roadmap.md).
 
-## Public visé par cette documentation
+## Deux publics, deux endroits
 
-Cette doc est destinée à servir de **source de vérité unique** pour les sessions d'implémentation futures (humain ou Claude). Elle doit permettre d'attaquer la **Phase 0 (Outillage)** sans avoir à poser de question.
+Cette documentation-ci sert de **source de vérité unique pour la conception** — pour les sessions de développement futures, humaines ou assistées.
+
+Elle ne s'adresse pas à l'utilisatrice de l'outil : pour ça, il y a le [`README.md`](../README.md) racine et [`features/`](./features/), une page par fonction, qui disent aussi ce que chaque fonction ne fait pas.
 
 ## Ordre de lecture recommandé
 
 1. **[`vision.md`](./vision.md)** — Qui utilise l'outil, pourquoi, et les principes de design qui en découlent. À lire en premier pour internaliser la cible (utilisatrice non-tech).
-2. **[`spec.md`](./spec.md)** — Spec fonctionnelle : format du préfixe, 4 écrans du wizard, règles métier, cas dégradés. C'est le contrat.
-3. **[`ux.md`](./ux.md)** — Wordings français prêts à coller, conventions visuelles Ink, navigation clavier. Ne pas réinventer les libellés.
-4. **[`architecture.md`](./architecture.md)** — Stack, structure du code, build, distribution macOS+Linux, signature, logging.
-5. **[`roadmap.md`](./roadmap.md)** — Phases 0 → 4 + V2. Critères de sortie de chaque phase.
+2. **[`spec.md`](./spec.md)** — Spec fonctionnelle : format du préfixe, écrans des wizards, règles métier, cas dégradés. C'est le contrat.
+3. **[`ux.md`](./ux.md)** — Wordings français prêts à coller, conventions visuelles Ink, navigation clavier, règles de vocabulaire figées. Ne pas réinventer les libellés.
+4. **[`architecture.md`](./architecture.md)** — Stack, structure du code, décisions d'architecture, build, distribution, logging.
+5. **[`roadmap.md`](./roadmap.md)** — Où on en est, le prochain chantier, le backlog, et ce qui a été écarté.
+
+Deux documents complètent cet ensemble hors de `docs/` : [`CLAUDE.md`](../CLAUDE.md) (les règles dures et les pièges déjà payés) et [`CONTRIBUTING.md`](../CONTRIBUTING.md) (comment développer et publier).
 
 ## Glossaire
 
