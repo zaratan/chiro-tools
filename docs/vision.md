@@ -26,7 +26,7 @@ Aujourd'hui, ces deux étapes se font à la main et avec plusieurs outils, parfo
 **Implications de conception** :
 
 - Pas de jargon. On parle de **dossier**, de **fichier**, d'**année**, pas de cwd, fs, regex.
-- Le bon dossier = celui dans lequel elle tape `chiro`. Pas d'argument à apprendre.
+- Le bon dossier = celui dans lequel elle tape `chiro`. Pas d'argument à apprendre. _(Principe réexaminé en Phase 11 : suivre douze dossiers d'une campagne suppose de regarder un niveau au-dessus. Cf. [`roadmap.md`](./roadmap.md).)_
 - Les libellés sont en **français**, **bienveillants**, **avec un exemple concret** chaque fois que c'est possible.
 - Les erreurs ne culpabilisent jamais. Elles expliquent ce qu'il s'est passé et proposent une action.
 - L'utilisatrice doit pouvoir **lire** ce qui va se passer **avant** que ça se passe (écran de confirmation explicite avec preview des renommages).
@@ -40,13 +40,13 @@ Aujourd'hui, ces deux étapes se font à la main et avec plusieurs outils, parfo
 3. **Réversibilité psychologique** : même si on n'a pas d'undo (V2), le format de préfixe **conserve le nom original** en suffixe. Rien n'est "perdu".
 4. **Préférer la lenteur à la confusion** : un écran de confirmation supplémentaire vaut mieux qu'un renommage trop rapide qu'on regrette.
 5. **Tolérance aux interruptions** : Ctrl+C en plein renommage doit laisser un état cohérent et l'annoncer clairement.
-6. **Trace** : chaque session est journalisée dans `~/.chiro/last-run.log`. Quand la conjointe rapporte un bug à son conjoint dév, on a quelque chose à lire.
+6. **Trace** : chaque session est journalisée dans `~/.chiro/sessions.jsonl`. Quand la conjointe rapporte un bug à son conjoint dév, on a quelque chose à lire.
 
 ## Ce que `chiro` n'est PAS
 
 - Pas un outil pour développeurs (pas de flags exotiques, pas de pipe-friendly, pas de mode batch CLI au MVP).
 - Pas un éditeur de métadonnées WAV (V2 peut-être). Le découpage écrit des nouveaux fichiers WAV mais n'altère JAMAIS le contenu audio (lossless — seul le header `fmt.sampleRate` change en mode TE×10).
-- ~~Pas un uploader Vigie-Chiro~~ — **position abandonnée.** `chiro` prépare aujourd'hui les fichiers zip et le dépôt reste manuel sur le portail, mais la douleur est réelle (plusieurs heures d'attention par session) et la faisabilité du dépôt direct via l'API est démontrée. C'est devenu le prochain chantier, cf. [`roadmap.md`](./roadmap.md) § Phase 11. Ce que `chiro` ne fera toujours pas : gérer les sites, les participations passées ou les identifications — seulement déposer ce qu'il vient de préparer.
+- ~~Pas un uploader Vigie-Chiro~~ — **position abandonnée.** `chiro` prépare aujourd'hui les fichiers zip et le dépôt reste manuel sur le portail, mais les saisies manuelles qu’il impose sont autant d’occasions de rattacher des enregistrements au mauvais site, et la faisabilité du dépôt direct via l'API est démontrée. C'est devenu la Phase 12, cf. [`roadmap.md`](./roadmap.md) — précédée de la Phase 11, qui pose le suivi sur lequel elle s'appuiera. Ce que `chiro` ne fera toujours pas : gérer les sites, les participations passées ou les identifications — seulement déposer ce qu'il vient de préparer.
 - Pas un outil d'**analyse** acoustique (spectrogramme, classification, ID auto). On prépare les fichiers pour Tadarida/Kaleidoscope — ces outils-là font l'analyse.
 - **Pipeline `Teensy`/`AudioMoth` → upload Vigie-Chiro**. Out of scope : visualisation, classification, anything Tadarida does.
 

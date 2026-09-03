@@ -36,8 +36,10 @@ export const formatDateStamp = (date: Date): string =>
  * Builds the archive file name from a (local-time) date: `{prefix}_
  * YYYYMMDD.zip`, day granularity only — more meaningful for "which study,
  * roughly when" than a minute-stamped name. `prefix` defaults to
- * `"processed"` (the existing backup-zip flow, `useArchiveRun.ts`, never
- * passes one). A same-day collision falls through to `resolveFreeName`'s
+ * `"processed"`, which is what both zip flows fall back to when the batch has
+ * no common Vigie-Chiro prefix — they do pass one otherwise, via
+ * `extractCommonPrefix` (`backupBehavior.ts`, `packageBehavior.ts`). A
+ * same-day collision falls through to `resolveFreeName`'s
  * `-2`..`-99` suffix logic, unchanged. Pure — the caller supplies `date` so
  * the "now" moment is a single decision made once by the orchestrator, not
  * re-read here.

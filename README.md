@@ -70,7 +70,7 @@ Le menu s'ouvre. Déplacez-vous avec ↑ ↓, validez avec `Entrée`, quittez av
 
 `chiro` travaille toujours dans le dossier depuis lequel vous l'avez lancé, et vous affiche ce chemin à chaque écran. Il vous montre ce qu'il va faire **avant** de le faire, et attend `Entrée`.
 
-**Un dossier = une nuit sur un point d'écoute.** C'est l'organisation prévue ; `chiro` ne descend jamais dans les sous-dossiers.
+**Un dossier = un passage** — une pose d’enregistreur sur un point d’écoute, le plus souvent une nuit. C’est l’organisation prévue ; `chiro` ne descend jamais dans les sous-dossiers.
 
 ## Aller plus vite (optionnel)
 

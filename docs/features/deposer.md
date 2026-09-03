@@ -38,7 +38,7 @@ Si l'une de ces vérifications échoue, rien n'est publié.
 
 ## Ce que ça ne fait pas
 
-- **Ça ne dépose pas à votre place.** Il faut ouvrir le portail et déposer les fichiers un par un. Le dépôt automatique via l'API Vigie-Chiro est le prochain grand chantier ([`roadmap.md`](../roadmap.md) § Phase 11).
+- **Ça ne dépose pas à votre place.** Il faut ouvrir le portail et déposer les fichiers un par un. Le dépôt automatique via l'API Vigie-Chiro est le prochain grand chantier ([`roadmap.md`](../roadmap.md) § Phase 12).
 - **Ça ne suit pas votre avancement.** Sur une série de six fichiers, rien ne vous dit lequel vous avez déjà déposé. Un pense-bête déposé à côté des fichiers a été envisagé puis écarté ; à reconsidérer.
 - **Les raccourcis (liens symboliques) dans `processed/` sont ignorés en silence.** Seuls les vrais fichiers sont archivés. C'est une limite assumée : personne ne met de raccourci dans un dossier produit par chiro, mais si vous le faisiez, rien ne vous préviendrait.
 - **Ça ne supprime jamais `processed/`**, même une fois les fichiers zip créés et vérifiés. Le gain de place demande des garanties supplémentaires qui ne sont pas en place (backlog, « Suppression de `processed/` après zip vérifié »).
