@@ -51,3 +51,4 @@ test-data/Audiomoth/Audiomoth full/
 # never a fixture — `test-data/**/processed/` stays tracked, `archived/` never is.
 test-data/**/archived/
 test-data/Real*
+TeensyRecorders-master
