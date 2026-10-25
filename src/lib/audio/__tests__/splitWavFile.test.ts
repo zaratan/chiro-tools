@@ -4,7 +4,12 @@ import {
   type EncodedChunk,
   type SplitWavYield,
 } from "../splitWavFile.js";
-import { makeRampWav, readSamplesPerChannel } from "./fixtures.js";
+import {
+  makeRampBytes,
+  makeRampWav,
+  makeWavBytes,
+  readSamplesPerChannel,
+} from "./fixtures.js";
 
 const collectChunks = (
   iter: Generator<SplitWavYield>,
@@ -175,5 +180,52 @@ describe("splitWavFile", () => {
       }
       expect(differCount).toBeGreaterThan(50);
     }
+  });
+
+  it.each([16, 24])(
+    "splits EXTENSIBLE PCM %i bits into chunks byte-identical to the same samples in plain PCM",
+    (bitsPerSample) => {
+      const frames = 8000 * 12;
+      const data = makeRampBytes((frames * bitsPerSample) / 8);
+      const opts = { mode: "preserve", chunkSeconds: 5 } as const;
+      const plain = collectChunks(
+        splitWavFile(
+          makeWavBytes({ sampleRate: 8000, bitsPerSample, data }),
+          opts,
+        ),
+      );
+      const extensible = collectChunks(
+        splitWavFile(
+          makeWavBytes({
+            sampleRate: 8000,
+            bitsPerSample,
+            data,
+            extensibleSubformat: 1,
+          }),
+          opts,
+        ),
+      );
+
+      expect(extensible.error).toBeNull();
+      expect(extensible.chunks.length).toBe(3);
+      expect(extensible.chunks.map((c) => Buffer.from(c.buffer))).toEqual(
+        plain.chunks.map((c) => Buffer.from(c.buffer)),
+      );
+    },
+  );
+
+  it("still refuses EXTENSIBLE float", () => {
+    const result = collectChunks(
+      splitWavFile(
+        makeWavBytes({
+          bitsPerSample: 32,
+          extensibleSubformat: 3,
+          data: makeRampBytes(64),
+        }),
+        { mode: "preserve", chunkSeconds: 5 },
+      ),
+    );
+
+    expect(result.error).toBe("unsupported-format");
   });
 });

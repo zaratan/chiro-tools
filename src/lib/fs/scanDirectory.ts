@@ -2,6 +2,7 @@ import { constants as fsConstants, type Dirent } from "node:fs";
 import { access, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { describeError } from "../errors/describeError.js";
+import { isRecorderScratchFile } from "./isRecorderScratchFile.js";
 
 const WAV_EXTENSION_REGEX = /\.wav$/i;
 const BRUT_SUBDIR_REGEX = /^bruts?$/i;
@@ -23,6 +24,8 @@ export type DirectoryScanResult =
       kind: "ok";
       wavFiles: string[];
       ignoredFileCount: number;
+      /** Recorder scratch files (`temp.wav`, `Test.wav`), kept out of `wavFiles`. */
+      scratchFiles: string[];
       /** Actual on-disk name of the matched subfolder ("Brut", "BRUTS"…), or `null` if none was found. */
       subDirName: string | null;
       /** Count of `wavFiles` entries found directly at the scan root. */
@@ -31,7 +34,11 @@ export type DirectoryScanResult =
       subCount: number;
     };
 
-type FlatListing = { wavFiles: string[]; ignoredFileCount: number };
+type FlatListing = {
+  wavFiles: string[];
+  scratchFiles: string[];
+  ignoredFileCount: number;
+};
 
 /**
  * Lists the `.wav` files in a single already-read directory listing
@@ -42,19 +49,22 @@ type FlatListing = { wavFiles: string[]; ignoredFileCount: number };
  */
 const listWavFiles = (entries: readonly Dirent[]): FlatListing => {
   const wavFiles: string[] = [];
+  const scratchFiles: string[] = [];
   let ignoredFileCount = 0;
 
   for (const dirent of entries) {
     if (!dirent.isFile()) continue;
     if (dirent.name.startsWith(".")) continue;
-    if (WAV_EXTENSION_REGEX.test(dirent.name)) {
+    if (isRecorderScratchFile(dirent.name)) {
+      scratchFiles.push(dirent.name);
+    } else if (WAV_EXTENSION_REGEX.test(dirent.name)) {
       wavFiles.push(dirent.name);
     } else {
       ignoredFileCount += 1;
     }
   }
 
-  return { wavFiles, ignoredFileCount };
+  return { wavFiles, scratchFiles, ignoredFileCount };
 };
 
 /**
@@ -109,12 +119,16 @@ export const scanDirectory = async (
     return { kind: "scan-error", rawCode: describeError(err) };
   }
 
-  const { wavFiles: rootWavFiles, ignoredFileCount: rootIgnored } =
-    listWavFiles(rootEntries);
+  const {
+    wavFiles: rootWavFiles,
+    scratchFiles: rootScratchFiles,
+    ignoredFileCount: rootIgnored,
+  } = listWavFiles(rootEntries);
 
   const subDirName = findBrutSubdirName(rootEntries);
 
   let subWavFiles: string[] = [];
+  let subScratchFiles: string[] = [];
   let subIgnored = 0;
   if (subDirName !== null) {
     let subEntries: Dirent[];
@@ -130,6 +144,9 @@ export const scanDirectory = async (
     }
     const listed = listWavFiles(subEntries);
     subWavFiles = listed.wavFiles.map((name) => path.join(subDirName, name));
+    subScratchFiles = listed.scratchFiles.map((name) =>
+      path.join(subDirName, name),
+    );
     subIgnored = listed.ignoredFileCount;
   }
 
@@ -148,6 +165,7 @@ export const scanDirectory = async (
     kind: "ok",
     wavFiles,
     ignoredFileCount: rootIgnored + subIgnored,
+    scratchFiles: [...rootScratchFiles, ...subScratchFiles].sort(),
     subDirName,
     rootCount: rootWavFiles.length,
     subCount: subWavFiles.length,

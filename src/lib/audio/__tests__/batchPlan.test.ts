@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -16,6 +16,9 @@ import {
   PROCESSED_DIRNAME,
 } from "../batchPlan.js";
 import type { ProgressEvent } from "../../../types.js";
+import { makeRampBytes, makeWavBytes } from "./fixtures.js";
+
+const itUnlessRoot = process.getuid?.() === 0 ? it.skip : it;
 
 // ---------------------------------------------------------------------------
 // buildOutDir / constants
@@ -120,7 +123,10 @@ describe("buildQueue", () => {
     name: string,
     sizeBytes: number,
   ): Promise<void> => {
-    await writeFile(path.join(tmpDir, name), Buffer.alloc(sizeBytes));
+    await writeFile(
+      path.join(tmpDir, name),
+      makeWavBytes({ data: makeRampBytes(sizeBytes - 44) }),
+    );
   };
 
   it("admits regular files under the size limit", async () => {
@@ -139,6 +145,10 @@ describe("buildQueue", () => {
       fileSizeBytes: 100,
       absSource: path.join(tmpDir, "source.wav"),
       baseName: "source",
+      sampleRate: 48000,
+      channels: 1,
+      bitsPerSample: 16,
+      dataBytes: 56,
     });
     expect(result.skippedTooLarge).toEqual([]);
     expect(result.skippedAlreadyChunked).toEqual([]);
@@ -188,7 +198,7 @@ describe("buildQueue", () => {
   });
 
   it("records a stat failure as an errored entry and continues with the rest", async () => {
-    await writeFixture("good.wav", 10);
+    await writeFixture("good.wav", 100);
 
     const result = await buildQueue(
       ["missing.wav", "good.wav"],
@@ -202,8 +212,8 @@ describe("buildQueue", () => {
   });
 
   it("assigns fileIndex by original position, including skipped/errored entries", async () => {
-    await writeFixture("a.wav", 10);
-    await writeFixture("c.wav", 10);
+    await writeFixture("a.wav", 100);
+    await writeFixture("c.wav", 100);
 
     const result = await buildQueue(
       ["a.wav", "b_000.wav", "c.wav"],
@@ -215,6 +225,98 @@ describe("buildQueue", () => {
       ["a.wav", 0],
       ["c.wav", 2],
     ]);
+  });
+
+  it("refuses a file the splitter cannot cut with the same code for both engines, and keeps the rest", async () => {
+    await writeFile(
+      path.join(tmpDir, "float.wav"),
+      makeWavBytes({
+        audioFormat: 3,
+        bitsPerSample: 32,
+        data: makeRampBytes(8),
+      }),
+    );
+    await writeFile(path.join(tmpDir, "empty.wav"), makeWavBytes());
+    await writeFixture("good.wav", 100);
+
+    const result = await buildQueue(
+      ["float.wav", "empty.wav", "good.wav"],
+      tmpDir,
+      DEFAULT_MAX_INPUT_BYTES,
+    );
+
+    expect(result.errored).toEqual([
+      { file: "float.wav", reason: "unsupported-format" },
+      { file: "empty.wav", reason: "no-samples" },
+    ]);
+    expect(result.queue.map((q) => q.file)).toEqual(["good.wav"]);
+  });
+
+  itUnlessRoot(
+    "skips an oversized file without ever reading its header",
+    async () => {
+      const bigPath = path.join(tmpDir, "big.wav");
+      await writeFile(bigPath, Buffer.from("not a wav, and far too big"));
+      await chmod(bigPath, 0o000);
+
+      const result = await buildQueue(["big.wav"], tmpDir, 10);
+
+      expect(result.skippedTooLarge).toEqual(["big.wav"]);
+      expect(result.errored).toEqual([]);
+    },
+  );
+
+  itUnlessRoot(
+    "records an unreadable header with its file system code",
+    async () => {
+      const lockedPath = path.join(tmpDir, "locked.wav");
+      await writeFile(lockedPath, makeWavBytes({ data: makeRampBytes(8) }));
+      await chmod(lockedPath, 0o000);
+
+      const result = await buildQueue(
+        ["locked.wav"],
+        tmpDir,
+        DEFAULT_MAX_INPUT_BYTES,
+      );
+
+      expect(result.errored).toEqual([
+        { file: "locked.wav", reason: "EACCES" },
+      ]);
+    },
+  );
+
+  it("admits nothing more once the signal is aborted, without recording an error", async () => {
+    await writeFixture("a.wav", 100);
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await buildQueue(
+      ["a.wav"],
+      tmpDir,
+      DEFAULT_MAX_INPUT_BYTES,
+      controller.signal,
+    );
+
+    expect(result.queue).toEqual([]);
+    expect(result.errored).toEqual([]);
+  });
+
+  it("stops between two files when the signal aborts while the first one is being read", async () => {
+    await writeFixture("a.wav", 100);
+    await writeFixture("b.wav", 100);
+    const controller = new AbortController();
+
+    const pending = buildQueue(
+      ["a.wav", "b.wav"],
+      tmpDir,
+      DEFAULT_MAX_INPUT_BYTES,
+      controller.signal,
+    );
+    controller.abort();
+    const result = await pending;
+
+    expect(result.queue.map((q) => q.file)).toEqual(["a.wav"]);
+    expect(result.errored).toEqual([]);
   });
 
   it("returns empty results for an empty file list", async () => {

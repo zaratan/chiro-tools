@@ -9,6 +9,7 @@ import {
   PRESERVE_MODE_OUTPUT_RATE as TEENSY_RATE,
 } from "../constants.js";
 import { estimateChunkCount } from "../estimateChunks.js";
+import { makeWavBytes } from "./fixtures.js";
 
 const BYTES_PER_SAMPLE = 2;
 const samplesPerChunk = (rate: number): number => rate * CHUNK_OUTPUT_SECONDS;
@@ -30,7 +31,7 @@ describe("estimateChunkCount", () => {
   ): Promise<void> => {
     await writeFile(
       path.join(tmpDir, name),
-      Buffer.alloc(sampleCount * BYTES_PER_SAMPLE),
+      makeWavBytes({ data: Buffer.alloc(sampleCount * BYTES_PER_SAMPLE - 44) }),
     );
   };
 

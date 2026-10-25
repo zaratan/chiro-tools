@@ -69,13 +69,14 @@ Contenu :
   - `N enregistrements .wav trouvés ici` (compte `.wav` ET `.WAV`, case-insensitive ; racine + `Brut`/`Bruts` fusionnés — cf. Règles métier)
   - `M fichier(s) déjà au bon format` (matche la regex d'idempotence — sera laissé tel quel)
   - `K autre(s) fichier(s) ignoré(s)` (non `.wav` ; dotfiles ignorés)
+  - `T fichier(s) temporaire(s) de l'enregistreur` (`temp.wav`, `Test.wav`, cf. Règles métier), puce en `dimColor`
   - Si une partie au moins vient du sous-dossier, une ligne `dimColor` précise la répartition (`(N ici et M dans ./Brut/)`, ou `trouvés dans ./Brut/` si tout en vient) — inchangé quand tout vient de la racine.
 - Question : `Ce sont bien les fichiers à préparer ?`
 - Footer : `Entrée continuer   Échap retour au menu`
 
 **Cas dégradés (gérés ici)** :
 
-- **Aucun `.wav` trouvé** : message clair, l'utilisatrice ne peut pas continuer. Affiche `pwd`-style aide pour comprendre où elle est. Bouton `Échap` pour quitter.
+- **Aucun `.wav` trouvé** : message clair, l'utilisatrice ne peut pas continuer. Affiche `pwd`-style aide pour comprendre où elle est. Bouton `Échap` pour quitter. Si le dossier contient un `temp.wav` ou un `Test.wav`, une ligne `dimColor` le dit sous le titre.
 - **Dossier non lisible** (`fs.access(cwd, R_OK)` échoue) : message clair, quit.
 - **Dossier non writable** (`fs.access(cwd, W_OK)` échoue) : avertir avant la saisie, l'utilisatrice ne peut pas continuer. Message orienté solution (copier ailleurs et relancer).
 - **Basename dupliqué entre la racine et `Brut/`** : refus (pas de résolution silencieuse) — les deux produiraient le même nom dans `processed/`. Écran dédié listant les fichiers concernés (bornée à 4, avec un total), `Échap retour au menu` uniquement.
@@ -192,6 +193,8 @@ Identique en posture à l'Écran 1 (racine + `Brut`/`Bruts`, même ligne d'origi
 - **`processed/` existant** non-vide → bloque avec warning **jaune `⚠`** : propose à l'utilisatrice de **renommer ou supprimer** l'ancien dossier (non-destructif — ne propose pas d'écraser).
 - **Espace disque** insuffisant (`fs.statfs` → `free < total_input × 1.05`) → bloque avec warning jaune chiffré.
 
+Les fichiers temporaires de l'enregistreur (`temp.wav`, `Test.wav`) sont signalés par une ligne `dimColor` sous « Volume total », et sur le dégradé « aucun `.wav` » quand aucun enregistrement n'a été trouvé.
+
 ### Écran P-Saisie
 
 **Un seul champ** : sélecteur radio inline (↑↓ Entrée). Deux options :
@@ -296,7 +299,9 @@ Quatre variantes, mêmes principes UX que le rename :
 
 **AbortSignal (Ctrl+C)** : check entre fichiers ET entre chunks d'un même fichier. Le chunk write en cours ne peut pas être interrompu mid-syscall — c'est borné à ~100 ms par chunk.
 
-**Allowlist de formats** : `audioFormat ∈ {1 (PCM standard), 0xFFFE (EXTENSIBLE) avec subformat PCM}`. Bit depth 16 ou 24. Tout autre format → `ProcessError { reason: "unsupported-format" }`.
+**Allowlist de formats** : `audioFormat ∈ {1 (PCM standard), 0xFFFE (EXTENSIBLE) avec subformat PCM}`. Bit depth 16 ou 24. Tout autre format → `ProcessError { reason: "unsupported-format" }`, une autre profondeur → `unsupported-bit-depth`.
+
+**Contrôle d'en-tête à l'admission, identique pour les deux moteurs** : après le filtre `_NNN.wav$` et le plafond de 500 Mo, chiro lit l'en-tête de chaque fichier sans le charger. Un fichier refusé va dans `errored` avec le même code, que sox soit installé ou non : `invalid-header` (pas un WAV RIFF, pas de `fmt` ou de `data`, canaux ou fréquence à 0), `unsupported-format`, `unsupported-bit-depth`, `no-samples` (moins d'une trame dans `data`, dont un en-tête `data=0` même suivi d'audio). Aucun événement de progression n'est émis pour lui.
 
 ### Métadonnées GUANO / wamd
 
@@ -619,6 +624,7 @@ Trois issues, jamais de branche « erreur » distincte de l'écran de run — `r
 - Scan **non-récursif** de `process.cwd()`, **plus** un éventuel sous-dossier nommé `Brut` ou `Bruts` (casse indifférente : `brut`, `BRUTS`… acceptés ; `Brutal`/`Brute` non), lui aussi scanné à un seul niveau (jamais `Brut/2026/`). Les deux emplacements sont fusionnés en un seul lot.
 - Filtre : nom se terminant par `.wav` OU `.WAV` (case-insensitive sur l'extension uniquement).
 - Ignorer : dotfiles (`.foo.wav`), dossiers, symlinks (au moins MVP — on ignore pour rester safe). Le filtre dotfile s'applique aussi dans `Brut/` — essentiel sur un disque exFAT, où macOS pose un `._<nom>.wav` à côté de chaque fichier.
+- Mettre de côté les fichiers de travail du Teensy : `temp.wav` (le fichier d'acquisition, un en-tête vide de 44 octets si la nuit est coupée) et `Test.wav` (le test de vitesse de la carte SD), ainsi que leur forme déjà préfixée par une version antérieure (`Car…-temp.wav`). Nom exact, casse indifférente, à la racine comme dans `Brut/`. Ils ne sont ni préfixés ni découpés et ne comptent ni parmi les enregistrements ni parmi les autres fichiers ignorés. `scanDirectory` les rend à part (`scratchFiles`). Les deux Constat le disent par une ligne discrète. Ils n'entrent pas non plus dans le refus `duplicate-names`.
 - Conserver l'ordre alphabétique stable sur la liste fusionnée (utile pour l'écran de confirmation) — les entrées du sous-dossier sont préfixées de son nom (`Brut/foo.wav`), relatif au `cwd`.
 - **Refus, pas de résolution silencieuse**, si le même nom de base existe à la fois à la racine et dans `Brut/` : les deux produiraient le même nom en sortie de découpage (`processed/<nom>_NNN.wav`), l'un écraserait l'autre. `scanDirectory` retourne alors `{ kind: "duplicate-names", names }` plutôt qu'un résultat exploitable.
 

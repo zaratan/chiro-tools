@@ -244,7 +244,7 @@ describe("splitWorkerPool", () => {
     expect(orphans).toEqual([]);
   }, 30000);
 
-  it("continues batch after a file-error and records it in errored", async () => {
+  it("refuses a non-WAV file at admission and still splits the rest", async () => {
     const corruptPath = path.join(tmpDir, "corrupt.wav");
     await writeFile(corruptPath, Buffer.from("not a wav file at all"));
     await writeWav("good.wav", {
@@ -258,8 +258,9 @@ describe("splitWorkerPool", () => {
       mode: "preserve",
     });
 
-    expect(outcome.errored.length).toBe(1);
-    expect(outcome.errored[0]?.file).toBe("corrupt.wav");
+    expect(outcome.errored).toEqual([
+      { file: "corrupt.wav", reason: "invalid-header" },
+    ]);
     expect(outcome.processed.length).toBe(1);
 
     const processedDir = path.join(tmpDir, "processed");
