@@ -205,6 +205,7 @@ describe("App — end-to-end", () => {
       });
       return {
         renamed: [],
+        whitespaceFixed: [],
         skippedAlreadyPrefixed: plan.skippedAlreadyPrefixed,
         skippedCollision: plan.skippedCollision,
         errored: [],

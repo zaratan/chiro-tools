@@ -13,6 +13,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RenamePlan } from "../../types.js";
 import { applyRenames, type FsLike } from "./applyRenames.js";
+import { planRenames } from "./planRenames.js";
+import { findWhitespaceNamesBlockedByPrefixed } from "../vigie-chiro/whitespaceInName.js";
 
 const emptyPlan = (overrides: Partial<RenamePlan> = {}): RenamePlan => ({
   operations: [],
@@ -69,9 +71,9 @@ describe("applyRenames", () => {
 
     const plan = emptyPlan({
       operations: [
-        { from: "a.wav", to: "P-a.wav" },
-        { from: "b.wav", to: "P-b.wav" },
-        { from: "c.wav", to: "P-c.wav" },
+        { from: "a.wav", to: "P-a.wav", kind: "prefix" },
+        { from: "b.wav", to: "P-b.wav", kind: "prefix" },
+        { from: "c.wav", to: "P-c.wav", kind: "prefix" },
       ],
     });
 
@@ -90,7 +92,7 @@ describe("applyRenames", () => {
     await writeFile(path.join(tmpDir, "target.wav"), "target");
 
     const plan = emptyPlan({
-      operations: [{ from: "src.wav", to: "target.wav" }],
+      operations: [{ from: "src.wav", to: "target.wav", kind: "prefix" }],
     });
 
     const result = await applyRenames(plan, tmpDir);
@@ -110,9 +112,9 @@ describe("applyRenames", () => {
 
     const plan = emptyPlan({
       operations: [
-        { from: "a.wav", to: "P-a.wav" },
-        { from: "b.wav", to: "P-b.wav" },
-        { from: "c.wav", to: "P-c.wav" },
+        { from: "a.wav", to: "P-a.wav", kind: "prefix" },
+        { from: "b.wav", to: "P-b.wav", kind: "prefix" },
+        { from: "c.wav", to: "P-c.wav", kind: "prefix" },
       ],
     });
 
@@ -132,7 +134,7 @@ describe("applyRenames", () => {
     };
 
     const plan = emptyPlan({
-      operations: [{ from: "src.wav", to: "P-src.wav" }],
+      operations: [{ from: "src.wav", to: "P-src.wav", kind: "prefix" }],
     });
 
     const result = await applyRenames(plan, tmpDir, { fs: fsMock });
@@ -153,7 +155,7 @@ describe("applyRenames", () => {
     };
 
     const plan = emptyPlan({
-      operations: [{ from: "src.wav", to: "P-src.wav" }],
+      operations: [{ from: "src.wav", to: "P-src.wav", kind: "prefix" }],
     });
 
     const result = await applyRenames(plan, tmpDir, { fs: fsMock });
@@ -178,7 +180,7 @@ describe("applyRenames", () => {
     };
 
     const plan = emptyPlan({
-      operations: [{ from: "src.wav", to: "P-src.wav" }],
+      operations: [{ from: "src.wav", to: "P-src.wav", kind: "prefix" }],
     });
 
     const result = await applyRenames(plan, tmpDir, { fs: fsMock });
@@ -198,7 +200,7 @@ describe("applyRenames", () => {
     };
 
     const plan = emptyPlan({
-      operations: [{ from: "src.wav", to: "P-src.wav" }],
+      operations: [{ from: "src.wav", to: "P-src.wav", kind: "prefix" }],
     });
 
     const result = await applyRenames(plan, tmpDir, { fs: fsMock });
@@ -222,7 +224,7 @@ describe("applyRenames", () => {
     };
 
     const plan = emptyPlan({
-      operations: [{ from: "src.wav", to: "P-src.wav" }],
+      operations: [{ from: "src.wav", to: "P-src.wav", kind: "prefix" }],
     });
 
     const result = await applyRenames(plan, tmpDir, { fs: fsMock });
@@ -247,9 +249,9 @@ describe("applyRenames", () => {
 
     const plan = emptyPlan({
       operations: [
-        { from: "a.wav", to: "P-a.wav" },
-        { from: "b.wav", to: "P-b.wav" },
-        { from: "c.wav", to: "P-c.wav" },
+        { from: "a.wav", to: "P-a.wav", kind: "prefix" },
+        { from: "b.wav", to: "P-b.wav", kind: "prefix" },
+        { from: "c.wav", to: "P-c.wav", kind: "prefix" },
       ],
     });
 
@@ -282,7 +284,7 @@ describe("applyRenames", () => {
     };
 
     const plan = emptyPlan({
-      operations: [{ from: "a.wav", to: "P-a.wav" }],
+      operations: [{ from: "a.wav", to: "P-a.wav", kind: "prefix" }],
     });
 
     const result = await applyRenames(plan, tmpDir, {
@@ -300,7 +302,9 @@ describe("applyRenames", () => {
     await writeFile(path.join(tmpDir, "Brut", "rec.wav"), "content");
 
     const plan = emptyPlan({
-      operations: [{ from: "Brut/rec.wav", to: "Brut/P-rec.wav" }],
+      operations: [
+        { from: "Brut/rec.wav", to: "Brut/P-rec.wav", kind: "prefix" },
+      ],
     });
 
     const result = await applyRenames(plan, tmpDir);
@@ -318,11 +322,65 @@ describe("applyRenames", () => {
     await writeFile(path.join(tmpDir, "a.wav"), "a");
 
     const plan = emptyPlan({
-      operations: [{ from: "a.wav", to: "P-a.wav" }],
+      operations: [{ from: "a.wav", to: "P-a.wav", kind: "prefix" }],
     });
 
     const result = await applyRenames(plan, tmpDir);
 
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("keeps whitespace-only renames apart so the prefix count stays true", async () => {
+    await writeFile(path.join(tmpDir, "raw.wav"), "");
+    await writeFile(path.join(tmpDir, "Car1-a b.wav"), "");
+
+    const result = await applyRenames(
+      emptyPlan({
+        operations: [
+          { from: "Car1-a b.wav", to: "Car1-a_b.wav", kind: "whitespace" },
+          { from: "raw.wav", to: "P-raw.wav", kind: "prefix" },
+        ],
+      }),
+      tmpDir,
+    );
+
+    expect(result.renamed).toEqual(["raw.wav"]);
+    expect(result.whitespaceFixed).toEqual(["Car1-a b.wav"]);
+  });
+
+  it("leaves nothing to rename on a second pass once the spaces are fixed", async () => {
+    const prefix = "Car123456-2026-Pass1-Z3-";
+    const files = [
+      `${prefix}PR01 PR1925645_20260728_205005.wav`,
+      "PR01 PR1925645_20260728_205010.wav",
+    ];
+    for (const name of files) await writeFile(path.join(tmpDir, name), "");
+
+    const first = await applyRenames(
+      await planRenames(files, prefix, tmpDir),
+      tmpDir,
+    );
+    const onDisk = (await readdir(tmpDir)).sort();
+    const second = await planRenames(onDisk, prefix, tmpDir);
+
+    expect(first.whitespaceFixed).toHaveLength(1);
+    expect(first.renamed).toHaveLength(1);
+    expect(onDisk.some((name) => name.includes(" "))).toBe(false);
+    expect(second.operations).toEqual([]);
+    expect(second.skippedAlreadyPrefixed).toEqual(onDisk);
+  });
+
+  it("leaves no way back to prefixing when the raw copy sorts first and wins, so the split names the leftover", async () => {
+    const prefix = "Car123456-2026-Pass1-Z3-";
+    const files = ["AB01 X.wav", `${prefix}AB01 X.wav`];
+    for (const name of files) await writeFile(path.join(tmpDir, name), "");
+
+    await applyRenames(await planRenames(files, prefix, tmpDir), tmpDir);
+    const onDisk = (await readdir(tmpDir)).sort();
+
+    expect(onDisk).toEqual([`${prefix}AB01 X.wav`, `${prefix}AB01_X.wav`]);
+    expect(findWhitespaceNamesBlockedByPrefixed(onDisk)).toEqual([
+      `${prefix}AB01 X.wav`,
+    ]);
   });
 });

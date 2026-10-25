@@ -127,6 +127,7 @@ chiro-tools/
 │   │   │   ├── isAlreadyPrefixed.ts
 │   │   │   ├── buildConstatCounts.ts # compteurs du Constat (alreadyPrefixed/upperCaseWav/otherIgnored)
 │   │   │   ├── classifyRenameOutcome.ts # variante du Résultat (succès, rien à faire, aucun renommé, erreurs, interrompu)
+│   │   │   ├── whitespaceInName.ts # blancs du nom de base → `_`, prédicat isAlreadyCompliant, comptage pour les Constat
 │   │   │   └── validation.ts      # validators purs par champ
 │   │   ├── archive/               # lib zip Phases 8-9 — writer ZIP maison, deflate, ZIP64, vérification, volumes
 │   │   │   ├── crc32.ts           # table 256, CRC32_INITIAL / crc32Update / crc32Final
@@ -1099,4 +1100,4 @@ Note : le smoke test post-build TUI complet (golden path interactif) nécessiter
    - _Re-vérifié au passage à Ink 7 (août 2026) : yoga reste `yoga-layout@3.2.1` inliné en base64, aucun `.wasm` externe dans l'arbre, le binaire compilé rend correctement._
 2. **Cross-device `fs.rename`** : tester explicitement le fallback EXDEV avec une SD card réelle pendant la recette finale.
 3. **TTY sur certains émulateurs** (iTerm2, Terminal.app, Warp, kitty) : vérifier le rendu Ink sur au moins iTerm2 et Terminal.app.
-4. **Encodages de noms de fichiers** : tester avec accents (`é`), espaces, emoji. Node 24 gère en UTF-8, mais HFS+ vs APFS peut différer sur la normalisation (NFC vs NFD). Au MVP, ne pas normaliser — Node restitue ce que le FS donne.
+4. **Encodages de noms de fichiers** : tester avec accents (`é`), espaces, emoji. Node 24 gère en UTF-8, mais HFS+ vs APFS peut différer sur la normalisation (NFC vs NFD). Au MVP, ne pas normaliser — Node restitue ce que le FS donne. Seule exception : les blancs du nom de base deviennent `_` (`whitespaceInName.ts`), parce que Vigie-Chiro refuse les noms qui en contiennent.

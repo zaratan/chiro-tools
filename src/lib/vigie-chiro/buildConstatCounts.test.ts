@@ -6,6 +6,7 @@ describe("buildConstatCounts", () => {
     expect(buildConstatCounts([], 0)).toEqual({
       totalWav: 0,
       alreadyPrefixed: 0,
+      whitespacePrefixed: 0,
       upperCaseWav: 0,
       otherIgnored: 0,
     });
@@ -63,8 +64,30 @@ describe("buildConstatCounts", () => {
     expect(counts).toEqual({
       totalWav: 3,
       alreadyPrefixed: 1,
+      whitespacePrefixed: 0,
       upperCaseWav: 1,
       otherIgnored: 2,
     });
+  });
+
+  it("does not count a prefixed name with a space as already in format, since it still has to be renamed", () => {
+    const counts = buildConstatCounts(
+      [
+        "Car123456-2026-Pass1-Z3-PR01 PR1925645_20260728_205005.wav",
+        "Car123456-2026-Pass1-Z3-PR01_PR1925645_20260728_205010.wav",
+        "PR01 PR1925645_20260728_205015.wav",
+      ],
+      0,
+    );
+    expect(counts.alreadyPrefixed).toBe(1);
+    expect(counts.whitespacePrefixed).toBe(1);
+  });
+
+  it("does not count a prefixed .WAV file among the extensions to fix, since nothing renames it", () => {
+    const counts = buildConstatCounts(
+      ["Car040962-2026-Pass3-A1-old.WAV", "RAW.WAV"],
+      0,
+    );
+    expect(counts.upperCaseWav).toBe(1);
   });
 });

@@ -1,4 +1,5 @@
 import { Box, Text, useInput } from "ink";
+import path from "node:path";
 import { useEffect, useRef, useState } from "react";
 import { Footer } from "../../components/Footer.js";
 import { describeError } from "../../lib/errors/describeError.js";
@@ -57,7 +58,12 @@ const pickExamples = <T,>(items: readonly T[]): T[] => {
   return [first, middle, last];
 };
 
-const buildSessionEvent = (
+const previewExamples = <T,>(items: readonly T[], limit: 1 | 3): T[] => {
+  if (items.length <= limit + 1) return [...items];
+  return limit === 3 ? pickExamples(items) : items.slice(0, 1);
+};
+
+export const buildSessionEvent = (
   input: FormInput,
   outcome: RenameOutcome,
   cwd: string,
@@ -69,7 +75,7 @@ const buildSessionEvent = (
   action: "vigie-prefix",
   input,
   result: {
-    renamed: outcome.renamed.length,
+    renamed: outcome.renamed.length + outcome.whitespaceFixed.length,
     skipped_already_prefixed: outcome.skippedAlreadyPrefixed.length,
     skipped_collision: outcome.skippedCollision.length,
     errored: outcome.errored,
@@ -249,11 +255,23 @@ export const ConfirmScreen = ({
 
   // state.kind === "plan-ready"
   const { plan } = state;
-  const examples = pickExamples(plan.operations);
-  const remaining = Math.max(0, plan.operations.length - examples.length);
+  const prefixOps = plan.operations.filter((op) => op.kind === "prefix");
+  const whitespaceOps = plan.operations.filter(
+    (op) => op.kind === "whitespace",
+  );
   const collisionsCount = plan.skippedCollision.length;
   const alreadyCount = plan.skippedAlreadyPrefixed.length;
   const alreadyExamples = pickExamples(plan.skippedAlreadyPrefixed);
+  const bothRenameBlocks = prefixOps.length > 0 && whitespaceOps.length > 0;
+  const whitespaceAlone =
+    prefixOps.length === 0 && collisionsCount === 0 && alreadyCount === 0;
+  const examples = previewExamples(prefixOps, bothRenameBlocks ? 1 : 3);
+  const remaining = prefixOps.length - examples.length;
+  const whitespaceExamples = previewExamples(
+    whitespaceOps,
+    whitespaceAlone ? 3 : 1,
+  );
+  const whitespaceRemaining = whitespaceOps.length - whitespaceExamples.length;
 
   return (
     <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
@@ -269,17 +287,21 @@ export const ConfirmScreen = ({
             format.
           </Text>
         </Box>
-      ) : (
+      ) : prefixOps.length > 0 ? (
         <>
           <Box marginTop={1}>
             <Text>
-              On va renommer {plan.operations.length.toString()} fichier
-              {plan.operations.length > 1 ? "s" : ""} comme ceci :
+              On va renommer {prefixOps.length.toString()} fichier
+              {prefixOps.length > 1 ? "s" : ""} comme ceci :
             </Text>
           </Box>
           <Box flexDirection="column" marginTop={1}>
-            {examples.map((op) => (
-              <Box key={op.from} flexDirection="column" marginBottom={1}>
+            {examples.map((op, index) => (
+              <Box
+                key={op.from}
+                flexDirection="column"
+                marginTop={index > 0 ? 1 : 0}
+              >
                 <Text>{`  ${op.from}`}</Text>
                 <Text>
                   {`    `}
@@ -288,13 +310,41 @@ export const ConfirmScreen = ({
               </Box>
             ))}
             {remaining > 0 ? (
-              <Text dimColor>
-                {`  Les ${remaining.toString()} autres suivent le même format.`}
-              </Text>
+              <Box marginTop={1}>
+                <Text dimColor>
+                  {`  Les ${remaining.toString()} autres suivent le même format.`}
+                </Text>
+              </Box>
             ) : null}
           </Box>
         </>
-      )}
+      ) : null}
+
+      {whitespaceOps.length > 0 ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Text>
+            {whitespaceOps.length > 1
+              ? `Les espaces deviendront « _ » dans ${whitespaceOps.length.toString()} fichiers déjà préfixés :`
+              : "Les espaces deviendront « _ » dans 1 fichier déjà préfixé :"}
+          </Text>
+          {whitespaceExamples.map((op) => (
+            <Box key={op.from} flexDirection="column" marginTop={1}>
+              <Text>{`    ${path.basename(op.from)}`}</Text>
+              <Text>
+                {"  "}
+                <Text color="cyan">{`→ ${path.basename(op.to)}`}</Text>
+              </Text>
+            </Box>
+          ))}
+          {whitespaceRemaining > 0 ? (
+            <Box marginTop={1}>
+              <Text dimColor>
+                {`  Les ${whitespaceRemaining.toString()} autres suivent le même format.`}
+              </Text>
+            </Box>
+          ) : null}
+        </Box>
+      ) : null}
 
       {collisionsCount > 0 ? (
         <Box flexDirection="column" marginTop={1}>
@@ -330,8 +380,9 @@ export const ConfirmScreen = ({
 
       <Box marginTop={1}>
         <Text dimColor>
-          Le nom original est conservé en fin du nouveau nom — rien n'est perdu,
-          vous pouvez retrouver chaque fichier à partir de sa fin.
+          {prefixOps.length === 0 && whitespaceOps.length > 0
+            ? "Seuls les espaces changent : le reste du nom est conservé."
+            : "Le nom original est conservé en fin du nouveau nom — rien n'est perdu, vous pouvez retrouver chaque fichier à partir de sa fin."}
         </Text>
       </Box>
 

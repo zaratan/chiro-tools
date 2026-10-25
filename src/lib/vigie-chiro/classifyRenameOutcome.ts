@@ -1,59 +1,66 @@
 import type { RenameError, RenameOutcome } from "../../types.js";
+import { hasWhitespaceInBaseName } from "./whitespaceInName.js";
+
+type Collisions = {
+  collisions: readonly string[];
+  collisionsHaveWhitespace: boolean;
+};
+
+type Renamed = { renamedCount: number; whitespaceFixedCount: number };
 
 export type RenameResultVariant =
-  | {
+  | ({
       kind: "interrupted";
-      renamedCount: number;
       errored: readonly RenameError[];
-      collisions: readonly string[];
-    }
-  | {
+    } & Renamed &
+      Collisions)
+  | ({
       kind: "partial-errors";
-      renamedCount: number;
       errored: readonly RenameError[];
-      collisions: readonly string[];
-    }
+    } & Renamed &
+      Collisions)
   | { kind: "nothing-to-do"; alreadyCount: number }
-  | {
-      kind: "nothing-renamed";
-      alreadyCount: number;
-      collisions: readonly string[];
-    }
-  | {
-      kind: "success";
-      renamedCount: number;
-      alreadyCount: number;
-      collisions: readonly string[];
-    };
+  | ({ kind: "nothing-renamed"; alreadyCount: number } & Collisions)
+  | ({ kind: "success"; alreadyCount: number } & Renamed & Collisions);
 
 export const classifyRenameOutcome = (
   outcome: RenameOutcome,
 ): RenameResultVariant => {
-  const renamedCount = outcome.renamed.length;
+  const renamed: Renamed = {
+    renamedCount: outcome.renamed.length,
+    whitespaceFixedCount: outcome.whitespaceFixed.length,
+  };
   const alreadyCount = outcome.skippedAlreadyPrefixed.length;
-  const collisions = outcome.skippedCollision;
+  const collisions: Collisions = {
+    collisions: outcome.skippedCollision,
+    collisionsHaveWhitespace: outcome.skippedCollision.some(
+      hasWhitespaceInBaseName,
+    ),
+  };
+  const nothingRenamed =
+    renamed.renamedCount === 0 && renamed.whitespaceFixedCount === 0;
 
   if (outcome.interrupted) {
     return {
       kind: "interrupted",
-      renamedCount,
       errored: outcome.errored,
-      collisions,
+      ...renamed,
+      ...collisions,
     };
   }
   if (outcome.errored.length > 0) {
     return {
       kind: "partial-errors",
-      renamedCount,
       errored: outcome.errored,
-      collisions,
+      ...renamed,
+      ...collisions,
     };
   }
-  if (renamedCount === 0 && collisions.length > 0) {
-    return { kind: "nothing-renamed", alreadyCount, collisions };
+  if (nothingRenamed && collisions.collisions.length > 0) {
+    return { kind: "nothing-renamed", alreadyCount, ...collisions };
   }
-  if (renamedCount === 0 && alreadyCount > 0) {
+  if (nothingRenamed && alreadyCount > 0) {
     return { kind: "nothing-to-do", alreadyCount };
   }
-  return { kind: "success", renamedCount, alreadyCount, collisions };
+  return { kind: "success", alreadyCount, ...renamed, ...collisions };
 };

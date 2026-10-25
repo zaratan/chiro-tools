@@ -2,6 +2,10 @@ import { access } from "node:fs/promises";
 import path from "node:path";
 import type { RenamePlan } from "../../types.js";
 import { isAlreadyPrefixed } from "../vigie-chiro/isAlreadyPrefixed.js";
+import {
+  isAlreadyCompliant,
+  replaceWhitespaceInBaseName,
+} from "../vigie-chiro/whitespaceInName.js";
 
 /**
  * Derives the target filename for a given source name and prefix.
@@ -20,7 +24,9 @@ const buildTargetName = (filename: string, prefix: string): string => {
   const lastDotIndex = base.lastIndexOf(".");
   const baseName = lastDotIndex === -1 ? base : base.slice(0, lastDotIndex);
   const targetBase = `${prefix}${baseName}.wav`;
-  return dirPart === "." ? targetBase : path.join(dirPart, targetBase);
+  return replaceWhitespaceInBaseName(
+    dirPart === "." ? targetBase : path.join(dirPart, targetBase),
+  );
 };
 
 /**
@@ -41,8 +47,9 @@ const fileExists = async (filePath: string): Promise<boolean> => {
  * Builds the complete rename plan for a list of WAV filenames.
  *
  * For each file:
- * - If `isAlreadyPrefixed(file)` → skipped (already-prefixed bucket)
- * - Otherwise, compute the target name = prefix + basename-without-ext + ".wav" (lowercase ext)
+ * - If `isAlreadyCompliant(file)` → skipped (already-prefixed bucket)
+ * - If already prefixed but with whitespace in its base name → `whitespace` operation, prefix untouched
+ * - Otherwise, compute the target name = prefix + basename-without-ext + ".wav" (lowercase ext), whitespace replaced
  * - If the target already exists on disk → skipped (collision bucket)
  * - If two source files would produce the SAME target (intra-plan collision, e.g. APFS case-insensitive) → keep the first one in operations, push the rest to the collision bucket
  *
@@ -79,12 +86,16 @@ export const planRenames = async (
   const claimedTargets = new Set<string>();
 
   for (const filename of sortedFiles) {
-    if (isAlreadyPrefixed(filename)) {
+    if (isAlreadyCompliant(filename)) {
       plan.skippedAlreadyPrefixed.push(filename);
       continue;
     }
 
-    const targetName = buildTargetName(filename, prefix);
+    const kind = isAlreadyPrefixed(filename) ? "whitespace" : "prefix";
+    const targetName =
+      kind === "whitespace"
+        ? replaceWhitespaceInBaseName(filename)
+        : buildTargetName(filename, prefix);
 
     // Intra-plan collision: another source already claims this target.
     if (claimedTargets.has(targetName)) {
@@ -100,7 +111,7 @@ export const planRenames = async (
     }
 
     claimedTargets.add(targetName);
-    plan.operations.push({ from: filename, to: targetName });
+    plan.operations.push({ from: filename, to: targetName, kind });
   }
 
   return plan;

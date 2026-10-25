@@ -1,6 +1,7 @@
 export type ConstatCounts = {
   totalWav: number;
   alreadyPrefixed: number;
+  whitespacePrefixed: number;
   upperCaseWav: number;
   otherIgnored: number;
 };
@@ -51,7 +52,11 @@ export type ProcessOutcome = {
   durationMs: number;
 };
 
-export type RenameOperation = { from: string; to: string };
+export type RenameOperation = {
+  from: string;
+  to: string;
+  kind: "prefix" | "whitespace";
+};
 
 export type RenamePlan = {
   operations: RenameOperation[];
@@ -63,6 +68,7 @@ export type RenameError = { file: string; reason: string };
 
 export type RenameOutcome = {
   renamed: string[];
+  whitespaceFixed: string[];
   skippedAlreadyPrefixed: string[];
   skippedCollision: string[];
   errored: RenameError[];

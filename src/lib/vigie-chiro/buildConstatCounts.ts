@@ -1,5 +1,6 @@
 import type { ConstatCounts } from "../../types.js";
 import { isAlreadyPrefixed } from "./isAlreadyPrefixed.js";
+import { isAlreadyCompliant } from "./whitespaceInName.js";
 
 const isUpperCaseWavFile = (name: string): boolean => name.endsWith(".WAV");
 
@@ -14,7 +15,12 @@ export const buildConstatCounts = (
   ignoredFileCount: number,
 ): ConstatCounts => ({
   totalWav: wavFiles.length,
-  alreadyPrefixed: wavFiles.filter(isAlreadyPrefixed).length,
-  upperCaseWav: wavFiles.filter(isUpperCaseWavFile).length,
+  alreadyPrefixed: wavFiles.filter(isAlreadyCompliant).length,
+  whitespacePrefixed: wavFiles.filter(
+    (name) => isAlreadyPrefixed(name) && !isAlreadyCompliant(name),
+  ).length,
+  upperCaseWav: wavFiles.filter(
+    (name) => !isAlreadyPrefixed(name) && isUpperCaseWavFile(name),
+  ).length,
   otherIgnored: ignoredFileCount,
 });

@@ -21,8 +21,14 @@ import {
   scanDirectory as scanWavDirectory,
   sumFileSizes,
 } from "../../lib/fs/scanDirectory.js";
+import {
+  countRecordingsWithWhitespace,
+  findWhitespaceNamesBlockedByPrefixed,
+} from "../../lib/vigie-chiro/whitespaceInName.js";
 import type { ProcessInput, TimeExpansionMode } from "../../types.js";
 import { MixedRecordersView, UnclassifiableView } from "./ModeRefusalViews.js";
+
+const MAX_VISIBLE_BLOCKED_NAMES = 4;
 
 type ScanState =
   | { kind: "loading" }
@@ -31,6 +37,8 @@ type ScanState =
   | { kind: "scan-error"; rawCode: string }
   | { kind: "duplicate-names"; names: string[] }
   | { kind: "no-wav"; scratchCount: number }
+  | { kind: "whitespace-blocked"; names: string[] }
+  | { kind: "whitespace-names"; count: number; processedConflict: boolean }
   | {
       kind: "mixed-recorders";
       preserve: RecordingRate[];
@@ -73,7 +81,23 @@ const scanDirectory = async (
   }
 
   const processedState = await checkProcessedDirConflict(buildOutDir(cwd));
-  if (processedState.exists && processedState.nonTmpCount > 0) {
+  const processedConflict =
+    processedState.exists && processedState.nonTmpCount > 0;
+
+  const blocked = findWhitespaceNamesBlockedByPrefixed(wavFiles);
+  if (blocked.length > 0) {
+    return { kind: "whitespace-blocked", names: blocked };
+  }
+  const whitespaceCount = countRecordingsWithWhitespace(wavFiles);
+  if (whitespaceCount > 0) {
+    return {
+      kind: "whitespace-names",
+      count: whitespaceCount,
+      processedConflict,
+    };
+  }
+
+  if (processedConflict) {
     return {
       kind: "processed-conflict",
       conflictCount: processedState.nonTmpCount,
@@ -267,6 +291,78 @@ export const ConstatScreen = ({
             voir où vous êtes, ou <Text color="cyan">ls</Text> pour voir les
             fichiers présents.
           </Text>
+        </Box>
+        <Footer hints={minimalFooter} />
+      </Box>
+    );
+  }
+
+  if (state.kind === "whitespace-blocked") {
+    const plural = state.names.length > 1;
+    const visible = state.names.slice(0, MAX_VISIBLE_BLOCKED_NAMES);
+    const remaining = state.names.length - visible.length;
+    return (
+      <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
+        <Box marginTop={1}>
+          <Text color="yellow">
+            {plural
+              ? `⚠ ${state.names.length.toString()} enregistrements ont un espace dans leur nom :`
+              : "⚠ 1 enregistrement a un espace dans son nom :"}
+          </Text>
+        </Box>
+        <Box flexDirection="column" marginTop={1}>
+          {visible.map((name) => (
+            <Text key={name}>{`  • ${name}`}</Text>
+          ))}
+          {remaining > 0 ? (
+            <Text dimColor>
+              {`  ... et ${remaining.toString()} autre${remaining > 1 ? "s" : ""}`}
+            </Text>
+          ) : null}
+        </Box>
+        <Box flexDirection="column" marginTop={1}>
+          <Text>
+            {plural
+              ? "Ils existent déjà dans ce dossier sous un nom préfixé :"
+              : "Il existe déjà dans ce dossier sous un nom préfixé :"}
+          </Text>
+          <Text>
+            {plural
+              ? "« Préfixer » ne peut donc pas les corriger."
+              : "« Préfixer » ne peut donc pas le corriger."}
+          </Text>
+          <Text>
+            {plural
+              ? "Retirez-les du dossier, puis revenez ici."
+              : "Retirez-le du dossier, puis revenez ici."}
+          </Text>
+        </Box>
+        <Footer hints={minimalFooter} />
+      </Box>
+    );
+  }
+
+  if (state.kind === "whitespace-names") {
+    return (
+      <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
+        <Box marginTop={1}>
+          <Text color="yellow">
+            {state.count > 1
+              ? `⚠ ${state.count.toString()} enregistrements ont un espace dans leur nom.`
+              : "⚠ 1 enregistrement a un espace dans son nom."}
+          </Text>
+        </Box>
+        <Box flexDirection="column" marginTop={1}>
+          <Text>
+            {"Vigie-Chiro refuse les espaces. Pour les remplacer par « _ » :"}
+          </Text>
+          <Text>{"  • lancez « Préfixer des enregistrements »"}</Text>
+          {state.processedConflict ? (
+            <Text>{"  • renommez l'ancien dossier « processed »"}</Text>
+          ) : null}
+          <Text>{"  • puis revenez ici"}</Text>
         </Box>
         <Footer hints={minimalFooter} />
       </Box>

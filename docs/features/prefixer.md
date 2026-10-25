@@ -24,7 +24,8 @@ Le nom d'origine est **conservé en entier**, à la suite du préfixe. Rien de c
 
 - **Le dossier est modifiable.** Si vos fichiers sont sur une carte SD en lecture seule, chiro le dit au lieu d'échouer à mi-parcours.
 - **Aucun renommage n'écrase un fichier existant.** La vérification a lieu juste avant chaque renommage, pas seulement au moment de la prévisualisation — c'est ce qui rattrape le cas macOS où `photo.wav` et `PHOTO.WAV` sont considérés comme le même nom.
-- **Les fichiers déjà préfixés sont laissés tranquilles.** Vous pouvez relancer l'opération sur un dossier à moitié traité sans créer `Car340581-2026-Pass1-A1-Car340581-…`.
+- **Les fichiers déjà préfixés sont laissés tranquilles.** Vous pouvez relancer l'opération sur un dossier à moitié traité sans créer `Car340581-2026-Pass1-A1-Car340581-…`. Une seule exception : un nom qui contient un espace.
+- **Les espaces deviennent `_`.** Une Teensy réglée avec un préfixe court le complète par des espaces (`PR01 PR1925645_….wav`), et Vigie-Chiro refuse ces noms. Chaque espace devient `_`, à la pose du préfixe comme sur un fichier déjà préfixé. Le préfixe déjà posé ne change pas, seuls les espaces changent.
 
 ## Les règles de saisie
 

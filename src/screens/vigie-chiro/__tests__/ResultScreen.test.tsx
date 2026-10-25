@@ -12,6 +12,7 @@ const input: FormInput = {
 
 const outcome = (overrides: Partial<RenameOutcome>): RenameOutcome => ({
   renamed: [],
+  whitespaceFixed: [],
   skippedAlreadyPrefixed: [],
   skippedCollision: [],
   errored: [],
@@ -190,5 +191,70 @@ describe("ResultScreen (vigie-chiro)", () => {
     expect(prose).toContain(
       "permission refusée par le système (1 fichier) a.wav",
     );
+  });
+
+  it("reports space fixes on their own line, without a zero prefixed count", () => {
+    const prose = renderProse(
+      outcome({ whitespaceFixed: ["Car1-a b.wav", "Car1-c d.wav"] }),
+    );
+
+    expect(prose).toContain("✓ Terminé !");
+    expect(prose).not.toContain("avec le préfixe");
+    expect(prose).toContain(
+      "2 fichiers déjà préfixés : espaces remplacés par « _ »",
+    );
+    expect(prose).toContain("Vous pouvez maintenant les découper");
+  });
+
+  it("keeps the prefix count to the files that got the prefix when spaces were fixed too", () => {
+    const prose = renderProse(
+      outcome({ renamed: ["a.wav"], whitespaceFixed: ["Car1-b c.wav"] }),
+    );
+
+    expect(prose).toContain("1 fichier renommé avec le préfixe");
+    expect(prose).toContain(
+      "1 fichier déjà préfixé : espaces remplacés par « _ »",
+    );
+  });
+
+  it("does not say nothing was renamed on partial errors when spaces were fixed", () => {
+    const prose = renderProse(
+      outcome({
+        whitespaceFixed: ["Car1-a b.wav"],
+        errored: [{ file: "Car1-c d.wav", reason: "EACCES" }],
+      }),
+    );
+
+    expect(prose).not.toContain("Aucun fichier renommé");
+    expect(prose).toContain(
+      "1 fichier déjà préfixé : espaces remplacés par « _ »",
+    );
+    expect(prose).toContain("Les autres fichiers ont bien été renommés.");
+  });
+
+  it("asks to remove a colliding file with a space, since the split would refuse to start", () => {
+    const prose = renderProse(
+      outcome({
+        whitespaceFixed: ["Car1-PR01 a.wav"],
+        skippedCollision: ["PR01 a.wav"],
+      }),
+    );
+
+    expect(prose).toContain(
+      "Retirez ce fichier du dossier avant de découper : son nom contient un espace : le découpage ne démarrerait pas.",
+    );
+    expect(prose).not.toContain("Vérifiez");
+  });
+
+  it("counts the space fixes among the files already renamed before an interruption", () => {
+    const prose = renderProse(
+      outcome({
+        renamed: ["a.wav"],
+        whitespaceFixed: ["Car1-b c.wav"],
+        interrupted: true,
+      }),
+    );
+
+    expect(prose).toContain("2 fichiers déjà renommés (conservés en sécurité)");
   });
 });

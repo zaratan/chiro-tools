@@ -37,6 +37,8 @@ archived/Car340581-2026-Pass1-A1_20260902.zip
 
 **Deux sauvegardes lancées en même temps peuvent se marcher dessus.** Le nom du fichier contient la date mais pas l'heure. Une seconde sauvegarde du même dossier le même jour ne remplace pas la première. Son nom prend un suffixe (`-2`, puis `-3`…) et l'écran de confirmation prévient que le nouveau zip s'ajoutera à côté. Seul un double lancement simultané sur le même dossier, dans deux terminaux, peut écraser. Rien ne vous préviendrait alors.
 
+**Des enregistrements ont un espace dans leur nom.** La sauvegarde les garde tels quels et l'écran du début le signale sans bloquer. Ces noms seraient refusés au dépôt sur Vigie-Chiro.
+
 ## Après la sauvegarde
 
 L'écran de fin vous propose directement d'archiver ce fichier en ligne, avec la touche `A` — à condition que [l'archivage en ligne](./archiver-en-ligne.md) soit configuré. Sinon, la touche n'apparaît pas.

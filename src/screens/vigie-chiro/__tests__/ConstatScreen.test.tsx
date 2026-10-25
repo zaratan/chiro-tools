@@ -34,6 +34,54 @@ afterEach(async () => {
   await rm(tmpDir, { recursive: true, force: true });
 });
 
+describe("ConstatScreen (vigie-chiro) — whitespace in names", () => {
+  it("announces the prefixed names whose spaces will change instead of calling them already in format", async () => {
+    for (const name of [
+      "Car123456-2026-Pass1-Z3-PR01 PR1925645_20260728_205005.wav",
+      "Car123456-2026-Pass1-Z3-PR01 PR1925645_20260728_205010.wav",
+      "Car123456-2026-Pass1-Z3-PR01_PR1925645_20260728_205015.wav",
+    ]) {
+      await writeFile(path.join(tmpDir, name), "");
+    }
+
+    const { lastFrame, unmount } = render(
+      <ConstatScreen
+        cwd={tmpDir}
+        onContinue={() => undefined}
+        onBack={() => undefined}
+      />,
+    );
+    await waitUntil(() => !(lastFrame() ?? "").includes("Analyse du dossier"));
+    const frame = lastFrame() ?? "";
+    unmount();
+
+    expect(frame).toContain(
+      "1 fichier déjà au bon format sera laissé tel quel",
+    );
+    expect(frame).toContain(
+      "• 2 fichiers déjà préfixés : les espaces deviendront « _ »",
+    );
+  });
+
+  it("leaves a recorder scratch file with a space out of the space bullet", async () => {
+    await writeFile(path.join(tmpDir, "Car123456-2026-Pass1-Z 3-temp.wav"), "");
+    await writeFile(
+      path.join(
+        tmpDir,
+        "Car123456-2026-Pass1-Z3-PR01_PR1925645_20260728_205015.wav",
+      ),
+      "",
+    );
+
+    const screen = await renderReady();
+
+    expect(screen.lines().join(" ")).not.toContain("espaces deviendront");
+    expect(screen.lines()).toContain(
+      "• 1 fichier temporaire de l'enregistreur sera ignoré",
+    );
+  });
+});
+
 const renderReady = async (): Promise<{
   lines: () => string[];
   pressEnter: () => void;

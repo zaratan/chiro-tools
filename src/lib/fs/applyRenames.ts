@@ -63,6 +63,7 @@ export const applyRenames = async (
   const start = performance.now();
 
   const renamed: string[] = [];
+  const whitespaceFixed: string[] = [];
   const errored: RenameError[] = [];
   let interrupted = false;
 
@@ -85,7 +86,7 @@ export const applyRenames = async (
     });
 
     if (result.kind === "ok") {
-      renamed.push(op.from);
+      (op.kind === "whitespace" ? whitespaceFixed : renamed).push(op.from);
     } else {
       errored.push({ file: op.from, reason: result.code });
     }
@@ -95,6 +96,7 @@ export const applyRenames = async (
 
   return {
     renamed,
+    whitespaceFixed,
     skippedAlreadyPrefixed: plan.skippedAlreadyPrefixed,
     skippedCollision: plan.skippedCollision,
     errored,

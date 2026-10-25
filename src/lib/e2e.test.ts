@@ -146,6 +146,39 @@ describe("E2E round-trip on realistic Vigie-Chiro fixtures", () => {
     expect(stateAfterRun2).toEqual(stateAfterRun1);
   });
 
+  it("removes every space a Teensy short prefix leaves in names, then finds nothing left on a second run", async () => {
+    await writeFile(
+      path.join(tmpDir, "PR01 PR1925645_20260728_205005.wav"),
+      "",
+    );
+    await writeFile(
+      path.join(
+        tmpDir,
+        "Car123456-2026-Pass1-Z3-PR01 PR1925645_20260728_205010.wav",
+      ),
+      "",
+    );
+
+    const outcome1 = await runPipeline(tmpDir);
+    const wavAfterRun1 = (await readdir(tmpDir)).filter((name) =>
+      name.endsWith(".wav"),
+    );
+    const outcome2 = await runPipeline(tmpDir);
+
+    expect(outcome1.whitespaceFixed).toEqual([
+      "Car123456-2026-Pass1-Z3-PR01 PR1925645_20260728_205010.wav",
+    ]);
+    expect(wavAfterRun1).toContain(
+      `${PREFIX}PR01_PR1925645_20260728_205005.wav`,
+    );
+    expect(wavAfterRun1).toContain(
+      "Car123456-2026-Pass1-Z3-PR01_PR1925645_20260728_205010.wav",
+    );
+    expect(wavAfterRun1.filter((name) => /\s/u.test(name))).toEqual([]);
+    expect(outcome2.renamed).toEqual([]);
+    expect(outcome2.whitespaceFixed).toEqual([]);
+  });
+
   it("survives a manual deletion between runs (ENOENT resilience)", async () => {
     await runPipeline(tmpDir);
 
