@@ -103,7 +103,7 @@ export const ResultScreen = ({
             {`  ${variant.alreadyCount.toString()} fichier${variant.alreadyCount > 1 ? "s laissés tels quels" : " laissé tel quel"} (déjà au bon format)`}
           </Text>
         ) : null}
-        <Box marginTop={1}>
+        <Box flexDirection="column" marginTop={1}>
           <Text>
             {"Vous pouvez maintenant les découper, puis créer les fichiers"}
           </Text>

@@ -161,7 +161,7 @@ export const ConstatScreen = ({
         <Box marginTop={1}>
           <Text color="yellow">⚠ Ce dossier est protégé en écriture.</Text>
         </Box>
-        <Box marginTop={1}>
+        <Box flexDirection="column" marginTop={1}>
           <Text>
             L'outil ne peut pas créer le sous-dossier « processed » ici. Essayez
             de :

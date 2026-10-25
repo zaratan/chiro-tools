@@ -141,6 +141,14 @@ describe("App — end-to-end", () => {
     expect(resultFrame).toContain("Terminé");
     // The prefix used for renaming
     expect(resultFrame).toContain("Car040962-2026-Pass1-A1-");
+    const resultProse = resultFrame
+      .split("\n")
+      .map((line) => line.replaceAll("│", "").trim())
+      .filter((line) => line !== "")
+      .join(" ");
+    expect(resultProse).toContain(
+      "Vous pouvez maintenant les découper, puis créer les fichiers zip à déposer sur Vigie-Chiro.",
+    );
 
     // Verify disk state: all .wav files renamed, .txt untouched
     const entries = (await readdir(tmpDir)).sort();
