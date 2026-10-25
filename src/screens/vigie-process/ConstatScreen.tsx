@@ -3,8 +3,17 @@ import { statfs } from "node:fs/promises";
 import { useEffect, useState } from "react";
 import { DuplicateNamesScreen } from "../../components/DuplicateNamesScreen.js";
 import { Footer } from "../../components/Footer.js";
-import { buildOutDir } from "../../lib/audio/batchPlan.js";
+import {
+  buildOutDir,
+  buildQueue,
+  DEFAULT_MAX_INPUT_BYTES,
+} from "../../lib/audio/batchPlan.js";
+import {
+  detectBatchMode,
+  type RecordingRate,
+} from "../../lib/audio/detectMode.js";
 import { formatBytes } from "../../format/bytes.js";
+import { formatScratchFilesIgnored } from "../../format/scratchFiles.js";
 import { describeScanOrigin } from "../../format/scanOrigin.js";
 import { fitPath } from "../../format/path.js";
 import {
@@ -16,6 +25,8 @@ import {
   countRecordingsWithWhitespace,
   findWhitespaceNamesBlockedByPrefixed,
 } from "../../lib/vigie-chiro/whitespaceInName.js";
+import type { ProcessInput, TimeExpansionMode } from "../../types.js";
+import { MixedRecordersView, UnclassifiableView } from "./ModeRefusalViews.js";
 
 const MAX_VISIBLE_BLOCKED_NAMES = 4;
 
@@ -25,9 +36,15 @@ type ScanState =
   | { kind: "not-writable" }
   | { kind: "scan-error"; rawCode: string }
   | { kind: "duplicate-names"; names: string[] }
-  | { kind: "no-wav" }
+  | { kind: "no-wav"; scratchCount: number }
   | { kind: "whitespace-blocked"; names: string[] }
   | { kind: "whitespace-names"; count: number; processedConflict: boolean }
+  | {
+      kind: "mixed-recorders";
+      preserve: RecordingRate[];
+      expand: RecordingRate[];
+    }
+  | { kind: "unclassifiable"; files: RecordingRate[]; everyFile: boolean }
   | {
       kind: "processed-conflict";
       conflictCount: number;
@@ -44,6 +61,8 @@ type ScanState =
       subDirName: string | null;
       rootCount: number;
       subCount: number;
+      scratchCount: number;
+      mode: TimeExpansionMode;
     };
 
 const scanDirectory = async (
@@ -56,8 +75,9 @@ const scanDirectory = async (
   }
 
   const { wavFiles, subDirName, rootCount, subCount } = scanResult;
+  const scratchCount = scanResult.scratchFiles.length;
   if (wavFiles.length === 0) {
-    return { kind: "no-wav" };
+    return { kind: "no-wav", scratchCount };
   }
 
   const processedState = await checkProcessedDirConflict(buildOutDir(cwd));
@@ -83,6 +103,30 @@ const scanDirectory = async (
       conflictCount: processedState.nonTmpCount,
     };
   }
+
+  const { queue } = await buildQueue(
+    wavFiles,
+    cwd,
+    DEFAULT_MAX_INPUT_BYTES,
+    signal,
+  );
+  if (signal.aborted) return { kind: "loading" };
+  const detection = detectBatchMode(queue);
+  if (detection.kind === "mixed") {
+    return {
+      kind: "mixed-recorders",
+      preserve: detection.preserve,
+      expand: detection.expand,
+    };
+  }
+  if (detection.kind === "unclassifiable") {
+    return {
+      kind: "unclassifiable",
+      files: detection.files,
+      everyFile: detection.files.length === queue.length,
+    };
+  }
+  const mode = detection.kind === "ok" ? detection.mode : "preserve";
 
   // Tally input bytes for the disk-space pre-check. The output produced is
   // bit-equivalent to the input volume, so we use total input × 1.05 as the
@@ -113,12 +157,14 @@ const scanDirectory = async (
     subDirName,
     rootCount,
     subCount,
+    scratchCount,
+    mode,
   };
 };
 
 export type ProcessConstatScreenProps = {
   cwd: string;
-  onContinue: (wavFiles: string[]) => void;
+  onContinue: (wavFiles: string[], input: ProcessInput) => void;
   onBack: () => void;
 };
 
@@ -148,7 +194,7 @@ export const ConstatScreen = ({
       return;
     }
     if (key.return && state.kind === "ready") {
-      onContinue(state.wavFiles);
+      onContinue(state.wavFiles, { mode: state.mode });
     }
   });
 
@@ -228,8 +274,13 @@ export const ConstatScreen = ({
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
         <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
-        <Box marginTop={1}>
+        <Box marginTop={1} flexDirection="column">
           <Text>Aucun enregistrement .wav trouvé dans ce dossier.</Text>
+          {state.scratchCount > 0 ? (
+            <Text dimColor>
+              {`  ${formatScratchFilesIgnored(state.scratchCount)}`}
+            </Text>
+          ) : null}
         </Box>
         <Box marginTop={1} flexDirection="column">
           <Text>
@@ -318,6 +369,26 @@ export const ConstatScreen = ({
     );
   }
 
+  if (state.kind === "mixed-recorders") {
+    return (
+      <MixedRecordersView
+        cwd={cwd}
+        preserve={state.preserve}
+        expand={state.expand}
+      />
+    );
+  }
+
+  if (state.kind === "unclassifiable") {
+    return (
+      <UnclassifiableView
+        cwd={cwd}
+        files={state.files}
+        everyFile={state.everyFile}
+      />
+    );
+  }
+
   if (state.kind === "processed-conflict") {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
@@ -391,6 +462,11 @@ export const ConstatScreen = ({
             ? `  (trouvés dans ${origin.label})`
             : `  (${origin.rootCount.toString()} ici et ${origin.subCount.toString()} dans ${origin.label})`}
         </Text>
+      ) : null}
+      {state.scratchCount > 0 ? (
+        <Text
+          dimColor
+        >{`  ${formatScratchFilesIgnored(state.scratchCount)}`}</Text>
       ) : null}
       <Box marginTop={1}>
         <Text>Ce sont bien les fichiers à découper ?</Text>

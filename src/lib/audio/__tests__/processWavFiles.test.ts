@@ -132,8 +132,9 @@ describe("processWavFiles", () => {
       mode: "preserve",
     });
 
-    expect(outcome.errored.length).toBe(1);
-    expect(outcome.errored[0]?.file).toBe("garbage.wav");
+    expect(outcome.errored).toEqual([
+      { file: "garbage.wav", reason: "invalid-header" },
+    ]);
     expect(outcome.processed.length).toBe(1);
     expect(outcome.processed[0]?.sourceFile).toBe("real.wav");
   });
@@ -279,7 +280,7 @@ describe("processWavFiles", () => {
     }
   });
 
-  it("emits file-start but no chunk-written or file-done for a garbage file", async () => {
+  it("emits no event at all for a garbage file refused at admission, and the full sequence for the next one", async () => {
     await writeFile(path.join(tmpDir, "garbage.wav"), "not a wav");
     // 60 s preserve → 2 chunks
     await writeWav("good.wav", { durationSeconds: 60 });
@@ -296,14 +297,14 @@ describe("processWavFiles", () => {
       { onProgress },
     );
 
-    expect(outcome.errored.length).toBe(1);
-    expect(outcome.errored[0]?.file).toBe("garbage.wav");
+    expect(outcome.errored).toEqual([
+      { file: "garbage.wav", reason: "invalid-header" },
+    ]);
 
-    // file-start IS emitted for the garbage file (before readFile + split attempt)
     const garbageStart = events.filter(
       (e) => e.kind === "file-start" && e.fileName === "garbage.wav",
     );
-    expect(garbageStart.length).toBe(1);
+    expect(garbageStart.length).toBe(0);
 
     // No chunk-written or file-done for the garbage file
     const garbageChunks = events.filter(

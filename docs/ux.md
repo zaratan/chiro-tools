@@ -141,6 +141,12 @@ Ce sont bien les fichiers à préparer ?
   • 1888 fichiers déjà préfixés : les espaces deviendront « _ »
   ```
   Au singulier : `• 1 fichier déjà préfixé : les espaces deviendront « _ »`. Les bruts avec espace n'ont pas de puce : ils reçoivent le préfixe de toute façon, et le `_` se voit dans les exemples de la Confirmation.
+- Présence de `temp.wav` ou `Test.wav` (fichiers de travail du Teensy, cf. `spec.md` § Détection des `.wav`) : ajouter en dernière puce, ligne entière en `dimColor` :
+  ```
+  • 1 fichier temporaire de l'enregistreur sera ignoré
+  • 2 fichiers temporaires de l'enregistreur seront ignorés
+  ```
+  Une puce et pas une ligne entre parenthèses : sous « autres fichiers seront ignorés (pas des .wav) », une parenthèse se lirait comme un détail de cette puce. Ces fichiers ne comptent ni dans « N enregistrements » ni parmi les autres fichiers ignorés.
 - **Sous-dossier `Brut`/`Bruts`** (casse indifférente) présent à côté des `.wav` de la racine : le scan cherche aux deux emplacements et fusionne en un seul lot (cf. `spec.md` § Détection des `.wav`). Quand tout vient de la racine, l'écran **ne change pas d'un caractère**. Sinon :
   - Tout vient du sous-dossier :
     ```
@@ -177,6 +183,7 @@ Liste bornée à 4 noms, avec un total et un `... et N autres` si dépassement. 
 📁 /Users/.../Documents
 
 Aucun enregistrement .wav trouvé dans ce dossier.
+  (1 fichier temporaire de l'enregistreur ignoré)
 
 Vérifiez que vous êtes bien dans le dossier contenant vos fichiers.
 Astuce : dans le Terminal, tapez `pwd` pour voir où vous êtes,
@@ -184,6 +191,8 @@ ou `ls` pour voir les fichiers présents.
 
   Échap retour au menu
 ```
+
+La ligne `dimColor` sous le titre n'apparaît que si le dossier contient un `temp.wav` ou un `Test.wav`. Elle est au participe passé : l'écran n'a pas de suite (Échap seulement), et un futur promettrait une opération qui n'aura pas lieu. Elle répond à ce que l'utilisatrice verra en tapant `ls`. Même ligne sur le dégradé de P-Constat.
 
 ### Écran 1 — Constat (dégradé : dossier non writable)
 
@@ -821,6 +830,15 @@ ou, si mélange des deux emplacements :
   (8 ici et 404 dans ./Brut/)
 ```
 
+**Variante — fichiers temporaires de l'enregistreur** (`temp.wav`, `Test.wav`) : une ligne `dimColor` au participe, sous « Volume total » et la ligne d'origine éventuelle. Même chaîne que sur le dégradé « aucun `.wav` » (`format/scratchFiles.ts`) :
+
+```
+  Volume total : 1.4 Go
+  (1 fichier temporaire de l'enregistreur ignoré)
+```
+
+Au pluriel : `(2 fichiers temporaires de l'enregistreur ignorés)`.
+
 **Dégradé — basenames dupliqués racine/Brut** : même écran partagé qu'à l'Écran 1 (cf. § Écran 1 — Constat, dégradé basenames dupliqués) — `components/DuplicateNamesScreen.tsx`.
 
 ### P-Constat (dégradé : `processed/` existe déjà)
@@ -898,22 +916,56 @@ Libérez de la place puis relancez.
 
 Chiffres formatés via `formatBytes` (`octets` / `Ko` / `Mo` / `Go`). Threshold = total input × 1.05 (5 % de marge pour les headers WAV).
 
-### P-Saisie
+### P-Constat (dégradé : dossier mélangé)
+
+chiro lit la fréquence dans l'en-tête de chaque enregistrement admis et en déduit s'il est déjà ralenti 10× ou s'il faut le ralentir (cf. `spec.md` § Règles métier — Découpage). Il n'y a pas d'écran de saisie. Un dossier qui contient les deux sortes est refusé :
 
 ```
-Quel type d'enregistreur a produit ces fichiers ?
+📁 /Users/.../Vigie-2026-pointA1
 
-  ▸ Boîtier PaRec (Teensy) — fichiers déjà au bon format
-    Autre détecteur — fichiers à ralentir 10× pour l'analyse
+⚠ Ce dossier mélange deux sortes d'enregistrements :
 
-  Les détecteurs full-spectrum (AudioMoth, SM4, etc.) enregistrent
-  à très haute fréquence — il faut les ralentir pour pouvoir les
-  analyser. Le boîtier PaRec le fait déjà à l'enregistrement.
+  • 8 déjà ralentis 10× à l'enregistrement
+      par ex. Brut/PaRec12345_20260507_211106.wav
+  • 4 à ralentir 10×
+      par ex. Brut/PaRec67890_20260507_211106.wav
 
-  Entrée valider   Échap retour
+chiro ne peut pas découper les deux ensemble. Rangez chaque sorte
+dans son propre dossier, puis relancez chiro dans chacun.
+
+  Échap retour au menu
 ```
 
-L'aide `dimColor` sous le sélecteur est volontairement **descriptive plutôt que technique** : « ralentir 10× » > « expansion temporelle ×10 », « très haute fréquence » > « 250 kHz full-spectrum ». Footer simplifié à 2 hints (1 seul champ — pas de Tab, pas de `←→`).
+- L'exemple est le premier fichier de chaque sorte dans l'ordre alphabétique, avec son préfixe `Brut/`, en `dimColor` et en retrait de 6. Sans lui, elle ne pourrait pas trouver le fichier égaré : le nom ne dit pas si un Teensy était réglé en X1 ou en X10.
+- Aucun nom d'appareil : deux boîtiers PaRec réglés différemment sont le mélange le plus plausible.
+- Au singulier : `• 1 déjà ralenti 10× à l'enregistrement`, `• 1 à ralentir 10×`.
+
+### P-Constat (dégradé : enregistreur non reconnu)
+
+Une fréquence sous 24 000 Hz hors des fréquences Teensy X10 ne correspond à aucun enregistreur connu :
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+⚠ chiro ne sait pas découper 2 enregistrements de ce dossier :
+
+  • rec_a.wav
+  • rec_b.wav
+
+chiro ne reconnaît pas l'enregistreur qui les a produits.
+Déplacez-les dans un autre dossier, puis relancez chiro pour
+découper les autres.
+
+Détail technique : fréquence 22050 Hz, 8000 Hz
+  (à transmettre si vous demandez de l'aide)
+
+  Échap retour au menu
+```
+
+- Liste bornée à 4 noms, avec `... et N autres` en `dimColor`.
+- Si aucun enregistrement du dossier ne peut être découpé, le titre devient `⚠ chiro ne sait pas découper les enregistrements de ce dossier :` (`l'enregistrement` s'il n'y en a qu'un). La phrase « Déplacez… » disparaît : il ne resterait rien à découper.
+- Au singulier : `l'enregistreur qui l'a produit`, `Déplacez-le`.
+- « Déplacez » et pas « Retirez », qui pourrait se lire « supprimez ». Le détail technique donne les fréquences distinctes en Hz. La règle « pas de kHz » vise le texte qui s'adresse à elle, et un nombre nu serait ambigu pour la personne qui l'aide.
 
 ### P-Confirmation (chargement : estimation)
 
@@ -927,36 +979,41 @@ Estimation…
 
 ### P-Confirmation
 
-**Variante mode `expand-10x` (Autre détecteur)** — la durée affichée est l'audio **post-ralentissement** (≈ 10× le temps d'enregistrement réel). On le rend explicite avec « une fois étendu » :
+**Variante mode `expand-10x` (à ralentir)** — la durée affichée est l'audio **post-ralentissement** (≈ 10× le temps d'enregistrement réel). On le rend explicite avec « une fois ralenti » :
 
 ```
 📁 /Users/.../Vigie-2026-pointA1
 
-On va découper 12 enregistrements (environ 2 h 30 d'audio une fois étendu)
+On va découper 12 enregistrements (environ 2 h 30 d'audio une fois ralenti)
 en fichiers de 5 secondes.
 
-Type d'enregistreur choisi : Autre détecteur (ralentissement 10×)
-Dossier de sortie :          ./processed/
+Ralentissement 10× : fait par chiro pendant le découpage
+Dossier de sortie :  ./processed/
 
 Vos fichiers d'origine ne seront pas modifiés.
 
-  Entrée découper   Échap modifier la saisie
+  Entrée découper   Échap revenir au début
 ```
 
-**Variante mode `preserve` (Boîtier PaRec)** — pas de ralentissement, durée affichée = temps d'enregistrement = audio d'analyse. Pas de qualifier :
+**Variante mode `preserve` (déjà ralenti)** — pas de ralentissement, durée affichée = temps d'enregistrement = audio d'analyse. Pas de qualifier :
 
 ```
 On va découper 12 enregistrements (environ 30 minutes d'audio)
 en fichiers de 5 secondes.
+
+Ralentissement 10× : déjà fait à l'enregistrement
+Dossier de sortie :  ./processed/
 ```
+
+**Ligne « Ralentissement 10× »** : elle dit ce que chiro a détecté, sur l'écran où elle lit ce qui va être fait. Elle nomme l'action, jamais l'appareil. Une fréquence X10 peut venir d'un fichier déjà ralenti par un autre logiciel, et un Teensy réglé en X1 se ralentit comme un AudioMoth. Valeur en `cyan`, alignée une espace après le libellé le plus long. Elle est masquée quand aucun enregistrement ne sera découpé (dossier fait seulement de fichiers refusés à l'admission, trop volumineux ou déjà découpés) : le mode n'a alors aucun effet. Footer `Échap revenir au début`, comme A-, U- et O-Confirmation : Échap ramène à P-Constat.
 
 **Wording-clé** :
 
 - **« enregistrements »** pour les fichiers qu'elle manipule, **« fichiers »** pour ceux que le découpage produit. Jamais `chunks` (anglais, jargon), et jamais « morceaux » : le mot évoque la musique alors qu'il s'agit d'enregistrements naturalistes.
 - **Durée en minutes/heures** plutôt qu'en compte de fichiers — c'est l'unité mentale qu'elle a.
-- **« une fois étendu »** uniquement en `expand-10x`. Évite de faire croire à l'utilisatrice qu'elle a enregistré 2 h 30 alors qu'elle a enregistré 15 min de full-spectrum. Aligne avec le wording du sélecteur (« ralentir 10× pour l'analyse »).
+- **« une fois ralenti »** uniquement en `expand-10x`. Évite de faire croire à l'utilisatrice qu'elle a enregistré 2 h 30 alors qu'elle a enregistré 15 min de full-spectrum. Même mot que la ligne « Ralentissement 10× » juste en dessous.
 - **Rappel non-destructif** en `dimColor`, parallèle au rappel du flow rename (« rien n'est perdu »).
-- **« Autre détecteur (ralentissement 10×) »** : reprend le wording de l'option choisie pour confirmer le bon choix.
+- **« Ralentissement 10× »** : le mot « ralentir » reprend celui de l'écran de refus « dossier mélangé ».
 
 ### P-Confirmation — pendant l'exécution
 
@@ -1922,7 +1979,7 @@ Continuent la numérotation des trois règles figées en 9.D (§ ci-dessus) :
 
 ## Choix UX validés (rappel)
 
-- **Composant FormScreen maison** (pas `ink-form`, pas `<Form>` générique réutilisable) : un seul formulaire dans le MVP, ~50 lignes avec `useState<number>(focusedIndex)` + 4 `<TextInput>` empilés. Refactor en composant générique uniquement à la 3ᵉ utilisation (Règle de Trois). De même pour le sélecteur Teensy/Autre de la Phase 5 : inline dans `vigie-process/FormScreen.tsx`, pas extrait en `RadioSelect`.
+- **Composant FormScreen maison** (pas `ink-form`, pas `<Form>` générique réutilisable) : un seul formulaire dans le MVP, ~50 lignes avec `useState<number>(focusedIndex)` + 4 `<TextInput>` empilés. Refactor en composant générique uniquement à la 3ᵉ utilisation (Règle de Trois).
 - **Validation hybride** : silencieuse pendant la frappe (juste un indicateur dimColor de complétion), erreurs explicites au blur ou à la tentative de submit.
 - **Pré-scan AVANT la saisie** (écran Constat) : économise 4 saisies si l'utilisatrice n'est pas dans le bon dossier.
 - **3 exemples sur l'écran de Confirmation**, pas 1 — montre un pattern cohérent.

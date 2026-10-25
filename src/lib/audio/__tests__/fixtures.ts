@@ -116,3 +116,70 @@ export const readSamplesPerChannel = (
     samples,
   };
 };
+
+export type RawWavOptions = {
+  audioFormat?: number;
+  bitsPerSample?: number;
+  channels?: number;
+  sampleRate?: number;
+  data?: Uint8Array;
+  extensibleSubformat?: number;
+  declaredDataSize?: number;
+  chunksBefore?: { id: string; payload: Uint8Array }[];
+  trailingBytes?: Uint8Array;
+};
+
+const riffChunk = (id: string, payload: Uint8Array): Buffer => {
+  const header = Buffer.alloc(8);
+  header.write(id, 0, "ascii");
+  header.writeUInt32LE(payload.byteLength, 4);
+  const pad = payload.byteLength % 2 === 1 ? Buffer.alloc(1) : Buffer.alloc(0);
+  return Buffer.concat([header, payload, pad]);
+};
+
+export const makeWavBytes = (opts: RawWavOptions = {}): Buffer => {
+  const channels = opts.channels ?? 1;
+  const sampleRate = opts.sampleRate ?? 48000;
+  const bitsPerSample = opts.bitsPerSample ?? 16;
+  const data = opts.data ?? new Uint8Array(0);
+  const extensible = opts.extensibleSubformat !== undefined;
+  const blockAlign = (channels * bitsPerSample) / 8;
+
+  const fmt = Buffer.alloc(extensible ? 40 : 16);
+  fmt.writeUInt16LE(extensible ? 0xfffe : (opts.audioFormat ?? 1), 0);
+  fmt.writeUInt16LE(channels, 2);
+  fmt.writeUInt32LE(sampleRate, 4);
+  fmt.writeUInt32LE(sampleRate * blockAlign, 8);
+  fmt.writeUInt16LE(blockAlign, 12);
+  fmt.writeUInt16LE(bitsPerSample, 14);
+  if (opts.extensibleSubformat !== undefined) {
+    fmt.writeUInt16LE(22, 16);
+    fmt.writeUInt16LE(bitsPerSample, 18);
+    fmt.writeUInt32LE(channels === 1 ? 4 : 3, 20);
+    fmt.writeUInt32LE(opts.extensibleSubformat, 24);
+    Buffer.from("00001000800000aa00389b71", "hex").copy(fmt, 28);
+  }
+
+  const dataHeader = Buffer.alloc(8);
+  dataHeader.write("data", 0, "ascii");
+  dataHeader.writeUInt32LE(opts.declaredDataSize ?? data.byteLength, 4);
+
+  const body = Buffer.concat([
+    Buffer.from("WAVE", "ascii"),
+    ...(opts.chunksBefore ?? []).map((c) => riffChunk(c.id, c.payload)),
+    riffChunk("fmt ", fmt),
+    dataHeader,
+    data,
+    opts.trailingBytes ?? new Uint8Array(0),
+  ]);
+  const riff = Buffer.alloc(8);
+  riff.write("RIFF", 0, "ascii");
+  riff.writeUInt32LE(body.byteLength, 4);
+  return Buffer.concat([riff, body]);
+};
+
+export const makeRampBytes = (byteLength: number): Buffer => {
+  const bytes = Buffer.alloc(byteLength);
+  for (let i = 0; i < byteLength; i++) bytes[i] = (i * 7) % 251;
+  return bytes;
+};

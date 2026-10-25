@@ -41,6 +41,7 @@ describe("scanDirectory", () => {
       kind: "ok",
       wavFiles: [],
       ignoredFileCount: 0,
+      scratchFiles: [],
       subDirName: null,
       rootCount: 0,
       subCount: 0,
@@ -73,6 +74,7 @@ describe("scanDirectory", () => {
       kind: "ok",
       wavFiles: [...created].sort(),
       ignoredFileCount: 0,
+      scratchFiles: [],
       subDirName: null,
       rootCount: created.length,
       subCount: 0,
@@ -90,6 +92,7 @@ describe("scanDirectory", () => {
       kind: "ok",
       wavFiles: ["recording.wav"],
       ignoredFileCount: 3,
+      scratchFiles: [],
       subDirName: null,
       rootCount: 1,
       subCount: 0,
@@ -106,6 +109,7 @@ describe("scanDirectory", () => {
       kind: "ok",
       wavFiles: ["visible.wav"],
       ignoredFileCount: 0,
+      scratchFiles: [],
       subDirName: null,
       rootCount: 1,
       subCount: 0,
@@ -122,6 +126,7 @@ describe("scanDirectory", () => {
       kind: "ok",
       wavFiles: ["top.wav"],
       ignoredFileCount: 0,
+      scratchFiles: [],
       subDirName: null,
       rootCount: 1,
       subCount: 0,
@@ -138,6 +143,7 @@ describe("scanDirectory", () => {
       kind: "ok",
       wavFiles: ["real.wav"],
       ignoredFileCount: 0,
+      scratchFiles: [],
       subDirName: null,
       rootCount: 1,
       subCount: 0,
@@ -195,6 +201,7 @@ describe("scanDirectory — Brut(s)/ subfolder", () => {
       kind: "ok",
       wavFiles: ["a.wav", "b.wav"],
       ignoredFileCount: 0,
+      scratchFiles: [],
       subDirName: null,
       rootCount: 2,
       subCount: 0,
@@ -211,6 +218,7 @@ describe("scanDirectory — Brut(s)/ subfolder", () => {
       kind: "ok",
       wavFiles: ["Brut/a.wav", "Brut/b.wav"],
       ignoredFileCount: 0,
+      scratchFiles: [],
       subDirName: "Brut",
       rootCount: 0,
       subCount: 2,
@@ -230,6 +238,7 @@ describe("scanDirectory — Brut(s)/ subfolder", () => {
       // deterministic regardless of readdir's raw order or insertion order.
       wavFiles: ["Brut/m-sub.wav", "a-root.wav", "z-root.wav"],
       ignoredFileCount: 0,
+      scratchFiles: [],
       subDirName: "Brut",
       rootCount: 2,
       subCount: 1,
@@ -247,6 +256,7 @@ describe("scanDirectory — Brut(s)/ subfolder", () => {
         kind: "ok",
         wavFiles: [`${dirName}/a.wav`],
         ignoredFileCount: 0,
+        scratchFiles: [],
         subDirName: dirName,
         rootCount: 0,
         subCount: 1,
@@ -266,6 +276,7 @@ describe("scanDirectory — Brut(s)/ subfolder", () => {
       kind: "ok",
       wavFiles: ["root.wav"],
       ignoredFileCount: 0,
+      scratchFiles: [],
       subDirName: null,
       rootCount: 1,
       subCount: 0,
@@ -292,6 +303,7 @@ describe("scanDirectory — Brut(s)/ subfolder", () => {
       kind: "ok",
       wavFiles: ["Brut/x.wav"],
       ignoredFileCount: 0,
+      scratchFiles: [],
       subDirName: "Brut",
       rootCount: 0,
       subCount: 1,
@@ -308,10 +320,77 @@ describe("scanDirectory — Brut(s)/ subfolder", () => {
       kind: "ok",
       wavFiles: ["Brut/shallow.wav"],
       ignoredFileCount: 0,
+      scratchFiles: [],
       subDirName: "Brut",
       rootCount: 0,
       subCount: 1,
     });
+  });
+});
+
+describe("scanDirectory — recorder scratch files", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(path.join(tmpdir(), "chiro-test-scratch-"));
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const teensyEmptyHeader = (): Buffer => {
+    const header = Buffer.alloc(44);
+    header.write("RIFF", 0, "ascii");
+    header.write("WAVEfmt ", 8, "ascii");
+    header.write("data", 36, "ascii");
+    return header;
+  };
+
+  it("keeps a 44-byte temp.wav out of the recordings and out of the non-wav count", async () => {
+    await writeFile(path.join(tmpDir, "temp.wav"), teensyEmptyHeader());
+    await writeFile(path.join(tmpDir, "PaRec1_20260814_223000.wav"), "audio");
+    await writeFile(path.join(tmpDir, "LogPR1.txt"), "log");
+
+    const result = await scanDirectory(tmpDir);
+
+    expect(result).toMatchObject({
+      kind: "ok",
+      wavFiles: ["PaRec1_20260814_223000.wav"],
+      scratchFiles: ["temp.wav"],
+      ignoredFileCount: 1,
+      rootCount: 1,
+    });
+  });
+
+  it("lists scratch files from the root and from Brut/, including an already prefixed one", async () => {
+    await mkdir(path.join(tmpDir, "Brut"));
+    await writeFile(path.join(tmpDir, "Car123456-2026-Pass1-A1-temp.wav"), "");
+    await writeFile(path.join(tmpDir, "Brut", "Test.wav"), "");
+    await writeFile(path.join(tmpDir, "Brut", "rec.wav"), "audio");
+
+    const result = await scanDirectory(tmpDir);
+
+    expect(result).toMatchObject({
+      kind: "ok",
+      wavFiles: [path.join("Brut", "rec.wav")],
+      scratchFiles: [
+        path.join("Brut", "Test.wav"),
+        "Car123456-2026-Pass1-A1-temp.wav",
+      ],
+      rootCount: 0,
+      subCount: 1,
+    });
+  });
+
+  it("does not refuse the folder when temp.wav exists both at the root and in Brut/", async () => {
+    await mkdir(path.join(tmpDir, "Brut"));
+    await writeFile(path.join(tmpDir, "temp.wav"), teensyEmptyHeader());
+    await writeFile(path.join(tmpDir, "Brut", "temp.wav"), teensyEmptyHeader());
+
+    const result = await scanDirectory(tmpDir);
+
+    expect(result).toMatchObject({ kind: "ok", wavFiles: [] });
   });
 });
 

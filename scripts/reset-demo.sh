@@ -19,8 +19,9 @@ DEMO_DIR="${1:-/tmp/chiro-demo}"
 rm -rf "$DEMO_DIR"
 mkdir -p "$DEMO_DIR"
 
-# Generate valid synthetic WAVs (10 Teensy-like + 2 AudioMoth-like + 1
-# already-prefixed + 1 uppercase). The rename flow does not read content
+# Generate valid synthetic WAVs (10 Teensy-like + 1 already-prefixed + 1
+# uppercase at the root, 2 AudioMoth-like in audiomoth/ — chiro refuses a
+# folder mixing both recorder families). The rename flow does not read content
 # but the processing flow does — valid WAVs let both flows be exercised
 # end-to-end.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

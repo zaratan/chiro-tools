@@ -70,8 +70,7 @@ describe("detectSox", () => {
   });
 
   it("returns absent when sox --version exits with non-zero", async () => {
-    const fakeSox = await makeFakeSox(tmpDir, "sox", 1);
-    void fakeSox;
+    await makeFakeSox(tmpDir, "sox", 1);
     process.env.PATH = tmpDir;
     delete process.env.CHIRO_DISABLE_FASTPATH;
     const result = await detectSox();
@@ -380,7 +379,7 @@ describe("runSoxBatch", () => {
       expect(events[events.length - 1]?.kind).toBe("file-done");
     }, 30_000);
 
-    it("records corrupt file as errored on subsequent files, batch continues", async () => {
+    it("refuses a corrupt non-first file at admission and still splits the rest", async () => {
       await writeWav("good1.wav", {
         sampleRate: 48000,
         durationSeconds: 6,
@@ -405,8 +404,13 @@ describe("runSoxBatch", () => {
 
       expect(result.kind).toBe("completed");
       if (result.kind !== "completed") throw new Error("type narrowing");
-      // good1 passes spot-check; corrupt fails sox on subsequent run → errored
-      expect(result.outcome.processed.length).toBeGreaterThanOrEqual(1);
+      expect(result.outcome.errored).toEqual([
+        { file: "corrupt.wav", reason: "invalid-header" },
+      ]);
+      expect(result.outcome.processed.map((p) => p.sourceFile).sort()).toEqual([
+        "good1.wav",
+        "good2.wav",
+      ]);
     }, 30_000);
 
     it("records an unguarded I/O failure on a non-first file as errored, without rejecting, and leaves no partial output", async () => {

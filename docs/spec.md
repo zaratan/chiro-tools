@@ -70,13 +70,14 @@ Contenu :
   - `M fichier(s) déjà au bon format` (matche la regex d'idempotence et n'a aucun blanc dans son nom de base — sera laissé tel quel)
   - `W fichier(s) déjà préfixé(s) : les espaces deviendront « _ »` (préfixé mais avec un blanc dans son nom de base, cf. Règles métier § Blancs dans les noms)
   - `K autre(s) fichier(s) ignoré(s)` (non `.wav` ; dotfiles ignorés)
+  - `T fichier(s) temporaire(s) de l'enregistreur` (`temp.wav`, `Test.wav`, cf. Règles métier), puce en `dimColor`
   - Si une partie au moins vient du sous-dossier, une ligne `dimColor` précise la répartition (`(N ici et M dans ./Brut/)`, ou `trouvés dans ./Brut/` si tout en vient) — inchangé quand tout vient de la racine.
 - Question : `Ce sont bien les fichiers à préparer ?`
 - Footer : `Entrée continuer   Échap retour au menu`
 
 **Cas dégradés (gérés ici)** :
 
-- **Aucun `.wav` trouvé** : message clair, l'utilisatrice ne peut pas continuer. Affiche `pwd`-style aide pour comprendre où elle est. Bouton `Échap` pour quitter.
+- **Aucun `.wav` trouvé** : message clair, l'utilisatrice ne peut pas continuer. Affiche `pwd`-style aide pour comprendre où elle est. Bouton `Échap` pour quitter. Si le dossier contient un `temp.wav` ou un `Test.wav`, une ligne `dimColor` le dit sous le titre.
 - **Dossier non lisible** (`fs.access(cwd, R_OK)` échoue) : message clair, quit.
 - **Dossier non writable** (`fs.access(cwd, W_OK)` échoue) : avertir avant la saisie, l'utilisatrice ne peut pas continuer. Message orienté solution (copier ailleurs et relancer).
 - **Basename dupliqué entre la racine et `Brut/`** : refus (pas de résolution silencieuse) — les deux produiraient le même nom dans `processed/`. Écran dédié listant les fichiers concernés (bornée à 4, avec un total), `Échap retour au menu` uniquement.
@@ -183,29 +184,24 @@ Les collisions vues au plan s'affichent dans toutes les variantes sauf B. C'est 
 
 Voir [`ux.md`](./ux.md) pour les wordings exacts.
 
-## Wizard "Découper les enregistrements" — 4 écrans (Phase 5)
+## Wizard "Découper les enregistrements" — 3 écrans (Phase 5)
 
 ```
-[Menu] → [P-Constat] → [P-Saisie] → [P-Confirmation] → [P-Résultat] → (retour Menu)
+[Menu] → [P-Constat] → [P-Confirmation] → [P-Résultat] → (retour Menu)
 ```
 
 Internalise les étapes `Découpage des données (AudioMoth only)` + `Kaleidoscope` du protocole Vigie-Chiro Point Fixe (cf. `test-data/Tutoriel Vigie Chiro - Perso.pdf` p. 5 et p. 7). Sortie : sous-dossier `processed/` dans le cwd. **Non-destructif** : les fichiers d'origine ne sont jamais modifiés.
 
 ### Écran P-Constat
 
-Identique en posture à l'Écran 1 (racine + `Brut`/`Bruts`, même ligne d'origine quand une partie vient du sous-dossier, même refus `duplicate-names` — cf. `ux.md` pour les wordings), mais avec **deux vérifications supplémentaires** :
+Identique en posture à l'Écran 1 (racine + `Brut`/`Bruts`, même ligne d'origine quand une partie vient du sous-dossier, même refus `duplicate-names` — cf. `ux.md` pour les wordings), mais avec **quatre vérifications supplémentaires**, dans cet ordre :
 
+- **Espaces dans les noms** → bloque, sans rien renommer. Un brut avec espace qui existe déjà sous un nom préfixé est listé et doit être retiré du dossier. Les autres noms à espace renvoient vers « Préfixer » (cf. § Blancs dans les noms). Les fichiers temporaires de l'enregistreur sont exclus du scan, donc de ce contrôle.
 - **`processed/` existant** non-vide → bloque avec warning **jaune `⚠`** : propose à l'utilisatrice de **renommer ou supprimer** l'ancien dossier (non-destructif — ne propose pas d'écraser).
+- **Détection du mode** : `buildQueue` lit l'en-tête de chaque fichier, puis `detectBatchMode` classe les fichiers admis (cf. § Règles métier — Découpage). Un dossier qui mélange les deux sortes est refusé, avec le compte de chacune et un exemple de nom. Une fréquence inclassable est refusée, avec la liste des fichiers et les fréquences dans le détail technique. Elle passe avant le mélange : un dossier qui a les deux problèmes montre d'abord l'écran « non reconnu », puis l'écran « mélangé » une fois les fichiers déplacés. Aucun nouveau code de traitement. Si aucun fichier n'est admis, le lot part avec `preserve`. Ce mode est sans effet puisque rien n'est découpé, et le Résultat explique chaque refus comme avant. Il figure dans `sessions.jsonl` avec 0 fichier traité. Le mode détecté passe directement à P-Confirmation : il n'y a pas d'écran de saisie.
 - **Espace disque** insuffisant (`fs.statfs` → `free < total_input × 1.05`) → bloque avec warning jaune chiffré.
 
-### Écran P-Saisie
-
-**Un seul champ** : sélecteur radio inline (↑↓ Entrée). Deux options :
-
-- `Boîtier PaRec (Teensy) — fichiers déjà au bon format` (`mode: "preserve"`)
-- `Autre détecteur — fichiers à ralentir 10× pour l'analyse` (`mode: "expand-10x"`)
-
-Aide `dimColor` sous le sélecteur explique le pourquoi du ralentissement (full-spectrum vs déjà-expansé). Pas de Tab, pas de `←→` (1 seul champ).
+Les fichiers temporaires de l'enregistreur (`temp.wav`, `Test.wav`) sont signalés par une ligne `dimColor` sous « Volume total », et sur le dégradé « aucun `.wav` » quand aucun enregistrement n'a été trouvé.
 
 ### Écran P-Confirmation
 
@@ -213,13 +209,13 @@ Preview :
 
 - chemin absolu du cwd
 - `On va découper N enregistrements (environ X minutes d'audio) en fichiers de 5 secondes.`
-- type d'enregistreur choisi (libellé du mode)
+- `Ralentissement 10× : déjà fait à l'enregistrement` ou `fait par chiro pendant le découpage`, selon le mode détecté au Constat (masquée si aucun fichier ne sera découpé)
 - dossier de sortie : `./processed/`
 - **réassurance non-destructive** : `Vos fichiers d'origine ne seront pas modifiés.`
 
-Footer : `Entrée découper   Échap modifier la saisie`.
+Footer : `Entrée découper   Échap revenir au début`.
 
-L'estimation de durée est **best-effort** basée sur la taille du fichier (16-bit PCM mono assumed). Pour stéréo on overestimate ×2 — acceptable pour un preview qui sert juste à donner un ordre de grandeur.
+L'estimation de durée et du nombre de fichiers se calcule depuis l'en-tête de chaque fichier admis (fréquence, canaux, profondeur, taille de `data` bornée par la taille du fichier), avec la même arithmétique de découpe que `splitWavFile`. Elle donne le nombre réel de fichiers produits.
 
 ### Contrat `onProgress` — progression intra-batch
 
@@ -250,7 +246,7 @@ remainingMs = elapsedMs × (bytesRemaining / bytesDone)
 
 avec `bytesDone` incrémenté à chaque `file-done` (du nombre de bytes du fichier qui vient de se terminer). Tant que `bytesDone === 0` (pas encore un fichier complet), `estimateRemainingMs` retourne `null` et l'UI affiche `Calcul du temps restant…`.
 
-**Pourquoi byte-weighted plutôt que par-compte-de-fichiers** : les batches Vigie-Chiro sont hétérogènes (un AudioMoth full ≈ 143 MB / 60 s vs un Teensy ≈ 4 MB / 50 s). Pondérer par octets stabilise l'estimation : un batch mixte 2 AudioMoth + 5 Teensy ne voit pas son ETA exploser à cause des 2 fichiers de 143 MB.
+**Pourquoi byte-weighted plutôt que par-compte-de-fichiers** : les tailles varient beaucoup dans un même lot. Sur une vraie session Teensy de 1 888 enregistrements, elles vont de 1,5 Mo à 23 Mo. Pondérer par octets stabilise l'estimation : quelques gros fichiers en fin de lot ne font pas exploser l'ETA.
 
 **Adaptive masking** : pour `filesTotal < 5`, l'UI masque la portion ETA de la ligne stats (la barre reste). L'estimation à 1-4 fichiers est trop coarse pour être informative et son affichage parasite plus qu'il n'aide.
 
@@ -286,11 +282,13 @@ Quatre variantes, mêmes principes UX que le rename :
 
 ### Règles métier — Découpage
 
-**Convention de durée** : un chunk couvre **5 secondes de temps réel ultrasonique**. Comme Teensy et AudioMoth produisent tous deux un signal joué en time-expansion ×10 dans le fichier de sortie, **5 s temps réel = 50 s sur la timeline de sortie audio**. C'est la convention Kaleidoscope, et celle attendue par ChiroSurf / Tadarida. Les constantes vivent dans `src/lib/audio/constants.ts` (`CHUNK_OUTPUT_SECONDS = 50`, `CHUNK_REAL_SECONDS = 5`).
+**Convention de durée** : un chunk couvre **5 secondes de temps réel ultrasonique**. Comme chaque fichier de sortie est joué en time-expansion ×10, quel que soit le mode, **5 s temps réel = 50 s sur la timeline de sortie audio**. C'est la convention Kaleidoscope, et celle attendue par ChiroSurf / Tadarida. Les constantes vivent dans `src/lib/audio/constants.ts` (`CHUNK_OUTPUT_SECONDS = 50`, `CHUNK_REAL_SECONDS = 5`).
 
-**Mode `preserve`** (Teensy / PaRec) : aucune modification du sample rate (Teensy enregistre déjà à un débit audio expansé). Slice par tranches de `sampleRate × 50` samples.
+**Détection du mode** (`lib/audio/detectMode.ts`), d'après le firmware TeensyRecorders : un fichier dont la fréquence d'en-tête appartient à {2 400, 4 800, 9 600, 19 200, 25 000, 38 400, 50 000} Hz est déjà en TE×10 (Teensy réglé en X10) → `preserve`. Une autre fréquence à partir de 24 000 Hz vient d'un enregistrement en temps réel (AudioMoth, SM4, Teensy réglé en X1) → `expand-10x`. C'est un test d'appartenance, pas un seuil : 24 000 et 48 000 s'intercalent entre les fréquences X10. En dessous de 24 000 Hz hors de l'ensemble, la fréquence est inclassable. La règle vient du Teensy : un fichier déjà ralenti ×10 par un autre logiciel à une fréquence hors de l'ensemble (un SM4BAT à 256 000 Hz donne 25 600) serait ralenti une seconde fois sans alerte.
 
-**Mode `expand-10x`** (AudioMoth / Wildlife Acoustics) : réécriture lossless du `fmt.sampleRate` (= `Math.round(source / 10)`), puis slice par tranches de `outputSampleRate × 50` samples. Les samples PCM eux-mêmes ne sont jamais touchés — seul le champ d'en-tête change, ce qui équivaut à un ralentissement à la lecture.
+**Mode `preserve`** (Teensy réglé en X10) : aucune modification du sample rate, le fichier est déjà en TE×10. Slice par tranches de `sampleRate × 50` samples.
+
+**Mode `expand-10x`** (AudioMoth, Wildlife Acoustics, Teensy réglé en X1) : réécriture lossless du `fmt.sampleRate` (= `Math.round(source / 10)`), puis slice par tranches de `outputSampleRate × 50` samples. Les samples PCM eux-mêmes ne sont jamais touchés — seul le champ d'en-tête change, ce qui équivaut à un ralentissement à la lecture.
 
 **Multicanal** : les canaux sont conservés groupés dans chaque chunk (1 fichier stéréo → 1 fichier stéréo par chunk, pas 2 mono). À noter : Kaleidoscope coche par défaut « Split channels » → séparation en mono. Notre v1 garde groupé ; option de split en mono au backlog (cf. `roadmap.md`, « Option split-channels »).
 
@@ -302,7 +300,9 @@ Quatre variantes, mêmes principes UX que le rename :
 
 **AbortSignal (Ctrl+C)** : check entre fichiers ET entre chunks d'un même fichier. Le chunk write en cours ne peut pas être interrompu mid-syscall — c'est borné à ~100 ms par chunk.
 
-**Allowlist de formats** : `audioFormat ∈ {1 (PCM standard), 0xFFFE (EXTENSIBLE) avec subformat PCM}`. Bit depth 16 ou 24. Tout autre format → `ProcessError { reason: "unsupported-format" }`.
+**Allowlist de formats** : `audioFormat ∈ {1 (PCM standard), 0xFFFE (EXTENSIBLE) avec subformat PCM}`. Bit depth 16 ou 24. Tout autre format → `ProcessError { reason: "unsupported-format" }`, une autre profondeur → `unsupported-bit-depth`.
+
+**Contrôle d'en-tête à l'admission, identique pour les deux moteurs** : après le filtre `_NNN.wav$` et le plafond de 500 Mo, chiro lit l'en-tête de chaque fichier sans le charger. Un fichier refusé va dans `errored` avec le même code, que sox soit installé ou non : `invalid-header` (pas un WAV RIFF, pas de `fmt` ou de `data`, canaux ou fréquence à 0), `unsupported-format`, `unsupported-bit-depth`, `no-samples` (moins d'une trame dans `data`, dont un en-tête `data=0` même suivi d'audio). Aucun événement de progression n'est émis pour lui.
 
 ### Métadonnées GUANO / wamd
 
@@ -317,7 +317,7 @@ Implémentation : `src/lib/audio/metadata/{guano,wamd,chunkMetadata}.ts`, append
 
 ### Glossaire — vocabulaire technique
 
-- **Time expansion ×10** : technique consistant à réécrire le sample rate d'un fichier ultrasonique pour que sa lecture soit 10× plus lente, donc audible. Pour un AudioMoth 250 kHz, on déclare 25 kHz → ce qui se prononçait à 80 kHz se joue à 8 kHz. Aucun sample modifié, juste un champ d'en-tête. Voir `architecture.md` § ADR pour les détails. Le Teensy enregistre **nativement** à un débit audio expansé : c'est pourquoi son mode `preserve` ne touche pas au sample rate.
+- **Time expansion ×10** : technique consistant à réécrire le sample rate d'un fichier ultrasonique pour que sa lecture soit 10× plus lente, donc audible. Pour un AudioMoth 250 kHz, on déclare 25 kHz → ce qui se prononçait à 80 kHz se joue à 8 kHz. Aucun sample modifié, juste un champ d'en-tête. Voir `architecture.md` § ADR pour les détails. Un Teensy réglé en X10 enregistre directement à un débit expansé : c'est pourquoi le mode `preserve` ne touche pas au sample rate. Réglé en X1, il enregistre en temps réel et passe en `expand-10x`.
 - **5 s temps réel** : convention de découpe. Sur la timeline du fichier de sortie (TE×10), cela correspond à 50 secondes d'audio à écouter.
 - **PCM** : Pulse-Code Modulation. Format audio non compressé, échantillons entiers signés (16-bit ou 24-bit dans la chaîne Vigie-Chiro). Seul format accepté.
 
@@ -625,6 +625,7 @@ Trois issues, jamais de branche « erreur » distincte de l'écran de run — `r
 - Scan **non-récursif** de `process.cwd()`, **plus** un éventuel sous-dossier nommé `Brut` ou `Bruts` (casse indifférente : `brut`, `BRUTS`… acceptés ; `Brutal`/`Brute` non), lui aussi scanné à un seul niveau (jamais `Brut/2026/`). Les deux emplacements sont fusionnés en un seul lot.
 - Filtre : nom se terminant par `.wav` OU `.WAV` (case-insensitive sur l'extension uniquement).
 - Ignorer : dotfiles (`.foo.wav`), dossiers, symlinks (au moins MVP — on ignore pour rester safe). Le filtre dotfile s'applique aussi dans `Brut/` — essentiel sur un disque exFAT, où macOS pose un `._<nom>.wav` à côté de chaque fichier.
+- Mettre de côté les fichiers de travail du Teensy : `temp.wav` (le fichier d'acquisition, un en-tête vide de 44 octets si la nuit est coupée) et `Test.wav` (le test de vitesse de la carte SD), ainsi que leur forme déjà préfixée par une version antérieure (`Car…-temp.wav`). Nom exact, casse indifférente, à la racine comme dans `Brut/`. Ils ne sont ni préfixés ni découpés et ne comptent ni parmi les enregistrements ni parmi les autres fichiers ignorés. `scanDirectory` les rend à part (`scratchFiles`). Les deux Constat le disent par une ligne discrète. Ils n'entrent pas non plus dans le refus `duplicate-names`.
 - Conserver l'ordre alphabétique stable sur la liste fusionnée (utile pour l'écran de confirmation) — les entrées du sous-dossier sont préfixées de son nom (`Brut/foo.wav`), relatif au `cwd`.
 - **Refus, pas de résolution silencieuse**, si le même nom de base existe à la fois à la racine et dans `Brut/` : les deux produiraient le même nom en sortie de découpage (`processed/<nom>_NNN.wav`), l'un écraserait l'autre. `scanDirectory` retourne alors `{ kind: "duplicate-names", names }` plutôt qu'un résultat exploitable.
 

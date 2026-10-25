@@ -1,6 +1,14 @@
 import { render } from "ink-testing-library";
 import type { ReactElement } from "react";
-import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -288,7 +296,7 @@ describe("App — end-to-end", () => {
     unmount();
   });
 
-  it("completes the process flow: Menu → process:constat → form → confirm → result", async () => {
+  it("completes the process flow: Menu → process:constat → confirm → result, with the mode detected from the header", async () => {
     // Replace the empty .wav files with valid synthetic WAVs so the
     // processing flow has something to chunk.
     for (const name of TEENSY_FILES) {
@@ -319,20 +327,12 @@ describe("App — end-to-end", () => {
     expect(lastFrame() ?? "").toContain(path.basename(tmpDir));
     expect(lastFrame() ?? "").toContain("prêt");
 
-    // Continue → Form
     stdin.write("\r");
     await settle();
-
-    // --- Form --- pick "Boîtier PaRec" (default, focused)
+    await waitForText(lastFrame, "On va découper");
     expect(lastFrame() ?? "").toContain(
-      "Quel type d'enregistreur a produit ces fichiers ?",
+      "Ralentissement 10× : déjà fait à l'enregistrement",
     );
-    stdin.write("\r");
-    await settle();
-    await new Promise((r) => setTimeout(r, 200));
-
-    // --- Confirm ---
-    expect(lastFrame() ?? "").toContain("On va découper");
     expect(lastFrame() ?? "").toContain(
       "Vos fichiers d'origine ne seront pas modifiés.",
     );
@@ -358,6 +358,41 @@ describe("App — end-to-end", () => {
     const processedEntries = await readdir(path.join(tmpDir, "processed"));
     expect(processedEntries.length).toBeGreaterThan(0);
     expect(processedEntries.every((e) => e.endsWith(".wav"))).toBe(true);
+  });
+
+  it("slows down an AudioMoth batch end to end: the split files declare a tenth of the source rate", async () => {
+    for (const name of TEENSY_FILES) {
+      await writeFile(
+        path.join(tmpDir, name),
+        makeRampWav({ sampleRate: 250000, durationSeconds: 1 }),
+      );
+    }
+
+    const { stdin, lastFrame } = render(
+      <App
+        cwd={tmpDir}
+        onRequestUpdate={vi.fn()}
+        soxAvailability={{ kind: "absent" }}
+      />,
+    );
+
+    stdin.write("\x1B[B");
+    await settle();
+    stdin.write("\r");
+    await waitForText(lastFrame, "prêt");
+    stdin.write("\r");
+    await waitForText(lastFrame, "On va découper");
+    expect(lastFrame() ?? "").toContain(
+      "Ralentissement 10× : fait par chiro pendant le découpage",
+    );
+    stdin.write("\r");
+    await waitForText(lastFrame, "Terminé");
+
+    const outDir = path.join(tmpDir, "processed");
+    const [firstChunk] = (await readdir(outDir)).sort();
+    if (firstChunk === undefined) throw new Error("no split file");
+    const header = await readFile(path.join(outDir, firstChunk));
+    expect(header.readUInt32LE(24)).toBe(25000);
   });
 
   it("blocks the process flow when processed/ already contains files", async () => {

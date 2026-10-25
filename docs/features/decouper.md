@@ -6,12 +6,16 @@ Découpe chaque enregistrement en fichiers de 5 secondes de temps réel, avec le
 
 Chaque `.wav` du dossier est découpé en fichiers plus courts, écrits dans un sous-dossier `processed/`. **Vos fichiers d'origine ne sont jamais modifiés ni supprimés.**
 
-Deux modes, choisis à l'écran de saisie :
+chiro lit la fréquence d'échantillonnage dans l'en-tête de chaque enregistrement et choisit tout seul. Vous n'avez rien à répondre :
 
-| Mode       | Pour qui                                            | Ce qui se passe                             |
-| ---------- | --------------------------------------------------- | ------------------------------------------- |
-| **Teensy** | enregistreurs qui enregistrent déjà en temps étendu | le son est découpé tel quel                 |
-| **Autre**  | AudioMoth et détecteurs full-spectrum               | le son est d'abord étendu ×10, puis découpé |
+| Enregistrements                                    | Reconnus à                                   | Ce qui se passe                              |
+| -------------------------------------------------- | -------------------------------------------- | -------------------------------------------- |
+| **déjà ralentis 10×** (boîtier PaRec réglé en X10) | une fréquence Teensy X10 (38 400 Hz, etc.)   | le son est découpé tel quel                  |
+| **à ralentir 10×** (AudioMoth, PaRec réglé en X1…) | une fréquence de 24 000 Hz ou plus, hors X10 | le son est d'abord ralenti ×10, puis découpé |
+
+Le boîtier PaRec n'enregistre pas toujours en ralenti : c'est un réglage de son menu. Le nom du fichier ne le dit pas, la fréquence si. Le mode retenu s'affiche sur l'écran de confirmation.
+
+Un dossier qui mélange les deux sortes est refusé : rangez-les dans deux dossiers. Un enregistrement dont la fréquence ne correspond à aucun enregistreur connu arrête aussi le découpage : chiro le liste, vous le déplacez dans un autre dossier, puis vous relancez.
 
 Dans les deux cas la sortie est en temps étendu ×10, et chaque fichier produit contient **5 secondes de son réel**, soit 50 secondes sur la durée affichée par un lecteur. C'est la convention Kaleidoscope, et c'est ce que ChiroSurf et Tadarida attendent.
 
@@ -37,7 +41,7 @@ Quand sox produit un résultat suspect, chiro s'en aperçoit — il compare troi
 
 - **Ça ne descend pas dans les sous-dossiers, sauf un.** Un sous-dossier `Brut` ou `Bruts` (majuscules ou non) est lu sur un seul niveau. Ses fichiers découpés vont dans le même `processed/` à la racine. Ça ignore aussi les fichiers déjà découpés (ceux qui finissent par `_000`, `_001`…). Relancer est bloqué tant que `processed/` contient des fichiers (voir plus bas).
 - **Ça refuse les fichiers de plus de 500 Mo.** L'outil charge chaque fichier entièrement en mémoire ; au-delà, il préfère refuser proprement plutôt que de saturer votre machine. Un fichier d'une nuit entière en continu peut dépasser cette limite. Le traitement en flux est au backlog (« Streaming pour fichiers > 500 Mo »).
-- **Ça refuse les WAV compressés.** Seul le PCM non compressé est accepté. Les `.wac` de Wildlife Acoustics doivent être convertis avant.
+- **Ça refuse les WAV qui ne sont pas du PCM entier 16 ou 24 bits** (WAV compressés, float, A-law, 8 ou 32 bits), et les fichiers sans son. La règle est la même que sox soit installé ou non. Les `.wac` de Wildlife Acoustics doivent être convertis avant.
 - **Les enregistrements stéréo restent groupés.** Les deux canaux ne sont pas séparés en deux fichiers, contrairement à l'option « Split channels » de Kaleidoscope (backlog, « Option split-channels »).
 - **La durée de découpe est figée** à 5 secondes réelles. C'est la valeur du protocole Point Fixe ; un autre protocole demanderait de la rendre réglable (backlog, « Durée de découpe paramétrable »).
 - **Les métadonnées AudioMoth d'origine** (le texte « Recorded at … by AudioMoth … ») ne sont pas conservées dans les fichiers produits. C'est le comportement de Kaleidoscope aussi (backlog, « Conservation du chunk LIST/INFO »).

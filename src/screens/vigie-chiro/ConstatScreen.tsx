@@ -7,6 +7,7 @@ import { buildConstatCounts } from "../../lib/vigie-chiro/buildConstatCounts.js"
 import type { ConstatCounts } from "../../types.js";
 import { describeScanOrigin } from "../../format/scanOrigin.js";
 import { fitPath } from "../../format/path.js";
+import { formatScratchFilesIgnored } from "../../format/scratchFiles.js";
 
 type ScanState =
   | { kind: "loading" }
@@ -21,6 +22,7 @@ type ScanState =
       subDirName: string | null;
       rootCount: number;
       subCount: number;
+      scratchCount: number;
     };
 
 export type ConstatScreenProps = {
@@ -51,6 +53,7 @@ export const ConstatScreen = ({
         subDirName: result.subDirName,
         rootCount: result.rootCount,
         subCount: result.subCount,
+        scratchCount: result.scratchFiles.length,
       });
     });
     return () => {
@@ -174,8 +177,13 @@ export const ConstatScreen = ({
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
         <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
-        <Box marginTop={1}>
+        <Box marginTop={1} flexDirection="column">
           <Text>Aucun enregistrement .wav trouvé dans ce dossier.</Text>
+          {state.scratchCount > 0 ? (
+            <Text dimColor>
+              {`  ${formatScratchFilesIgnored(state.scratchCount)}`}
+            </Text>
+          ) : null}
         </Box>
         <Box marginTop={1} flexDirection="column">
           <Text>
@@ -245,6 +253,16 @@ export const ConstatScreen = ({
             ? "s seront ignorés"
             : " sera ignoré"} (pas {counts.otherIgnored > 1 ? "des" : "un"}{" "}
           .wav)
+        </Text>
+      ) : null}
+      {state.scratchCount > 0 ? (
+        <Text dimColor>
+          {"  • "}
+          {state.scratchCount.toString()} fichier
+          {state.scratchCount > 1 ? "s" : ""} temporaire
+          {state.scratchCount > 1 ? "s" : ""} de l'enregistreur ser
+          {state.scratchCount > 1 ? "ont" : "a"} ignoré
+          {state.scratchCount > 1 ? "s" : ""}
         </Text>
       ) : null}
       <Box marginTop={1}>

@@ -14,10 +14,10 @@ import {
 
 export type { ProcessWavFilesFn };
 
-const modeLabel = (mode: ProcessInput["mode"]): string =>
+const slowDownLabel = (mode: ProcessInput["mode"]): string =>
   mode === "preserve"
-    ? "Boîtier PaRec (Teensy)"
-    : "Autre détecteur (ralentissement 10×)";
+    ? "déjà fait à l'enregistrement"
+    : "fait par chiro pendant le découpage";
 
 /**
  * Capitalizes the first letter and appends a trailing period — the mapper
@@ -138,17 +138,19 @@ export const ConfirmScreen = ({
           {`On va découper ${wavFiles.length.toString()} enregistrement${
             wavFiles.length > 1 ? "s" : ""
           } (environ ${formatDuration(state.totalDurationSec)} d'audio${
-            input.mode === "expand-10x" ? " une fois étendu" : ""
+            input.mode === "expand-10x" ? " une fois ralenti" : ""
           })`}
         </Text>
         <Text>en fichiers de 5 secondes.</Text>
       </Box>
       <Box marginTop={1} flexDirection="column">
-        <Text>
-          {`Type d'enregistreur choisi : `}
-          <Text color="cyan">{modeLabel(input.mode)}</Text>
-        </Text>
-        <Text>{`Dossier de sortie :          ${PROCESSED_DIR_DISPLAY}`}</Text>
+        {state.totalChunks > 0 ? (
+          <Text>
+            {"Ralentissement 10× : "}
+            <Text color="cyan">{slowDownLabel(input.mode)}</Text>
+          </Text>
+        ) : null}
+        <Text>{`Dossier de sortie :  ${PROCESSED_DIR_DISPLAY}`}</Text>
       </Box>
       <Box marginTop={1}>
         <Text dimColor>Vos fichiers d'origine ne seront pas modifiés.</Text>
@@ -156,7 +158,7 @@ export const ConfirmScreen = ({
       <Footer
         hints={[
           { key: "Entrée", label: "découper" },
-          { key: "Échap", label: "modifier la saisie" },
+          { key: "Échap", label: "revenir au début" },
         ]}
       />
     </Box>

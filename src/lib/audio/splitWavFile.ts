@@ -1,5 +1,6 @@
 import { WaveFile } from "wavefile";
 import type { TimeExpansionMode } from "../../types.js";
+import { checkSplittable, type SplitErrorCode } from "./wavFormat.js";
 
 export type SplitWavOptions = {
   mode: TimeExpansionMode;
@@ -14,59 +15,26 @@ export type EncodedChunk = {
   channels: number;
 };
 
-export type SplitErrorCode =
-  | "invalid-header"
-  | "unsupported-format"
-  | "unsupported-bit-depth"
-  | "no-samples";
-
 export type SplitWavYield =
   | { kind: "chunk"; chunk: EncodedChunk }
   | { kind: "error"; code: SplitErrorCode };
 
 type WavFmt = {
   audioFormat: number;
-  numChannels: number;
   sampleRate: number;
   bitsPerSample: number;
-  cbSize: number;
   subformat: number[];
 };
-
-const PCM_AUDIO_FORMAT = 1;
-const EXTENSIBLE_AUDIO_FORMAT = 0xfffe;
-
-// First 16 bytes of the WAVE_FORMAT_EXTENSIBLE subformat GUID for plain PCM.
-// Anything else (float, A-law, mu-law) is rejected — Vigie-Chiro's analysis
-// chain requires integer PCM samples.
-const PCM_SUBFORMAT_PREFIX = [0x01, 0x00];
 
 type BitDepthMapping = {
   bitDepth: "16" | "24";
   Ctor: typeof Int16Array | typeof Int32Array;
 };
 
-const mapBitDepth = (wavBitDepth: string): BitDepthMapping | null => {
-  if (wavBitDepth === "16") return { bitDepth: "16", Ctor: Int16Array };
-  if (wavBitDepth === "24") return { bitDepth: "24", Ctor: Int32Array };
-  return null;
-};
-
-const isPcmSubformat = (subformat: number[]): boolean => {
-  if (subformat.length < PCM_SUBFORMAT_PREFIX.length) return false;
-  for (let i = 0; i < PCM_SUBFORMAT_PREFIX.length; i++) {
-    if (subformat[i] !== PCM_SUBFORMAT_PREFIX[i]) return false;
-  }
-  return true;
-};
-
-const isAllowedFormat = (fmt: WavFmt): boolean => {
-  if (fmt.audioFormat === PCM_AUDIO_FORMAT) return true;
-  if (fmt.audioFormat === EXTENSIBLE_AUDIO_FORMAT) {
-    return isPcmSubformat(fmt.subformat);
-  }
-  return false;
-};
+const mapBitDepth = (bitsPerSample: number): BitDepthMapping =>
+  bitsPerSample === 24
+    ? { bitDepth: "24", Ctor: Int32Array }
+    : { bitDepth: "16", Ctor: Int16Array };
 
 const normalizeChannels = (
   raw: Int16Array | Int32Array | (Int16Array | Int32Array)[],
@@ -101,16 +69,17 @@ export function* splitWavFile(
 
   const fmt = sourceWav.fmt as WavFmt;
 
-  if (!isAllowedFormat(fmt)) {
-    yield { kind: "error", code: "unsupported-format" };
+  const formatError = checkSplittable({
+    audioFormat: fmt.audioFormat,
+    subformatTag: fmt.subformat[0] ?? null,
+    bitsPerSample: fmt.bitsPerSample,
+  });
+  if (formatError !== null) {
+    yield { kind: "error", code: formatError };
     return;
   }
 
-  const mapping = mapBitDepth(sourceWav.bitDepth);
-  if (mapping === null) {
-    yield { kind: "error", code: "unsupported-bit-depth" };
-    return;
-  }
+  const mapping = mapBitDepth(fmt.bitsPerSample);
 
   const raw = sourceWav.getSamples(false, mapping.Ctor) as unknown as
     Int16Array | Int32Array | (Int16Array | Int32Array)[];
