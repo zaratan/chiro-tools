@@ -35,7 +35,7 @@ archived/Car340581-2026-Pass1-A1_20260902.zip
 
 ## Une limite à connaître
 
-**Deux sauvegardes du même dossier le même jour se marchent dessus.** Le nom du fichier contient la date mais pas l'heure : si vous lancez la sauvegarde deux fois dans la même journée sur le même dossier, la seconde écrase la première. En pratique une sauvegarde se fait une fois, à la fin du traitement d'une nuit — mais la limite existe et elle est silencieuse.
+**Deux sauvegardes lancées en même temps peuvent se marcher dessus.** Le nom du fichier contient la date mais pas l'heure. Une seconde sauvegarde du même dossier le même jour ne remplace pas la première. Son nom prend un suffixe (`-2`, puis `-3`…) et l'écran de confirmation prévient que le nouveau zip s'ajoutera à côté. Seul un double lancement simultané sur le même dossier, dans deux terminaux, peut écraser. Rien ne vous préviendrait alors.
 
 ## Après la sauvegarde
 

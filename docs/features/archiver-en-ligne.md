@@ -53,7 +53,7 @@ Une fois ces réglages en place **et** rclone détecté, l'entrée « Archiver l
 
 ## Pendant le transfert
 
-Comptez de l'ordre de 5 à 15 minutes pour une sauvegarde de 15 Go sur une bonne connexion — proportionnellement plus sur une connexion plus lente. chiro affiche la progression et continue tout seul ; il relance automatiquement les tentatives sur coupure réseau.
+L'écran de confirmation affiche une durée prévue, calculée sur la taille du fichier. Elle est volontairement large : environ 1 h pour 15 Go. Sur une bonne connexion le transfert peut finir nettement plus tôt. chiro affiche la progression et continue tout seul. Il relance automatiquement les tentatives sur coupure réseau.
 
 Sur macOS, chiro empêche l'ordinateur de s'endormir pendant le transfert — **mais uniquement s'il est branché sur secteur**. C'est une limite du système, pas de chiro : sur batterie, la mise en veille interrompra le transfert. L'écran de confirmation vous le rappelle si vous êtes sur batterie.
 

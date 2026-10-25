@@ -70,7 +70,7 @@ Le menu s'ouvre. Déplacez-vous avec ↑ ↓, validez avec `Entrée`, quittez av
 
 `chiro` travaille toujours dans le dossier depuis lequel vous l'avez lancé, et vous affiche ce chemin à chaque écran. Il vous montre ce qu'il va faire **avant** de le faire, et attend `Entrée`.
 
-**Un dossier = un passage** — une pose d’enregistreur sur un point d’écoute, le plus souvent une nuit. C’est l’organisation prévue ; `chiro` ne descend jamais dans les sous-dossiers.
+**Un dossier = un passage** : une pose d’enregistreur sur un point d’écoute, le plus souvent une nuit. C’est l’organisation prévue. Pour trouver vos enregistrements, `chiro` ne descend pas dans les sous-dossiers. Seule exception : un sous-dossier `Brut` ou `Bruts`, lu sur un seul niveau. Ses fichiers y sont renommés sur place et `processed/` reste à la racine. Un même nom présent aux deux endroits est refusé.
 
 ## Aller plus vite (optionnel)
 

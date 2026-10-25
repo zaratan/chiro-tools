@@ -19,7 +19,7 @@ Dans les deux cas la sortie est en temps étendu ×10, et chaque fichier produit
 
 Le découpage recopie les échantillons tels quels. Seul l'en-tête du fichier change (la fréquence d'échantillonnage déclarée, pour l'expansion temporelle). Il n'y a **aucune perte de qualité**, et c'est vérifié automatiquement à chaque build par une comparaison octet par octet.
 
-Chaque fichier produit reçoit aussi ses métadonnées GUANO et wamd — la date et l'heure de l'enregistrement d'origine, le modèle d'enregistreur — reconstituées depuis le nom du fichier source.
+Chaque fichier produit reçoit aussi ses métadonnées GUANO et wamd (la date et l'heure de l'enregistrement d'origine), reconstituées depuis le nom du fichier source.
 
 ## Vitesse
 
@@ -35,7 +35,7 @@ Quand sox produit un résultat suspect, chiro s'en aperçoit — il compare troi
 
 ## Ce que ça ne fait pas
 
-- **Ça ne descend pas dans les sous-dossiers**, et ça ignore les fichiers déjà découpés (ceux qui finissent par `_000`, `_001`…). Relancer sur un dossier déjà traité ne fait pas de doublons.
+- **Ça ne descend pas dans les sous-dossiers, sauf un.** Un sous-dossier `Brut` ou `Bruts` (majuscules ou non) est lu sur un seul niveau. Ses fichiers découpés vont dans le même `processed/` à la racine. Ça ignore aussi les fichiers déjà découpés (ceux qui finissent par `_000`, `_001`…). Relancer est bloqué tant que `processed/` contient des fichiers (voir plus bas).
 - **Ça refuse les fichiers de plus de 500 Mo.** L'outil charge chaque fichier entièrement en mémoire ; au-delà, il préfère refuser proprement plutôt que de saturer votre machine. Un fichier d'une nuit entière en continu peut dépasser cette limite. Le traitement en flux est au backlog (« Streaming pour fichiers > 500 Mo »).
 - **Ça refuse les WAV compressés.** Seul le PCM non compressé est accepté. Les `.wac` de Wildlife Acoustics doivent être convertis avant.
 - **Les enregistrements stéréo restent groupés.** Les deux canaux ne sont pas séparés en deux fichiers, contrairement à l'option « Split channels » de Kaleidoscope (backlog, « Option split-channels »).
@@ -46,9 +46,11 @@ Quand sox produit un résultat suspect, chiro s'en aperçoit — il compare troi
 
 **Un fichier est illisible ou corrompu.** Il est signalé et le reste du lot continue. L'écran final regroupe les erreurs par type plutôt que de vous lister 300 lignes.
 
-**Vous appuyez sur Ctrl+C.** Le traitement s'arrête, les fichiers déjà écrits sont conservés, et aucun fichier incomplet ne reste dans `processed/`. Relancer reprend là où vous en étiez.
+**Vous appuyez sur Ctrl+C.** Le découpage s'arrête et l'écran de fin dit combien d'enregistrements ont été découpés. Vos fichiers d'origine n'ont pas bougé. En revanche `processed/` peut contenir des enregistrements découpés à moitié. Renommez ou supprimez ce dossier avant de relancer. L'écran de fin vous le rappelle.
 
-**`processed/` existe déjà.** chiro vous prévient en jaune avant de commencer et vous propose de renommer l'ancien dossier — il ne le supprime jamais lui-même.
+**`processed/` existe déjà et contient des fichiers.** chiro s'arrête en jaune avant de commencer. Renommez l'ancien dossier ou supprimez-le s'il ne vous sert plus, puis relancez. chiro ne le renomme ni ne le supprime jamais lui-même.
+
+**Le même nom existe à la racine et dans `Brut/`.** chiro refuse de continuer et liste les fichiers concernés. Les deux donneraient les mêmes fichiers dans `processed/` et l'un écraserait l'autre. Gardez-en un seul, puis relancez.
 
 **Un souci avec les métadonnées.** Si un outil en aval refuse les fichiers produits, vous pouvez désactiver complètement l'ajout des métadonnées sans réinstaller quoi que ce soit :
 

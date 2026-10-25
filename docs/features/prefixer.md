@@ -39,7 +39,7 @@ Le point est automatiquement passé en majuscule. `a1` et `A1` donnent le même 
 
 ## Ce que ça ne fait pas
 
-- **Ça ne descend pas dans les sous-dossiers.** Seuls les `.wav` directement dans le dossier courant sont traités. Un dossier par nuit, c'est l'usage prévu.
+- **Ça ne descend pas dans les sous-dossiers, sauf un.** Les `.wav` du dossier courant sont traités. Ceux d'un sous-dossier `Brut` ou `Bruts` (majuscules ou non) aussi, sur un seul niveau. Ils sont renommés sur place, dans `Brut/`. Un dossier par passage, c'est l'usage prévu.
 - **Ça ne touche à rien d'autre que les `.wav`.** Le `LogPR*.txt` que pose votre Teensy est ignoré, pas supprimé.
 - **Il n'y a pas d'annulation.** Le renommage est immédiat et définitif. La seule protection est que le nom d'origine reste lisible dans le nouveau nom : vous pouvez toujours refaire le chemin inverse à la main. Une vraie fonction d’annulation est au [backlog](../roadmap.md) (« Annuler la dernière opération »).
 - **Ça ne devine pas l'année ni le point** depuis le contenu des fichiers. Vous les saisissez à chaque fois. Le pré-remplissage de la dernière session est au backlog (« Pré-remplissage de la dernière session »).
@@ -47,6 +47,8 @@ Le point est automatiquement passé en majuscule. `a1` et `A1` donnent le même 
 ## Si ça tourne mal
 
 **Vous appuyez sur Ctrl+C en plein renommage.** L'opération en cours se termine, puis chiro s'arrête et vous dit exactement combien de fichiers ont été renommés. Le dossier est dans un état mixte — certains préfixés, d'autres non — mais cohérent : relancer l'opération finit le travail sans rien abîmer.
+
+**Le même nom existe à la racine et dans `Brut/`.** chiro refuse de continuer et liste les fichiers concernés. Une fois découpés, les deux donneraient les mêmes fichiers dans `processed/` et l'un écraserait l'autre. Gardez-en un seul, puis relancez.
 
 **Un fichier refuse d'être renommé** (verrouillé par un autre programme, permissions). Les autres sont quand même traités. L'écran final liste ce qui a échoué et pourquoi.
 
