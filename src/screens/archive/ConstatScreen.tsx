@@ -13,6 +13,8 @@ import {
 } from "../../lib/archive/planArchive.js";
 import { buildUploadDir } from "../../lib/archive/planUpload.js";
 import { cleanOrphanStagingDirs } from "../../lib/archive/createZipVolumes.js";
+import { scanDirectory } from "../../lib/fs/scanDirectory.js";
+import { countRecordingsWithWhitespace } from "../../lib/vigie-chiro/whitespaceInName.js";
 import { formatBytes } from "../../format/bytes.js";
 import type { ArchiveFlowMode } from "./useArchiveRun.js";
 import { fitPath } from "../../format/path.js";
@@ -31,7 +33,13 @@ type ScanState =
       requiredBytes: number;
       availableBytes: number;
     }
-  | { kind: "ready"; entries: ArchiveEntryStat[]; totalBytes: number };
+  | { kind: "whitespace-names"; count: number; sourcesFixed: boolean }
+  | {
+      kind: "ready";
+      entries: ArchiveEntryStat[];
+      totalBytes: number;
+      whitespaceCount: number;
+    };
 
 const DIR_LABEL: Record<ArchiveFlowMode, string> = {
   backup: "archived",
@@ -81,6 +89,17 @@ const scanForArchive = async (
   }
 
   const { entries, totalBytes } = scanResult;
+  const whitespaceCount = countRecordingsWithWhitespace(
+    entries.map((entry) => entry.name),
+  );
+
+  if (mode === "package" && whitespaceCount > 0) {
+    const sources = await scanDirectory(cwd);
+    const sourcesFixed =
+      sources.kind === "ok" &&
+      countRecordingsWithWhitespace(sources.wavFiles) === 0;
+    return { kind: "whitespace-names", count: whitespaceCount, sourcesFixed };
+  }
 
   // Writability of cwd (not `processedDir`) — chiro needs to create the
   // `archived`/`upload` sibling directory next to `processed/`.
@@ -102,7 +121,7 @@ const scanForArchive = async (
     // statfs failed — proceed; the run will surface ENOSPC if needed.
   }
 
-  return { kind: "ready", entries, totalBytes };
+  return { kind: "ready", entries, totalBytes, whitespaceCount };
 };
 
 export type ArchiveConstatScreenProps = {
@@ -250,6 +269,34 @@ export const ConstatScreen = ({
     );
   }
 
+  if (state.kind === "whitespace-names") {
+    return (
+      <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
+        <Box marginTop={1}>
+          <Text color="yellow">
+            {state.count > 1
+              ? `⚠ ${state.count.toString()} enregistrements découpés ont un espace dans leur nom.`
+              : "⚠ 1 enregistrement découpé a un espace dans son nom."}
+          </Text>
+        </Box>
+        <Box flexDirection="column" marginTop={1}>
+          <Text>
+            {"Vigie-Chiro refuse les espaces. Pour les remplacer par « _ » :"}
+          </Text>
+          {state.sourcesFixed ? null : (
+            <Text>{"  • lancez « Préfixer des enregistrements »"}</Text>
+          )}
+          <Text>{"  • renommez l'ancien dossier « processed »"}</Text>
+          <Text>
+            {"  • relancez « Découper les enregistrements », puis revenez ici"}
+          </Text>
+        </Box>
+        <Footer hints={minimalFooter} />
+      </Box>
+    );
+  }
+
   if (state.kind === "insufficient-disk") {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
@@ -291,6 +338,25 @@ export const ConstatScreen = ({
         </Text>
       </Box>
       <Text>{`  Volume total : ${formatBytes(state.totalBytes)}`}</Text>
+      {state.whitespaceCount > 0 ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Text color="yellow">
+            {state.whitespaceCount > 1
+              ? `⚠ ${state.whitespaceCount.toString()} enregistrements ont un espace dans leur nom.`
+              : "⚠ 1 enregistrement a un espace dans son nom."}
+          </Text>
+          <Text dimColor>
+            {state.whitespaceCount > 1
+              ? "  Ils seront sauvegardés tels quels. Pour les déposer sur"
+              : "  Il sera sauvegardé tel quel. Pour le déposer sur"}
+          </Text>
+          <Text dimColor>
+            {state.whitespaceCount > 1
+              ? "  Vigie-Chiro, il faudra d'abord remplacer ces espaces."
+              : "  Vigie-Chiro, il faudra d'abord remplacer cet espace."}
+          </Text>
+        </Box>
+      ) : null}
       <Box marginTop={1}>
         <Text>
           {mode === "backup"

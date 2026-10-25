@@ -67,7 +67,8 @@ Contenu :
 - En-tête : chemin **absolu** du `cwd` (ex : `📁 /Users/.../Vigie-2026-A1/`).
 - Compteurs :
   - `N enregistrements .wav trouvés ici` (compte `.wav` ET `.WAV`, case-insensitive ; racine + `Brut`/`Bruts` fusionnés — cf. Règles métier)
-  - `M fichier(s) déjà au bon format` (matche la regex d'idempotence — sera laissé tel quel)
+  - `M fichier(s) déjà au bon format` (matche la regex d'idempotence et n'a aucun blanc dans son nom de base — sera laissé tel quel)
+  - `W fichier(s) déjà préfixé(s) : les espaces deviendront « _ »` (préfixé mais avec un blanc dans son nom de base, cf. Règles métier § Blancs dans les noms)
   - `K autre(s) fichier(s) ignoré(s)` (non `.wav` ; dotfiles ignorés)
   - Si une partie au moins vient du sous-dossier, une ligne `dimColor` précise la répartition (`(N ici et M dans ./Brut/)`, ou `trouvés dans ./Brut/` si tout en vient) — inchangé quand tout vient de la racine.
 - Question : `Ce sont bien les fichiers à préparer ?`
@@ -120,18 +121,22 @@ Affiché immédiatement après soumission valide du formulaire. **Précalcule** 
 Contenu :
 
 - Titre : `On va renommer N fichiers comme ceci :`
-- **3 exemples** `avant → après` (1er, milieu, dernier dans l'ordre alphabétique des noms d'origine ; si N ≤ 3, on les affiche tous).
-- Si `N > 3` : `... et X autres fichiers du même genre` après les 3 exemples.
+- **3 exemples** `avant → après` (1er, milieu, dernier dans l'ordre alphabétique des noms d'origine ; si N ≤ 4, on les affiche tous).
+- Si `N > 4` : `Les X autres suivent le même format.` après les 3 exemples.
+- Si le bloc des espaces s'affiche aussi : un seul exemple par bloc, deux s'il n'en reste qu'un.
 - Si fichiers déjà préfixés détectés au Constat : rappel `ℹ M fichier(s) sera/seront laissé(s) tel(s) quel(s) (déjà au bon format) :` + liste tronquée si > 3.
 - **Détection de collision au plan-time** : si un nom cible existerait déjà sur disque (hors le fichier source lui-même), l'afficher en `yellow` AVANT exécution :
   `⚠ N fichiers ne pourront pas être renommés` puis `(un fichier porte déjà le nom cible) :` + liste.
 - Si rien n'est à renommer et qu'il reste des collisions, le titre est `ℹ Aucun fichier ne sera renommé.`
-- Phrase de réassurance : `Le nom original est conservé en fin du nouveau nom — rien n'est perdu.`
+- Les fichiers déjà préfixés qui ont un blanc forment un bloc à part, sous celui du préfixe : `Les espaces deviendront « _ » dans W fichiers déjà préfixés :`, puis des exemples réduits au nom de base. Le titre `On va renommer N fichiers` ne compte que les fichiers qui reçoivent le préfixe et disparaît s'il n'y en a aucun.
+- Phrase de réassurance : `Le nom original est conservé en fin du nouveau nom — rien n'est perdu.` Quand seuls des blancs changent : `Seuls les espaces changent : le reste du nom est conservé.`
 - Footer : `Entrée renommer   Échap modifier la saisie`
 
 ### Écran 4 — Résultat
 
 Affiché après exécution. Cinq variantes possibles selon l'issue. Le classement est fait par `src/lib/vigie-chiro/classifyRenameOutcome.ts`. L'écran l'affiche.
+
+En variantes A et C, les fichiers déjà préfixés dont seuls les blancs ont changé ont leur propre ligne : `W fichiers déjà préfixés : espaces remplacés par « _ »`. La ligne `N fichiers renommés avec le préfixe` ne compte que ceux qui ont reçu le préfixe et disparaît quand N vaut 0. En variante D, le compteur `déjà renommés` additionne les deux.
 
 Les collisions vues au plan s'affichent dans toutes les variantes sauf B. C'est un bloc jaune `⚠ N fichiers n'ont pas été renommés (un fichier porte déjà le nom cible) :` tronqué à 3 noms + `... et X autres`. Une collision apparue pendant le renommage arrive dans les erreurs avec `EEXIST`.
 
@@ -142,6 +147,7 @@ Les collisions vues au plan s'affichent dans toutes les variantes sauf B. C'est 
 - `M fichier(s) laissé(s) tel(s) quel(s) (déjà au bon format)` (si M > 0)
 - Phrase d'orientation vers l'étape suivante : `Vous pouvez maintenant les découper, puis créer les zips à déposer`. Elle a remplacé en 9.D un « vous pouvez maintenant les téléverser sur Vigie-Chiro » devenu faux — depuis les Phases 5 et 9, il faut découper puis empaqueter avant de déposer quoi que ce soit.
 - S'il reste des collisions : bloc collisions, et la phrase d'orientation devient `Vérifiez ces fichiers avant de découper : tels quels, ils seraient découpés avec les autres.`
+- Si une de ces collisions a un blanc dans son nom, la phrase devient `Retirez ces fichiers du dossier avant de découper : leur nom contient un espace : le découpage ne démarrerait pas.` Le Constat du découpage refuserait ce nom et renverrait vers le préfixage, qui retomberait sur la même collision.
 - Footer : `Entrée retour au menu`
 
 **Variante B — Rien à faire (tout déjà préfixé)**
@@ -158,7 +164,7 @@ Les collisions vues au plan s'affichent dans toutes les variantes sauf B. C'est 
 - Liste des fichiers en échec avec **la raison** (collision sur disque, EACCES, ENOENT, autre I/O).
 - Bloc collisions s'il y en a.
 - Phrase rassurante : `Les autres fichiers ont bien été renommés.`
-- Si K = 0 : `Aucun fichier renommé` (sans ✓) et pas de phrase rassurante.
+- Si aucun nom n'a changé (ni préfixe ni blanc) : `Aucun fichier renommé` (sans ✓) et pas de phrase rassurante.
 
 **Variante D — Ctrl+C en plein renommage**
 
@@ -632,6 +638,8 @@ Un fichier est considéré "déjà préfixé" si son nom matche :
 
 Si oui → le fichier est skippé (pas renommé), compté séparément, mentionné au Constat et au Résultat.
 
+Exception voulue : un fichier préfixé qui a un blanc dans son nom de base est renommé quand même, préfixe intact. Seuls ses blancs changent (cf. § Blancs dans les noms). Une fois corrigé, il redevient « déjà préfixé ». Le prédicat unique est `isAlreadyCompliant` (`src/lib/vigie-chiro/whitespaceInName.ts`), partagé par le Constat et le plan.
+
 ### Construction du nom cible
 
 ```
@@ -643,6 +651,18 @@ Où :
 - `{préfixe}` = `CarXXXXXX-AAAA-PassN-YY-` (cf. Saisie)
 - `{nom-original-sans-extension}` = nom du fichier original débarrassé de son extension
 - L'extension finale est **toujours `.wav` minuscule**, même si l'original était `.WAV` (normalisation).
+- Chaque blanc du nom de base devient `_` (cf. § Blancs dans les noms).
+
+### Blancs dans les noms
+
+Le firmware TeensyRecorders complète un préfixe court par des espaces (`WavPrefix="PR01 "` dans `Profiles.ini`). Vigie-Chiro refuse ces noms. chiro remplace donc chaque caractère qui matche `\s` par un `_`, un `_` par caractère : supprimer les blancs pourrait confondre deux noms. `\s` couvre aussi la tabulation et l'espace insécable.
+
+- Le remplacement ne touche que le nom de base. Le dossier (`Brut/`) et l'extension ne changent pas.
+- Un brut avec blanc reçoit le préfixe et ses blancs deviennent `_` dans la même opération.
+- Un fichier déjà préfixé avec blanc reçoit une opération à part (`kind: "whitespace"`), préfixe intact.
+- Les collisions suivent les règles du plan. Un brut `PR01 PR….wav` et un préfixé `Car…-PR01 PR….wav` visent le même nom : le premier dans l'ordre alphabétique est renommé, l'autre part en collision.
+- Limite connue, sous Linux seulement : un brut `X Y.wav` à côté d'un préfixé `Car…-X_Y.WAV` déclenche au découpage l'écran « espaces que « Préfixer » ne peut pas corriger » (cf. `docs/ux.md` § P-Constat). Le préfixage aurait pourtant réussi. Le contrôle ignore la casse de l'extension, alors que le système de fichiers Linux la distingue.
+- Le préfixage ne touche jamais `processed/` ni les zips.
 
 Exemple :
 
@@ -824,7 +844,12 @@ Pour les sessions de découpage, `schema_version: 2`. Format aligné avec v1 (ti
 | `EXDEV` cross-device                                      | Fallback `copyFile + unlink` transparent                                                                                                               | Renommage                   |
 | `EACCES` / `EPERM` sur un fichier                         | Consigner, continuer                                                                                                                                   | Renommage                   |
 | `ENOENT` (fichier supprimé entre scan et rename)          | Consigner, continuer                                                                                                                                   | Renommage                   |
-| Caractères exotiques (accents, espaces, emojis) dans noms | Aucun traitement spécial, Node gère                                                                                                                    | Toujours                    |
+| Caractères exotiques (accents, emojis) dans noms          | Aucun traitement spécial, Node gère                                                                                                                    | Toujours                    |
+| Blancs (espace, tabulation…) dans le nom d'un fichier wav | Remplacés par `_` au préfixage, y compris sur un fichier déjà préfixé (cf. § Blancs dans les noms)                                                     | Préfixage                   |
+| Espace dans un `.wav` à découper                          | Blocage, renvoi vers le préfixage (et vers l'ancien `processed/` s'il existe). Avant l'écran « processed existe déjà »                                 | P-Constat                   |
+| Brut avec espace dont le nom corrigé existe déjà, préfixé | Blocage, liste des fichiers à retirer du dossier : le préfixage les laisserait en collision                                                            | P-Constat                   |
+| Espace dans un `.wav` de `processed/` au dépôt            | Blocage, renvoi vers préfixer, renommer `processed/`, redécouper. Sans la puce « préfixer » si les sources n'ont plus d'espace                         | U-Constat                   |
+| Espace dans un `.wav` de `processed/` à la sauvegarde     | Avertissement non bloquant, les noms sont sauvegardés tels quels                                                                                       | A-Constat                   |
 | Symlinks dans le dossier                                  | Ignorés au scan                                                                                                                                        | Constat                     |
 | Ctrl+C pendant la saisie                                  | Quit immédiat code 130                                                                                                                                 | Toutes                      |
 | Ctrl+C pendant le renommage                               | Stop propre, Résultat variante D                                                                                                                       | Renommage → Résultat        |

@@ -220,6 +220,13 @@ export const ConstatScreen = ({
           {counts.alreadyPrefixed > 1 ? "s" : ""}
         </Text>
       ) : null}
+      {counts.whitespacePrefixed > 0 ? (
+        <Text>
+          {counts.whitespacePrefixed > 1
+            ? `  • ${counts.whitespacePrefixed.toString()} fichiers déjà préfixés : les espaces deviendront « _ »`
+            : "  • 1 fichier déjà préfixé : les espaces deviendront « _ »"}
+        </Text>
+      ) : null}
       {counts.upperCaseWav > 0 ? (
         <Text>
           {"  • "}

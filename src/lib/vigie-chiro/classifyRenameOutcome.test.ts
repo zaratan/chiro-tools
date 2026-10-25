@@ -4,6 +4,7 @@ import { classifyRenameOutcome } from "./classifyRenameOutcome.js";
 
 const outcome = (overrides: Partial<RenameOutcome>): RenameOutcome => ({
   renamed: [],
+  whitespaceFixed: [],
   skippedAlreadyPrefixed: [],
   skippedCollision: [],
   errored: [],
@@ -24,8 +25,10 @@ describe("classifyRenameOutcome", () => {
     ).toEqual({
       kind: "success",
       renamedCount: 2,
+      whitespaceFixedCount: 0,
       alreadyCount: 1,
       collisions: [],
+      collisionsHaveWhitespace: false,
     });
   });
 
@@ -49,6 +52,7 @@ describe("classifyRenameOutcome", () => {
       kind: "nothing-renamed",
       alreadyCount: 3,
       collisions: ["a.wav", "b.wav", "c.wav"],
+      collisionsHaveWhitespace: false,
     });
   });
 
@@ -59,6 +63,7 @@ describe("classifyRenameOutcome", () => {
       kind: "nothing-renamed",
       alreadyCount: 0,
       collisions: ["a.wav"],
+      collisionsHaveWhitespace: false,
     });
   });
 
@@ -70,8 +75,10 @@ describe("classifyRenameOutcome", () => {
     ).toEqual({
       kind: "success",
       renamedCount: 1,
+      whitespaceFixedCount: 0,
       alreadyCount: 0,
       collisions: ["b.wav"],
+      collisionsHaveWhitespace: false,
     });
   });
 
@@ -88,8 +95,10 @@ describe("classifyRenameOutcome", () => {
     ).toEqual({
       kind: "interrupted",
       renamedCount: 1,
+      whitespaceFixedCount: 0,
       errored: [{ file: "b.wav", reason: "EACCES" }],
       collisions: ["c.wav"],
+      collisionsHaveWhitespace: false,
     });
   });
 
@@ -105,8 +114,10 @@ describe("classifyRenameOutcome", () => {
     ).toEqual({
       kind: "partial-errors",
       renamedCount: 1,
+      whitespaceFixedCount: 0,
       errored: [{ file: "b.wav", reason: "EEXIST" }],
       collisions: ["c.wav"],
+      collisionsHaveWhitespace: false,
     });
   });
 
@@ -131,5 +142,63 @@ describe("classifyRenameOutcome", () => {
         }),
       ).kind,
     ).toBe("interrupted");
+  });
+
+  it("reports a success, not nothing to do, when only spaces were fixed", () => {
+    expect(
+      classifyRenameOutcome(
+        outcome({
+          whitespaceFixed: ["Car1-a b.wav"],
+          skippedAlreadyPrefixed: ["Car1-c.wav"],
+        }),
+      ),
+    ).toEqual({
+      kind: "success",
+      renamedCount: 0,
+      whitespaceFixedCount: 1,
+      alreadyCount: 1,
+      collisions: [],
+      collisionsHaveWhitespace: false,
+    });
+  });
+
+  it("reports a success, not nothing renamed, when spaces were fixed and other files collided", () => {
+    expect(
+      classifyRenameOutcome(
+        outcome({
+          whitespaceFixed: ["Car1-a b.wav"],
+          skippedCollision: ["a b.wav"],
+        }),
+      ).kind,
+    ).toBe("success");
+  });
+
+  it("flags a collision whose name holds a space, since the split would refuse it", () => {
+    const variant = classifyRenameOutcome(
+      outcome({
+        whitespaceFixed: ["Car1-a b.wav"],
+        skippedCollision: ["clean.wav", "a b.wav"],
+      }),
+    );
+
+    expect(variant.kind === "success" && variant.collisionsHaveWhitespace).toBe(
+      true,
+    );
+  });
+
+  it("counts the spaces fixed before an interruption", () => {
+    const variant = classifyRenameOutcome(
+      outcome({
+        renamed: ["a.wav"],
+        whitespaceFixed: ["Car1-b c.wav"],
+        interrupted: true,
+      }),
+    );
+
+    expect(variant).toMatchObject({
+      kind: "interrupted",
+      renamedCount: 1,
+      whitespaceFixedCount: 1,
+    });
   });
 });

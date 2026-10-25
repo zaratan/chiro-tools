@@ -50,6 +50,8 @@ Quand sox produit un résultat suspect, chiro s'en aperçoit — il compare troi
 
 **`processed/` existe déjà et contient des fichiers.** chiro s'arrête en jaune avant de commencer. Renommez l'ancien dossier ou supprimez-le s'il ne vous sert plus, puis relancez. chiro ne le renomme ni ne le supprime jamais lui-même.
 
+**Un nom contient un espace.** Vigie-Chiro refuse ces noms, chiro s'arrête donc avant de découper. Ce contrôle passe avant celui de `processed/`. L'écran renvoie vers « Préfixer des enregistrements », qui remplace chaque espace par `_`, et rappelle de renommer l'ancien `processed/` s'il existe. Si un fichier brut a déjà une version préfixée dans le dossier, le préfixage ne pourrait que le laisser de côté : l'écran le liste et demande de le retirer du dossier.
+
 **Le même nom existe à la racine et dans `Brut/`.** chiro refuse de continuer et liste les fichiers concernés. Les deux donneraient les mêmes fichiers dans `processed/` et l'un écraserait l'autre. Gardez-en un seul, puis relancez.
 
 **Un souci avec les métadonnées.** Si un outil en aval refuse les fichiers produits, vous pouvez désactiver complètement l'ajout des métadonnées sans réinstaller quoi que ce soit :

@@ -21,3 +21,6 @@ const ALREADY_PREFIXED_REGEX = /^Car\d{6}-\d{4}-Pass\d+-[A-Za-z]\d-/;
 export const isAlreadyPrefixed = (filename: string): boolean => {
   return ALREADY_PREFIXED_REGEX.test(path.basename(filename));
 };
+
+export const removeVigiePrefix = (baseName: string): string =>
+  baseName.replace(ALREADY_PREFIXED_REGEX, "");

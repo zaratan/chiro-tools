@@ -132,10 +132,15 @@ Ce sont bien les fichiers à préparer ?
 **Variantes** :
 
 - Aucun fichier déjà préfixé / aucun fichier ignoré → ne pas afficher les puces correspondantes.
-- Présence de `.WAV` majuscule : ajouter la puce suivante. Elle s'ajoute à celle des fichiers ignorés sans la remplacer. Les `.WAV` ne comptent pas parmi les ignorés :
+- Présence de `.WAV` majuscule : ajouter la puce suivante. Elle s'ajoute à celle des fichiers ignorés sans la remplacer. Les `.WAV` ne comptent pas parmi les ignorés. Seuls les bruts comptent : un fichier déjà préfixé en `.WAV` n'est pas renommé :
   ```
   • 2 fichiers en .WAV seront renommés en .wav (minuscule)
   ```
+- Fichiers déjà préfixés avec un espace dans le nom (préfixe Teensy court complété par des espaces) : ils ne comptent plus parmi « déjà au bon format » et ont leur propre puce.
+  ```
+  • 1888 fichiers déjà préfixés : les espaces deviendront « _ »
+  ```
+  Au singulier : `• 1 fichier déjà préfixé : les espaces deviendront « _ »`. Les bruts avec espace n'ont pas de puce : ils reçoivent le préfixe de toute façon, et le `_` se voit dans les exemples de la Confirmation.
 - **Sous-dossier `Brut`/`Bruts`** (casse indifférente) présent à côté des `.wav` de la racine : le scan cherche aux deux emplacements et fusionne en un seul lot (cf. `spec.md` § Détection des `.wav`). Quand tout vient de la racine, l'écran **ne change pas d'un caractère**. Sinon :
   - Tout vient du sous-dossier :
     ```
@@ -357,7 +362,8 @@ vous pouvez retrouver chaque fichier à partir de sa fin.
 
 **Variantes** :
 
-- Si N ≤ 3 : afficher les N exemples, supprimer la ligne `Les X autres suivent le même format`.
+- Si N ≤ 4 : afficher les N exemples, supprimer la ligne `Les X autres suivent le même format`. À 4, le quatrième s'affiche plutôt qu'une ligne « Les 1 autres ».
+- Si le bloc des espaces s'affiche aussi : un seul exemple par bloc (deux s'il n'en reste qu'un), pour que le titre tienne sur 24 lignes.
 - Si aucun fichier déjà préfixé : supprimer le bloc `ℹ ... laissé tel quel`.
 - Si collisions détectées :
   ```
@@ -393,6 +399,33 @@ vous pouvez retrouver chaque fichier à partir de sa fin.
 ```
 
 Cas typique : la carte SD recopiée dans un dossier déjà préfixé. Ce titre s'affiche quand rien n'est à renommer et qu'il reste au moins une collision. Le bloc `ℹ … laissé tel quel` n'apparaît que s'il y a des fichiers déjà préfixés. Entrée mène au Résultat variante E.
+
+### Écran 3 — Confirmation (espaces dans des noms déjà préfixés)
+
+```
+📁 /Users/.../Real World Data
+
+Les espaces deviendront « _ » dans 1888 fichiers déjà préfixés :
+
+    Car123456-2026-Pass1-Z3-PR01 PR1925645_20260728_205005.wav
+  → Car123456-2026-Pass1-Z3-PR01_PR1925645_20260728_205005.wav
+
+    Car123456-2026-Pass1-Z3-PR01 PR1925645_20260801_031502.wav
+  → Car123456-2026-Pass1-Z3-PR01_PR1925645_20260801_031502.wav
+
+    Car123456-2026-Pass1-Z3-PR01 PR1925645_20260809_052110.wav
+  → Car123456-2026-Pass1-Z3-PR01_PR1925645_20260809_052110.wav
+
+  Les 1885 autres suivent le même format.
+
+Seuls les espaces changent : le reste du nom est conservé.
+
+  Entrée renommer   Échap modifier la saisie
+```
+
+Cas réel : un dossier entier préfixé avec le préfixe Teensy `PR01 `. Le bloc se place sous celui du préfixe, avant les collisions et les fichiers laissés tels quels. En-tête en texte normal : c'est une action, pas une alerte. Les exemples montrent le seul nom de base, sans `Brut/`. La flèche est dans la marge pour que l'espace et le `_` tombent l'un sous l'autre. Trois exemples quand le bloc est seul, un dès qu'un autre bloc s'affiche. Le bloc du préfixe passe lui aussi à un exemple quand les deux blocs s'affichent. Quand il ne resterait qu'un fichier hors exemples, il s'affiche aussi plutôt qu'une ligne « Les 1 autres ».
+
+« On va renommer N fichiers comme ceci : » ne compte que les fichiers qui reçoivent le préfixe et disparaît s'il n'y en a aucun. La phrase « Seuls les espaces changent » remplace la réassurance habituelle quand aucun préfixe n'est posé. Le footer et « Renommage en cours… (N) » comptent toutes les opérations.
 
 ### Écran 3 — Confirmation (pendant le renommage)
 
@@ -462,6 +495,17 @@ tels quels, ils seraient découpés avec les autres.
 
 Au singulier : « Vérifiez ce fichier avant de découper : » puis « tel quel, il serait découpé avec les autres. ». La phrase ne parle pas de copie : une horloge Teensy remise en 2019 peut donner le même nom à deux enregistrements différents.
 
+Quand des fichiers déjà préfixés ont perdu leurs espaces, une ligne à part suit le compteur du préfixe : `  1888 fichiers déjà préfixés : espaces remplacés par « _ »` (au singulier `  1 fichier déjà préfixé : espaces remplacés par « _ »`). Le compteur `N fichiers renommés avec le préfixe` et le préfixe en cyan ne s'affichent que si N vaut au moins 1.
+
+Si une collision a un espace dans son nom, la phrase de fin devient :
+
+```
+Retirez ces fichiers du dossier avant de découper :
+leur nom contient un espace : le découpage ne démarrerait pas.
+```
+
+Au singulier : « Retirez ce fichier du dossier avant de découper : » puis « son nom contient un espace : le découpage ne démarrerait pas. ». Le Constat du découpage refuse ces noms et renvoie vers le préfixage, qui retomberait sur la même collision.
+
 ### Écran 4 — Résultat (bloc collisions, toutes variantes)
 
 Les collisions vues au plan (`skippedCollision`) s'affichent dans toutes les variantes sauf B, qui n'existe que sans collision. Le bloc reprend celui de la Confirmation au passé : même jaune, même parenthèse, noms indentés de 4. Comme les groupes d'erreurs il s'arrête à 3 noms suivis de `... et X autres` en `dimColor`. Au singulier : `⚠ 1 fichier n'a pas été renommé`.
@@ -523,7 +567,7 @@ Les autres fichiers ont bien été renommés.
   Entrée retour au menu
 ```
 
-Si > 3 fichiers du même code d'erreur, tronquer à 3 + `... et X autres`. S'il reste des collisions, le bloc collisions s'insère entre les groupes d'erreurs et « Les autres fichiers ont bien été renommés. ». Le titre ne compte que les erreurs. Si aucun fichier n'est renommé, le compteur devient `  Aucun fichier renommé` (sans ✓) et la phrase « Les autres fichiers ont bien été renommés. » disparaît.
+Si > 3 fichiers du même code d'erreur, tronquer à 3 + `... et X autres`. S'il reste des collisions, le bloc collisions s'insère entre les groupes d'erreurs et « Les autres fichiers ont bien été renommés. ». Le titre ne compte que les erreurs. La ligne des espaces remplacés s'affiche sous `N fichiers renommés ✓`, ou seule quand N vaut 0. Si aucun nom n'a changé (ni préfixe ni espace), le compteur devient `  Aucun fichier renommé` (sans ✓) et la phrase « Les autres fichiers ont bien été renommés. » disparaît.
 
 Codes d'erreur → libellés :
 
@@ -548,7 +592,7 @@ renommés seront reconnus et ne seront pas touchés deux fois.
   Entrée retour au menu
 ```
 
-Si des fichiers ont échoué avant l'arrêt, les groupes d'erreurs de la variante C s'insèrent sous le compteur (`  X fichiers n'ont pas pu être renommés :` puis les groupes). Le bloc collisions suit s'il y en a.
+Le compteur `déjà renommés` additionne les fichiers préfixés et ceux dont seuls les espaces ont changé. Si des fichiers ont échoué avant l'arrêt, les groupes d'erreurs de la variante C s'insèrent sous le compteur (`  X fichiers n'ont pas pu être renommés :` puis les groupes). Le bloc collisions suit s'il y en a.
 
 ### Écran 5 — Mise à jour (installation Homebrew détectée)
 
@@ -799,6 +843,43 @@ Puis relancez chiro dans ce dossier.
 ```
 
 **Important** : on propose « renommer » **avant** « supprimer » — moins anxiogène pour une non-tech. Pas d'option « écraser » dans l'UI ; le principe non-destructif l'interdit.
+
+### P-Constat (dégradé : espaces dans les noms)
+
+```
+📁 /Users/.../Real World Data
+
+⚠ 1888 enregistrements ont un espace dans leur nom.
+
+Vigie-Chiro refuse les espaces. Pour les remplacer par « _ » :
+  • lancez « Préfixer des enregistrements »
+  • renommez l'ancien dossier « processed »
+  • puis revenez ici
+
+  Échap retour au menu
+```
+
+Bloquant : le découpage produirait des noms que le portail refuse. La puce « renommez l'ancien dossier » n'apparaît que si `processed/` contient déjà des fichiers, avec le même critère que l'écran « Un dossier « processed » existe déjà ici. ». Ce contrôle passe **avant** cet écran-là : sinon, sur un dossier déjà découpé, elle renommerait `processed/`, relancerait, et ne découvrirait qu'ensuite qu'il faut préfixer. Au singulier : `⚠ 1 enregistrement a un espace dans son nom.` Aucun nom n'est listé : ils ne diffèrent que par l'horodatage.
+
+### P-Constat (dégradé : espaces que « Préfixer » ne peut pas corriger)
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+⚠ 3 enregistrements ont un espace dans leur nom :
+
+  • PR01 PR1925645_20260728_205005.wav
+  • PR01 PR1925645_20260728_205010.wav
+  • PR01 PR1925645_20260728_205015.wav
+
+Ils existent déjà dans ce dossier sous un nom préfixé :
+« Préfixer » ne peut donc pas les corriger.
+Retirez-les du dossier, puis revenez ici.
+
+  Échap retour au menu
+```
+
+Un brut avec espace dont le nom corrigé existe déjà, préfixé, dans le même dossier resterait en collision au préfixage. Le renvoyer vers « Préfixer » ferait tourner en rond. Cet écran passe avant le précédent. Liste bornée à 4 noms, puis `... et N autres` en `dimColor`, comme pour les noms en double racine/`Brut/`. Au singulier : `⚠ 1 enregistrement a un espace dans son nom :`, `Il existe déjà…`, `… pas le corriger.`, `Retirez-le du dossier, puis revenez ici.`
 
 ### P-Constat (dégradé : espace disque insuffisant)
 
@@ -1069,6 +1150,16 @@ Ce sont bien les enregistrements à mettre dans le zip ?
   Entrée continuer   Échap retour au menu
 ```
 
+Si des enregistrements de `processed/` ont un espace dans leur nom, un bloc s'ajoute sous « Volume total » sans bloquer, puisque la sauvegarde garde les noms tels quels :
+
+```
+⚠ 3209 enregistrements ont un espace dans leur nom.
+  Ils seront sauvegardés tels quels. Pour les déposer sur
+  Vigie-Chiro, il faudra d'abord remplacer ces espaces.
+```
+
+Titre en `yellow`, les deux lignes suivantes en `dimColor`. Au singulier : `⚠ 1 enregistrement a un espace dans son nom.`, `Il sera sauvegardé tel quel. Pour le déposer sur`, `Vigie-Chiro, il faudra d'abord remplacer cet espace.` Seuls les `.wav` comptent.
+
 ### A-Constat (dégradé : pas de `processed/`)
 
 Ton informatif, pas d'alerte : la situation est normale, juste prématurée. Deux causes couvertes — le découpage pas encore fait, **et** le mauvais dossier (cause au moins aussi fréquente).
@@ -1280,6 +1371,23 @@ Ce sont bien les enregistrements à déposer sur Vigie-Chiro ?
 ```
 
 Trois autres écarts sur les variantes dégradées : le dossier nommé est `« upload »` (« L'outil ne peut pas créer le sous-dossier « upload » ici. ») ; le message d'espace disque passe au pluriel (« Les fichiers zip sont une copie de vos enregistrements : ils peuvent occuper presque autant de place. ») ; et la variante « aucun dossier processed » s'accorde elle aussi (« **Les fichiers zip se créent** à partir des enregistrements découpés. »), là où le flux sauvegarde dit « Le zip se crée ».
+
+### U-Constat (dégradé : espaces dans les noms)
+
+```
+📁 /Users/.../Real World Data
+
+⚠ 3209 enregistrements découpés ont un espace dans leur nom.
+
+Vigie-Chiro refuse les espaces. Pour les remplacer par « _ » :
+  • lancez « Préfixer des enregistrements »
+  • renommez l'ancien dossier « processed »
+  • relancez « Découper les enregistrements », puis revenez ici
+
+  Échap retour au menu
+```
+
+Bloquant : le portail refuserait le dépôt. Seuls les `.wav` comptent : une note `notes terrain.txt` ne bloque rien. Le Constat relit aussi la racine et `Brut/`. Si plus aucun `.wav` n'y a d'espace, la puce « lancez Préfixer » disparaît, sinon elle mènerait à « Rien à faire ». Si cette lecture échoue, la puce reste. Au singulier : `⚠ 1 enregistrement découpé a un espace dans son nom.`
 
 ### U-Confirmation (plusieurs fichiers attendus)
 

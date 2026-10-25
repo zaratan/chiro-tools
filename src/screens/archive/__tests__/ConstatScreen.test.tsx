@@ -396,3 +396,148 @@ describe("ArchiveConstatScreen — package mode orphan cleanup", () => {
     expect(remaining).toContain(orphanName);
   });
 });
+
+describe("ArchiveConstatScreen — names with spaces", () => {
+  const spaced =
+    "Car123456-2026-Pass1-Z3-PR01 PR1925645_20260728_205005_000.wav";
+
+  const writeProcessed = async (names: readonly string[]): Promise<void> => {
+    await mkdir(path.join(tmpDir, "processed"));
+    for (const name of names) {
+      await writeFile(path.join(tmpDir, "processed", name), "1234");
+    }
+  };
+
+  const renderFrame = async (
+    mode: "backup" | "package",
+    onContinue: () => void = () => undefined,
+  ) => {
+    const screen = render(
+      <ConstatScreen
+        mode={mode}
+        cwd={tmpDir}
+        onContinue={onContinue}
+        onBack={() => undefined}
+      />,
+    );
+    await waitUntil(
+      () => !(screen.lastFrame() ?? "").includes("Analyse du dossier…"),
+    );
+    return screen;
+  };
+
+  it("blocks the upload and gives the full path back to prefixing, since the portal would refuse the names", async () => {
+    await writeProcessed([spaced]);
+    await writeFile(
+      path.join(
+        tmpDir,
+        "Car123456-2026-Pass1-Z3-PR01 PR1925645_20260728_205005.wav",
+      ),
+      "",
+    );
+
+    const { lastFrame } = await renderFrame("package");
+    const frame = lastFrame() ?? "";
+
+    expect(frame).toContain(
+      "⚠ 1 enregistrement découpé a un espace dans son nom.",
+    );
+    expect(frame).toContain("• lancez « Préfixer des enregistrements »");
+    expect(frame).toContain("• renommez l'ancien dossier « processed »");
+    expect(frame).toContain(
+      "• relancez « Découper les enregistrements », puis revenez ici",
+    );
+  });
+
+  it("drops the prefixing step once the sources no longer hold any space", async () => {
+    await writeProcessed([spaced]);
+    await writeFile(
+      path.join(
+        tmpDir,
+        "Car123456-2026-Pass1-Z3-PR01_PR1925645_20260728_205005.wav",
+      ),
+      "",
+    );
+
+    const { lastFrame } = await renderFrame("package");
+    const frame = lastFrame() ?? "";
+
+    expect(frame).toContain("• renommez l'ancien dossier « processed »");
+    expect(frame).not.toContain("lancez « Préfixer");
+  });
+
+  it("does not block the upload for a non-recording file with a space", async () => {
+    await writeProcessed(["a_000.wav", "notes terrain.txt"]);
+
+    const { lastFrame } = await renderFrame("package");
+
+    expect(lastFrame() ?? "").toContain(
+      "Ce sont bien les enregistrements à déposer",
+    );
+  });
+
+  it("only warns on the backup and lets her continue, since a backup keeps names as they are", async () => {
+    await writeProcessed([spaced, "Car123456-2026-Pass1-Z3-PR01 PR1_000.wav"]);
+    let continued = false;
+
+    const { lastFrame, stdin } = await renderFrame("backup", () => {
+      continued = true;
+    });
+    const frame = lastFrame() ?? "";
+    stdin.write("\r");
+    await waitUntil(() => continued);
+
+    expect(frame).toContain("⚠ 2 enregistrements ont un espace dans leur nom.");
+    expect(frame).toContain(
+      "Ils seront sauvegardés tels quels. Pour les déposer sur",
+    );
+    expect(frame).toContain(
+      "Vigie-Chiro, il faudra d'abord remplacer ces espaces.",
+    );
+  });
+
+  it("renames nothing in processed/ while it reports spaces", async () => {
+    await writeProcessed([spaced]);
+
+    await renderFrame("package");
+
+    expect(await readdir(path.join(tmpDir, "processed"))).toEqual([spaced]);
+  });
+
+  it("uses the plural when several cut recordings hold a space", async () => {
+    await writeProcessed([spaced, "Car123456-2026-Pass1-Z3-PR01 PR1_000.wav"]);
+
+    const { lastFrame } = await renderFrame("package");
+
+    expect(lastFrame() ?? "").toContain(
+      "⚠ 2 enregistrements découpés ont un espace dans leur nom.",
+    );
+  });
+
+  itUnlessRoot(
+    "keeps the prefixing step when the sources cannot be read, rather than guessing they are fixed",
+    async () => {
+      await writeProcessed([spaced]);
+      await chmod(tmpDir, 0o555);
+
+      const { lastFrame } = await renderFrame("package");
+
+      expect(lastFrame() ?? "").toContain(
+        "• lancez « Préfixer des enregistrements »",
+      );
+    },
+  );
+
+  it("warns in the singular on the backup", async () => {
+    await writeProcessed([spaced]);
+
+    const { lastFrame } = await renderFrame("backup");
+    const frame = lastFrame() ?? "";
+
+    expect(frame).toContain("⚠ 1 enregistrement a un espace dans son nom.");
+    expect(frame).toContain("Il sera sauvegardé tel quel. Pour le déposer sur");
+    expect(frame).toContain(
+      "Vigie-Chiro, il faudra d'abord remplacer cet espace.",
+    );
+  });
+});

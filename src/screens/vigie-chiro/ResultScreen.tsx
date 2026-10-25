@@ -103,9 +103,28 @@ const CollisionsBlock = ({
 
 const NextStep = ({
   collisionCount,
+  collisionsHaveWhitespace,
 }: {
   collisionCount: number;
+  collisionsHaveWhitespace: boolean;
 }): React.JSX.Element => {
+  if (collisionsHaveWhitespace) {
+    return collisionCount > 1 ? (
+      <Box flexDirection="column" marginTop={1}>
+        <Text>{"Retirez ces fichiers du dossier avant de découper :"}</Text>
+        <Text>
+          {"leur nom contient un espace : le découpage ne démarrerait pas."}
+        </Text>
+      </Box>
+    ) : (
+      <Box flexDirection="column" marginTop={1}>
+        <Text>{"Retirez ce fichier du dossier avant de découper :"}</Text>
+        <Text>
+          {"son nom contient un espace : le découpage ne démarrerait pas."}
+        </Text>
+      </Box>
+    );
+  }
   if (collisionCount > 1) {
     return (
       <Box flexDirection="column" marginTop={1}>
@@ -131,6 +150,11 @@ const NextStep = ({
     </Box>
   );
 };
+
+const whitespaceFixedLine = (count: number): string =>
+  count > 1
+    ? `  ${count.toString()} fichiers déjà préfixés : espaces remplacés par « _ »`
+    : "  1 fichier déjà préfixé : espaces remplacés par « _ »";
 
 const leftAsIsLine = (alreadyCount: number): string =>
   `  ${alreadyCount.toString()} fichier${alreadyCount > 1 ? "s laissés tels quels" : " laissé tel quel"} (déjà au bon format)`;
@@ -159,20 +183,30 @@ export const ResultScreen = ({
         <Text color="green" bold>
           ✓ Terminé !
         </Text>
-        <Box marginTop={1}>
-          <Text>
-            {`  ${variant.renamedCount.toString()} fichier${variant.renamedCount > 1 ? "s" : ""} renommé${variant.renamedCount > 1 ? "s" : ""} avec le préfixe`}
-          </Text>
+        <Box flexDirection="column" marginTop={1}>
+          {variant.renamedCount > 0 ? (
+            <>
+              <Text>
+                {`  ${variant.renamedCount.toString()} fichier${variant.renamedCount > 1 ? "s" : ""} renommé${variant.renamedCount > 1 ? "s" : ""} avec le préfixe`}
+              </Text>
+              <Text>
+                {`      `}
+                <Text color="cyan">{prefix}</Text>
+              </Text>
+            </>
+          ) : null}
+          {variant.whitespaceFixedCount > 0 ? (
+            <Text>{whitespaceFixedLine(variant.whitespaceFixedCount)}</Text>
+          ) : null}
+          {variant.alreadyCount > 0 ? (
+            <Text>{leftAsIsLine(variant.alreadyCount)}</Text>
+          ) : null}
         </Box>
-        <Text>
-          {`      `}
-          <Text color="cyan">{prefix}</Text>
-        </Text>
-        {variant.alreadyCount > 0 ? (
-          <Text>{leftAsIsLine(variant.alreadyCount)}</Text>
-        ) : null}
         <CollisionsBlock collisions={variant.collisions} />
-        <NextStep collisionCount={variant.collisions.length} />
+        <NextStep
+          collisionCount={variant.collisions.length}
+          collisionsHaveWhitespace={variant.collisionsHaveWhitespace}
+        />
         <Footer hints={[{ key: "Entrée", label: "retour au menu" }]} />
       </Box>
     );
@@ -188,7 +222,10 @@ export const ResultScreen = ({
           </Box>
         ) : null}
         <CollisionsBlock collisions={variant.collisions} />
-        <NextStep collisionCount={variant.collisions.length} />
+        <NextStep
+          collisionCount={variant.collisions.length}
+          collisionsHaveWhitespace={variant.collisionsHaveWhitespace}
+        />
         <Footer hints={[{ key: "Entrée", label: "retour au menu" }]} />
       </Box>
     );
@@ -210,13 +247,15 @@ export const ResultScreen = ({
     );
   }
 
+  const changedCount = variant.renamedCount + variant.whitespaceFixedCount;
+
   if (variant.kind === "interrupted") {
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
         <Text color="cyan">ℹ Renommage arrêté à votre demande</Text>
         <Box flexDirection="column" marginTop={1}>
           <Text>
-            {`  ${variant.renamedCount.toString()} fichier${variant.renamedCount > 1 ? "s déjà renommés (conservés en sécurité)" : " déjà renommé (conservé en sécurité)"}`}
+            {`  ${changedCount.toString()} fichier${changedCount > 1 ? "s déjà renommés (conservés en sécurité)" : " déjà renommé (conservé en sécurité)"}`}
           </Text>
         </Box>
         {variant.errored.length > 0 ? (
@@ -242,16 +281,20 @@ export const ResultScreen = ({
         ⚠ Renommage terminé avec {totalErrored.toString()} souci
         {totalErrored > 1 ? "s" : ""}
       </Text>
-      <Box marginTop={1}>
-        <Text>
-          {variant.renamedCount === 0
-            ? "  Aucun fichier renommé"
-            : `  ${variant.renamedCount.toString()} fichier${variant.renamedCount > 1 ? "s renommés" : " renommé"} ✓`}
-        </Text>
+      <Box flexDirection="column" marginTop={1}>
+        {changedCount === 0 ? <Text>{"  Aucun fichier renommé"}</Text> : null}
+        {variant.renamedCount > 0 ? (
+          <Text>
+            {`  ${variant.renamedCount.toString()} fichier${variant.renamedCount > 1 ? "s renommés" : " renommé"} ✓`}
+          </Text>
+        ) : null}
+        {variant.whitespaceFixedCount > 0 ? (
+          <Text>{whitespaceFixedLine(variant.whitespaceFixedCount)}</Text>
+        ) : null}
       </Box>
       <ErrorsBlock errored={variant.errored} />
       <CollisionsBlock collisions={variant.collisions} />
-      {variant.renamedCount > 0 ? (
+      {changedCount > 0 ? (
         <Box marginTop={1}>
           <Text>Les autres fichiers ont bien été renommés.</Text>
         </Box>

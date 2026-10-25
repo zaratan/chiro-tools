@@ -45,6 +45,8 @@ Si l'une de ces vérifications échoue, rien n'est publié.
 
 ## Si ça tourne mal
 
+**Des enregistrements découpés ont un espace dans leur nom.** Le portail les refuserait, chiro s'arrête avant de créer les fichiers zip. L'écran donne le chemin : préfixer pour remplacer les espaces par `_`, renommer l'ancien `processed/`, redécouper. Si les fichiers d'origine n'ont déjà plus d'espace, l'étape « préfixer » n'est pas proposée.
+
 **Le disque est plein.** L'erreur est détectée avant qu'un fichier incomplet soit publié. Rien n'apparaît dans `upload/`.
 
 **Un dossier du même nom existe déjà.** chiro ne l'écrase pas : il ajoute un suffixe au moment de publier.
