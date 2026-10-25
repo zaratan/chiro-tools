@@ -70,8 +70,7 @@ describe("detectSox", () => {
   });
 
   it("returns absent when sox --version exits with non-zero", async () => {
-    const fakeSox = await makeFakeSox(tmpDir, "sox", 1);
-    void fakeSox;
+    await makeFakeSox(tmpDir, "sox", 1);
     process.env.PATH = tmpDir;
     delete process.env.CHIRO_DISABLE_FASTPATH;
     const result = await detectSox();
