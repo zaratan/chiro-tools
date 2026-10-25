@@ -5,14 +5,14 @@ import { Footer } from "../../components/Footer.js";
 import { describeError } from "../../lib/errors/describeError.js";
 import type { ApplyOptions } from "../../lib/fs/applyRenames.js";
 import { planRenames } from "../../lib/fs/planRenames.js";
+import { buildVigiePrefixSessionEvent } from "../../lib/logging/buildVigiePrefixSessionEvent.js";
 import { logSession } from "../../lib/logging/log.js";
+import {
+  oneOfEachPrefixFirst,
+  summarizeFoundPrefixes,
+} from "../../lib/vigie-chiro/foundPrefixes.js";
 import { buildPrefix } from "../../lib/vigie-chiro/prefix.js";
-import type {
-  FormInput,
-  RenameOutcome,
-  RenamePlan,
-  SessionEvent,
-} from "../../types.js";
+import type { FormInput, RenameOutcome, RenamePlan } from "../../types.js";
 import { mapKnownErrorCode } from "./errorMessages.js";
 
 /**
@@ -24,7 +24,6 @@ export type ApplyRenamesFn = (
   dir: string,
   options?: ApplyOptions,
 ) => Promise<RenameOutcome>;
-import { CHIRO_VERSION } from "../../version.js";
 import { fitPath } from "../../format/path.js";
 
 type ConfirmState =
@@ -58,31 +57,23 @@ const pickExamples = <T,>(items: readonly T[]): T[] => {
   return [first, middle, last];
 };
 
-const previewExamples = <T,>(items: readonly T[], limit: 1 | 3): T[] => {
+const previewExamples = <T,>(items: readonly T[], limit: 1 | 2 | 3): T[] => {
   if (items.length <= limit + 1) return [...items];
-  return limit === 3 ? pickExamples(items) : items.slice(0, 1);
+  return limit === 3 ? pickExamples(items) : items.slice(0, limit);
 };
 
-export const buildSessionEvent = (
-  input: FormInput,
-  outcome: RenameOutcome,
-  cwd: string,
-): SessionEvent => ({
-  schema_version: 1,
-  ts: new Date().toISOString(),
-  version: CHIRO_VERSION,
-  cwd,
-  action: "vigie-prefix",
-  input,
-  result: {
-    renamed: outcome.renamed.length + outcome.whitespaceFixed.length,
-    skipped_already_prefixed: outcome.skippedAlreadyPrefixed.length,
-    skipped_collision: outcome.skippedCollision.length,
-    errored: outcome.errored,
-    interrupted: outcome.interrupted,
-    duration_ms: outcome.durationMs,
-  },
-});
+const RemainingLine = ({
+  count,
+}: {
+  count: number;
+}): React.JSX.Element | null =>
+  count > 0 ? (
+    <Box marginTop={1}>
+      <Text dimColor>
+        {`  Les ${count.toString()} autres suivent le même format.`}
+      </Text>
+    </Box>
+  ) : null;
 
 export type ConfirmScreenProps = {
   cwd: string;
@@ -96,7 +87,8 @@ export type ConfirmScreenProps = {
   /** Injected rename implementation — allows mocking in tests. */
   applyRenames: ApplyRenamesFn;
   onComplete: (outcome: RenameOutcome) => void;
-  onBack: () => void;
+  onEditInput: () => void;
+  onBackToConstat: () => void;
 };
 
 export const ConfirmScreen = ({
@@ -106,7 +98,8 @@ export const ConfirmScreen = ({
   runningRef,
   applyRenames,
   onComplete,
-  onBack,
+  onEditInput,
+  onBackToConstat,
 }: ConfirmScreenProps): React.JSX.Element => {
   const prefix = buildPrefix(input);
   const [state, setState] = useState<ConfirmState>({ kind: "loading" });
@@ -147,11 +140,11 @@ export const ConfirmScreen = ({
       return;
     }
     if (state.kind !== "plan-ready") {
-      if (key.escape) onBack();
+      if (key.escape) onBackToConstat();
       return;
     }
     if (key.escape) {
-      onBack();
+      onEditInput();
       return;
     }
     if (key.return) {
@@ -182,7 +175,7 @@ export const ConfirmScreen = ({
     }
 
     try {
-      await logSession(buildSessionEvent(input, outcome, cwd));
+      await logSession(buildVigiePrefixSessionEvent(input, plan, outcome, cwd));
     } catch {
       // Local log is best-effort — never block the UI on a write failure.
     }
@@ -256,22 +249,44 @@ export const ConfirmScreen = ({
   // state.kind === "plan-ready"
   const { plan } = state;
   const prefixOps = plan.operations.filter((op) => op.kind === "prefix");
+  const reprefixOps = plan.operations.filter((op) => op.kind === "reprefix");
   const whitespaceOps = plan.operations.filter(
     (op) => op.kind === "whitespace",
   );
   const collisionsCount = plan.skippedCollision.length;
   const alreadyCount = plan.skippedAlreadyPrefixed.length;
   const alreadyExamples = pickExamples(plan.skippedAlreadyPrefixed);
-  const bothRenameBlocks = prefixOps.length > 0 && whitespaceOps.length > 0;
+  const compact =
+    [prefixOps, reprefixOps, whitespaceOps].filter((ops) => ops.length > 0)
+      .length > 1;
   const whitespaceAlone =
-    prefixOps.length === 0 && collisionsCount === 0 && alreadyCount === 0;
-  const examples = previewExamples(prefixOps, bothRenameBlocks ? 1 : 3);
-  const remaining = prefixOps.length - examples.length;
-  const whitespaceExamples = previewExamples(
-    whitespaceOps,
-    whitespaceAlone ? 3 : 1,
+    prefixOps.length === 0 &&
+    reprefixOps.length === 0 &&
+    collisionsCount === 0 &&
+    alreadyCount === 0;
+  const examples = compact
+    ? prefixOps.slice(0, 1)
+    : previewExamples(prefixOps, 3);
+  const remaining = compact ? 0 : prefixOps.length - examples.length;
+  const reprefixExamples = compact
+    ? reprefixOps.slice(0, 1)
+    : previewExamples(oneOfEachPrefixFirst(reprefixOps), 2);
+  const reprefixRemaining = compact
+    ? 0
+    : reprefixOps.length - reprefixExamples.length;
+  const foundPrefixes = summarizeFoundPrefixes(
+    reprefixOps.map((op) => op.from),
+    1,
   );
-  const whitespaceRemaining = whitespaceOps.length - whitespaceExamples.length;
+  const otherPrefixCount = foundPrefixes.count - 1;
+  const whitespaceExamples = compact
+    ? whitespaceOps.slice(0, 1)
+    : previewExamples(whitespaceOps, whitespaceAlone ? 3 : 1);
+  const whitespaceRemaining = compact
+    ? 0
+    : whitespaceOps.length - whitespaceExamples.length;
+  const nothingButAlready =
+    plan.operations.length === 0 && collisionsCount === 0 && alreadyCount > 0;
 
   return (
     <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
@@ -280,13 +295,20 @@ export const ConfirmScreen = ({
         <Box marginTop={1}>
           <Text color="cyan">ℹ Aucun fichier ne sera renommé.</Text>
         </Box>
-      ) : plan.operations.length === 0 && alreadyCount > 0 ? (
-        <Box marginTop={1}>
-          <Text color="cyan">
-            ℹ Tous les fichiers ({alreadyCount.toString()}) sont déjà au bon
-            format.
-          </Text>
-        </Box>
+      ) : nothingButAlready ? (
+        <>
+          <Box flexDirection="column" marginTop={1}>
+            <Text color="cyan">
+              {alreadyCount > 1
+                ? `ℹ Les ${alreadyCount.toString()} fichiers portent déjà le préfixe`
+                : "ℹ Le fichier porte déjà le préfixe"}
+            </Text>
+            <Text color="cyan">{`    ${prefix}`}</Text>
+          </Box>
+          <Box marginTop={1}>
+            <Text>Rien à renommer.</Text>
+          </Box>
+        </>
       ) : prefixOps.length > 0 ? (
         <>
           <Box marginTop={1}>
@@ -295,7 +317,7 @@ export const ConfirmScreen = ({
               {prefixOps.length > 1 ? "s" : ""} comme ceci :
             </Text>
           </Box>
-          <Box flexDirection="column" marginTop={1}>
+          <Box flexDirection="column" marginTop={compact ? 0 : 1}>
             {examples.map((op, index) => (
               <Box
                 key={op.from}
@@ -309,15 +331,44 @@ export const ConfirmScreen = ({
                 </Text>
               </Box>
             ))}
-            {remaining > 0 ? (
-              <Box marginTop={1}>
-                <Text dimColor>
-                  {`  Les ${remaining.toString()} autres suivent le même format.`}
-                </Text>
-              </Box>
-            ) : null}
+            <RemainingLine count={remaining} />
           </Box>
         </>
+      ) : null}
+
+      {reprefixOps.length > 0 ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Text color="yellow">
+            {reprefixOps.length > 1
+              ? `⚠ ${reprefixOps.length.toString()} fichiers portent déjà un autre préfixe :`
+              : "⚠ 1 fichier porte déjà un autre préfixe :"}
+          </Text>
+          <Text>
+            <Text color="yellow">{`    ${foundPrefixes.prefixes.join("")}`}</Text>
+            {otherPrefixCount > 0 ? (
+              <Text dimColor>
+                {otherPrefixCount > 1
+                  ? `  et ${otherPrefixCount.toString()} autres préfixes`
+                  : "  et 1 autre préfixe"}
+              </Text>
+            ) : null}
+          </Text>
+          <Text>{"  L'ancien préfixe sera remplacé par le nouveau :"}</Text>
+          {reprefixExamples.map((op) => (
+            <Box
+              key={op.from}
+              flexDirection="column"
+              marginTop={compact ? 0 : 1}
+            >
+              <Text>{`    ${path.basename(op.from)}`}</Text>
+              <Text>
+                {"  "}
+                <Text color="cyan">{`→ ${path.basename(op.to)}`}</Text>
+              </Text>
+            </Box>
+          ))}
+          <RemainingLine count={reprefixRemaining} />
+        </Box>
       ) : null}
 
       {whitespaceOps.length > 0 ? (
@@ -328,7 +379,11 @@ export const ConfirmScreen = ({
               : "Les espaces deviendront « _ » dans 1 fichier déjà préfixé :"}
           </Text>
           {whitespaceExamples.map((op) => (
-            <Box key={op.from} flexDirection="column" marginTop={1}>
+            <Box
+              key={op.from}
+              flexDirection="column"
+              marginTop={compact ? 0 : 1}
+            >
               <Text>{`    ${path.basename(op.from)}`}</Text>
               <Text>
                 {"  "}
@@ -336,13 +391,7 @@ export const ConfirmScreen = ({
               </Text>
             </Box>
           ))}
-          {whitespaceRemaining > 0 ? (
-            <Box marginTop={1}>
-              <Text dimColor>
-                {`  Les ${whitespaceRemaining.toString()} autres suivent le même format.`}
-              </Text>
-            </Box>
-          ) : null}
+          <RemainingLine count={whitespaceRemaining} />
         </Box>
       ) : null}
 
@@ -378,13 +427,17 @@ export const ConfirmScreen = ({
         </Box>
       ) : null}
 
-      <Box marginTop={1}>
-        <Text dimColor>
-          {prefixOps.length === 0 && whitespaceOps.length > 0
-            ? "Seuls les espaces changent : le reste du nom est conservé."
-            : "Le nom original est conservé en fin du nouveau nom — rien n'est perdu, vous pouvez retrouver chaque fichier à partir de sa fin."}
-        </Text>
-      </Box>
+      {nothingButAlready ? null : (
+        <Box marginTop={1}>
+          <Text dimColor>
+            {prefixOps.length === 0 &&
+            reprefixOps.length === 0 &&
+            whitespaceOps.length > 0
+              ? "Seuls les espaces changent : le reste du nom est conservé."
+              : "Le nom original est conservé en fin du nouveau nom — rien n'est perdu, vous pouvez retrouver chaque fichier à partir de sa fin."}
+          </Text>
+        </Box>
+      )}
 
       <Footer
         hints={

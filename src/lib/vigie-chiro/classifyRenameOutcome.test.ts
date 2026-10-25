@@ -5,6 +5,7 @@ import { classifyRenameOutcome } from "./classifyRenameOutcome.js";
 const outcome = (overrides: Partial<RenameOutcome>): RenameOutcome => ({
   renamed: [],
   whitespaceFixed: [],
+  reprefixed: [],
   skippedAlreadyPrefixed: [],
   skippedCollision: [],
   errored: [],
@@ -26,6 +27,7 @@ describe("classifyRenameOutcome", () => {
       kind: "success",
       renamedCount: 2,
       whitespaceFixedCount: 0,
+      reprefixedCount: 0,
       alreadyCount: 1,
       collisions: [],
       collisionsHaveWhitespace: false,
@@ -76,6 +78,7 @@ describe("classifyRenameOutcome", () => {
       kind: "success",
       renamedCount: 1,
       whitespaceFixedCount: 0,
+      reprefixedCount: 0,
       alreadyCount: 0,
       collisions: ["b.wav"],
       collisionsHaveWhitespace: false,
@@ -96,6 +99,7 @@ describe("classifyRenameOutcome", () => {
       kind: "interrupted",
       renamedCount: 1,
       whitespaceFixedCount: 0,
+      reprefixedCount: 0,
       errored: [{ file: "b.wav", reason: "EACCES" }],
       collisions: ["c.wav"],
       collisionsHaveWhitespace: false,
@@ -115,6 +119,7 @@ describe("classifyRenameOutcome", () => {
       kind: "partial-errors",
       renamedCount: 1,
       whitespaceFixedCount: 0,
+      reprefixedCount: 0,
       errored: [{ file: "b.wav", reason: "EEXIST" }],
       collisions: ["c.wav"],
       collisionsHaveWhitespace: false,
@@ -156,6 +161,7 @@ describe("classifyRenameOutcome", () => {
       kind: "success",
       renamedCount: 0,
       whitespaceFixedCount: 1,
+      reprefixedCount: 0,
       alreadyCount: 1,
       collisions: [],
       collisionsHaveWhitespace: false,
@@ -200,5 +206,30 @@ describe("classifyRenameOutcome", () => {
       renamedCount: 1,
       whitespaceFixedCount: 1,
     });
+  });
+
+  it("reports a success when the only change is a replaced prefix", () => {
+    expect(
+      classifyRenameOutcome(outcome({ reprefixed: ["Car1-a.wav"] })),
+    ).toMatchObject({ kind: "success", renamedCount: 0, reprefixedCount: 1 });
+  });
+
+  it("never says there was nothing to do when a file carried another prefix", () => {
+    expect(
+      classifyRenameOutcome(
+        outcome({
+          reprefixed: ["Car1-a.wav"],
+          skippedAlreadyPrefixed: ["Car2-b.wav"],
+        }),
+      ).kind,
+    ).toBe("success");
+  });
+
+  it("counts replaced prefixes among the files already changed when interrupted", () => {
+    expect(
+      classifyRenameOutcome(
+        outcome({ reprefixed: ["Car1-a.wav"], interrupted: true }),
+      ),
+    ).toMatchObject({ kind: "interrupted", reprefixedCount: 1 });
   });
 });

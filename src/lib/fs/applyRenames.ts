@@ -1,6 +1,6 @@
-import { access } from "node:fs/promises";
 import path from "node:path";
 import type { RenameError, RenameOutcome, RenamePlan } from "../../types.js";
+import { isTargetTakenByAnotherFile } from "./isTargetTaken.js";
 import { renameWithFallback, type RenameFsLike } from "./safeFsOps.js";
 
 /**
@@ -23,29 +23,12 @@ export type ApplyOptions = {
 };
 
 /**
- * Probes whether a path exists on disk without throwing.
- *
- * Note: on case-insensitive filesystems (default APFS on macOS), this returns
- * `true` even if the on-disk filename differs only by case from `targetPath`.
- * That is exactly the property we want to guard against post-rename collisions
- * that arise after an earlier successful rename in this same plan.
- */
-const pathExists = async (targetPath: string): Promise<boolean> => {
-  try {
-    await access(targetPath);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-/**
  * Executes a rename plan, returning a structured outcome (never throws).
  *
  * Behavior per operation:
- * - Pre-check: if the target path already exists on disk → report `EEXIST`
- *   and skip the rename. This guards against case-insensitive FS collisions
- *   that surface only AFTER a previous rename in this batch.
+ * - Pre-check: if another file already holds the target path → report
+ *   `EEXIST` and skip the rename. This guards against case-insensitive FS
+ *   collisions that surface only AFTER a previous rename in this batch.
  * - Atomic rename via `fs.rename`. On `EXDEV` (cross-device, typical when
  *   the source is on a removable SD card), fall back to `copyFile + unlink`.
  *   If `unlink` fails after a successful `copyFile`, the file is recorded as
@@ -64,6 +47,12 @@ export const applyRenames = async (
 
   const renamed: string[] = [];
   const whitespaceFixed: string[] = [];
+  const reprefixed: string[] = [];
+  const bucketOf = {
+    prefix: renamed,
+    whitespace: whitespaceFixed,
+    reprefix: reprefixed,
+  };
   const errored: RenameError[] = [];
   let interrupted = false;
 
@@ -76,7 +65,7 @@ export const applyRenames = async (
     const absFrom = path.join(dir, op.from);
     const absTo = path.join(dir, op.to);
 
-    if (await pathExists(absTo)) {
+    if (await isTargetTakenByAnotherFile(absFrom, absTo)) {
       errored.push({ file: op.from, reason: "EEXIST" });
       continue;
     }
@@ -86,7 +75,7 @@ export const applyRenames = async (
     });
 
     if (result.kind === "ok") {
-      (op.kind === "whitespace" ? whitespaceFixed : renamed).push(op.from);
+      bucketOf[op.kind].push(op.from);
     } else {
       errored.push({ file: op.from, reason: result.code });
     }
@@ -97,6 +86,7 @@ export const applyRenames = async (
   return {
     renamed,
     whitespaceFixed,
+    reprefixed,
     skippedAlreadyPrefixed: plan.skippedAlreadyPrefixed,
     skippedCollision: plan.skippedCollision,
     errored,

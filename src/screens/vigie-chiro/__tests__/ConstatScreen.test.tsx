@@ -55,11 +55,45 @@ describe("ConstatScreen (vigie-chiro) — whitespace in names", () => {
     const frame = lastFrame() ?? "";
     unmount();
 
-    expect(frame).toContain(
-      "1 fichier déjà au bon format sera laissé tel quel",
+    const lines = frame
+      .split("\n")
+      .map((line) => line.replaceAll("│", "").trim());
+    expect(lines).toContain("• 1 fichier déjà préfixé");
+    expect(lines).toContain("• 2 autres fichiers déjà préfixés :");
+    expect(lines).toContain("les espaces deviendront « _ »");
+    expect(frame).not.toContain("bon format");
+  });
+
+  it("keeps the space bullet without « autres » when no other file is prefixed", async () => {
+    await writeFile(
+      path.join(
+        tmpDir,
+        "Car123456-2026-Pass1-Z3-PR01 PR1925645_20260728_205005.wav",
+      ),
+      "",
     );
-    expect(frame).toContain(
-      "• 2 fichiers déjà préfixés : les espaces deviendront « _ »",
+
+    const screen = await renderReady();
+
+    expect(screen.lines()).toContain(
+      "• 1 fichier déjà préfixé : les espaces deviendront « _ »",
+    );
+  });
+
+  it("says « 1 autre fichier » in the singular next to prefixed files", async () => {
+    for (const name of [
+      "Car123456-2026-Pass1-Z3-PR01 PR1925645_20260728_205005.wav",
+      "Car123456-2026-Pass1-Z3-PR01_PR1925645_20260728_205010.wav",
+      "Car123456-2026-Pass1-Z3-PR01_PR1925645_20260728_205015.wav",
+    ]) {
+      await writeFile(path.join(tmpDir, name), "");
+    }
+
+    const screen = await renderReady();
+
+    expect(screen.lines()).toContain("• 2 fichiers déjà préfixés");
+    expect(screen.lines()).toContain(
+      "• 1 autre fichier déjà préfixé : les espaces deviendront « _ »",
     );
   });
 

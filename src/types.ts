@@ -55,7 +55,7 @@ export type ProcessOutcome = {
 export type RenameOperation = {
   from: string;
   to: string;
-  kind: "prefix" | "whitespace";
+  kind: "prefix" | "whitespace" | "reprefix";
 };
 
 export type RenamePlan = {
@@ -69,6 +69,7 @@ export type RenameError = { file: string; reason: string };
 export type RenameOutcome = {
   renamed: string[];
   whitespaceFixed: string[];
+  reprefixed: string[];
   skippedAlreadyPrefixed: string[];
   skippedCollision: string[];
   errored: RenameError[];
@@ -81,10 +82,15 @@ export type RenameOutcome = {
  * Field names use snake_case because they are serialized as JSON keys
  * consumed by external tools (jq, etc.).
  */
-export type SessionResult = {
+export type PrefixResultSerialized = {
   renamed: number;
+  whitespace_fixed: number;
+  reprefixed: number;
   skipped_already_prefixed: number;
   skipped_collision: number;
+  other_prefix: number;
+  prefixes_found: string[];
+  prefixes_found_count: number;
   errored: { file: string; reason: string }[];
   interrupted: boolean;
   duration_ms: number;
@@ -93,7 +99,7 @@ export type SessionResult = {
 /**
  * Aggregated counts and errors for a completed process (split + TE) session.
  * Field names use snake_case for the same JSON-interchange reason as
- * `SessionResult`.
+ * `PrefixResultSerialized`.
  */
 export type ProcessResultSerialized = {
   processed: {
@@ -146,7 +152,7 @@ export type ProcessInputSerialized = {
  * (zip creation) session. Discriminated on `status` — `ok` carries the
  * created zip's stats, `aborted` and `error` only the counters known before
  * the run stopped. Field names use snake_case for the same JSON-interchange
- * reason as `SessionResult`.
+ * reason as `PrefixResultSerialized`.
  */
 export type ArchiveResultSerialized =
   | {
@@ -270,7 +276,8 @@ export type OffsiteResultSerialized =
  * Retired shapes are not representable here — a reader, if one is ever
  * needed, carries its own type covering the historical forms.
  *
- * v1 — `vigie-prefix` rename sessions. Wire format must remain byte-stable.
+ * v1 — `vigie-prefix` rename sessions, **retired**: superseded by v7. No
+ * longer written; entries already on disk keep this shape.
  * v2 — `vigie-process` split-and-expand sessions.
  * v3 — `vigie-archive` zip-creation sessions, **retired**: superseded by v5.
  * No longer written; entries already on disk keep this shape.
@@ -292,16 +299,18 @@ export type OffsiteResultSerialized =
  * via rclone at the time of the run, never a read of this journal — see
  * `docs/architecture.md` § offsite for why (a `sessions.jsonl` key was found
  * not to be unique across studies sharing a day).
+ * v7 — `vigie-prefix`, v1 plus the space fixes and the prefixes found on
+ * files. Wire format must remain byte-stable.
  */
 export type SessionEvent =
   | {
-      schema_version: 1;
+      schema_version: 7;
       ts: string; // ISO 8601 timestamp
       version: string;
       cwd: string;
       action: "vigie-prefix";
       input: FormInput;
-      result: SessionResult;
+      result: PrefixResultSerialized;
     }
   | {
       schema_version: 2;

@@ -24,3 +24,6 @@ export const isAlreadyPrefixed = (filename: string): boolean => {
 
 export const removeVigiePrefix = (baseName: string): string =>
   baseName.replace(ALREADY_PREFIXED_REGEX, "");
+
+export const extractVigiePrefix = (filename: string): string | null =>
+  ALREADY_PREFIXED_REGEX.exec(path.basename(filename))?.[0] ?? null;

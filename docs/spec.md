@@ -67,8 +67,8 @@ Contenu :
 - En-tête : chemin **absolu** du `cwd` (ex : `📁 /Users/.../Vigie-2026-A1/`).
 - Compteurs :
   - `N enregistrements .wav trouvés ici` (compte `.wav` ET `.WAV`, case-insensitive ; racine + `Brut`/`Bruts` fusionnés — cf. Règles métier)
-  - `M fichier(s) déjà au bon format` (matche la regex d'idempotence et n'a aucun blanc dans son nom de base — sera laissé tel quel)
-  - `W fichier(s) déjà préfixé(s) : les espaces deviendront « _ »` (préfixé mais avec un blanc dans son nom de base, cf. Règles métier § Blancs dans les noms)
+  - `M fichier(s) déjà préfixé(s)` (matche la regex d'idempotence et n'a aucun blanc dans son nom de base). Le Constat ne connaît pas encore la saisie : c'est la Confirmation qui dit s'ils gardent leur préfixe ou s'il sera remplacé.
+  - `W fichier(s) déjà préfixé(s) : les espaces deviendront « _ »` (préfixé mais avec un blanc dans son nom de base, cf. Règles métier § Blancs dans les noms). Si la puce précédente s'affiche aussi : `W autre(s) fichier(s) déjà préfixé(s) : …`, coupé après les deux-points au pluriel pour tenir dans la boîte.
   - `K autre(s) fichier(s) ignoré(s)` (non `.wav` ; dotfiles ignorés)
   - `T fichier(s) temporaire(s) de l'enregistreur` (`temp.wav`, `Test.wav`, cf. Règles métier), puce en `dimColor`
   - Si une partie au moins vient du sous-dossier, une ligne `dimColor` précise la répartition (`(N ici et M dans ./Brut/)`, ou `trouvés dans ./Brut/` si tout en vient) — inchangé quand tout vient de la racine.
@@ -88,19 +88,21 @@ Voir [`ux.md`](./ux.md) pour les wordings exacts.
 
 Formulaire à **4 champs** dans cet ordre :
 
-| #   | Champ             | Validation                                            | Pré-rempli ?                     |
-| --- | ----------------- | ----------------------------------------------------- | -------------------------------- |
-| 1   | Code du carré     | `/^\d{6}$/`                                           | Non                              |
-| 2   | Année             | `/^\d{4}$/` ET 1900 ≤ valeur ≤ 2100                   | Oui — `new Date().getFullYear()` |
-| 3   | Numéro de passage | entier ≥ 1                                            | Oui — `1`                        |
-| 4   | Code du point     | `/^[A-Za-z]\d$/` — normalisé en majuscule à la sortie | Non                              |
+| #   | Champ             | Validation                                            | Pré-rempli ?                    |
+| --- | ----------------- | ----------------------------------------------------- | ------------------------------- |
+| 1   | Code du carré     | `/^\d{6}$/`                                           | Depuis les fichiers, sinon non  |
+| 2   | Année             | `/^\d{4}$/` ET 1900 ≤ valeur ≤ 2100                   | Fichiers, sinon `getFullYear()` |
+| 3   | Numéro de passage | entier ≥ 1                                            | Fichiers, sinon `1`             |
+| 4   | Code du point     | `/^[A-Za-z]\d$/` — normalisé en majuscule à la sortie | Depuis les fichiers, sinon non  |
 
 Comportement :
 
 - **Navigation entre champs** : `↑` / `↓` (ou `Tab` / `Maj+Tab` en alias) pour naviguer entre champs (jamais pour soumettre). `Échap` = retour au Constat.
-- **Champs numériques (Année, Passage)** : rendus sans curseur. `←` / `→` décrémentent / incrémentent la valeur, clampée aux bornes du validateur (`[1900, 2100]` pour l'Année, `[1, 9999]` pour le Passage). Saisie au clavier toujours possible (chiffres ajoutés à droite et tronqués à la longueur max ; Backspace supprime le dernier chiffre).
+- **Champs numériques (Année, Passage)** : rendus sans curseur. `←` / `→` décrémentent / incrémentent la valeur, clampée aux bornes du validateur (`[1900, 2100]` pour l'Année, `[1, 9999]` pour le Passage). Saisie au clavier toujours possible. Tant que le champ n'a pas été modifié, le premier chiffre tapé remplace la valeur affichée : sur un Passage à `1`, taper `2` donne `2`, pas `12`. Les chiffres suivants s'ajoutent à droite, tronqués à la longueur max. Backspace supprime le dernier chiffre. Après `←` / `→`, le champ compte comme modifié.
 - **Soumission** : `Entrée` tente TOUJOURS la soumission, quel que soit le champ focused. Si invalide, validation déclenchée sur tous les champs simultanément, focus sur le 1er champ invalide.
-- **Focus initial au montage** : sur le champ Carré (1er champ vide ; Année et Passage sont préremplis avec des valeurs valides).
+- **Focus initial au montage** : sur le champ Carré, même quand les quatre champs sont pré-remplis.
+- **Pré-remplissage depuis les fichiers** : si tous les fichiers déjà préfixés du dossier portent le même préfixe, les quatre champs en reprennent les valeurs (`readCommonFormInput`, `src/lib/vigie-chiro/prefix.ts`). Les bruts éventuels ne comptent pas, ce qui couvre la relance après un Ctrl+C. Pas de pré-remplissage si les préfixes diffèrent, si aucun fichier n'est préfixé, ou si les valeurs relues ne redonneraient pas exactement le même préfixe (`Pass01`, point en minuscule). L'aide du Carré devient `Valeurs reprises des fichiers déjà préfixés.` et celle de l'Année `Reprise des fichiers déjà préfixés. Modifiable si besoin.`, chacune tant que son champ garde la valeur lue sur les fichiers. Une seule Entrée revalide alors les valeurs des fichiers, et changer une valeur devient un geste voulu.
+- **Retour depuis la Confirmation** (Échap sur le plan) : la Saisie revient avec les valeurs tapées, qui l'emportent sur le pré-remplissage. Un champ qui garde la valeur des fichiers garde aussi l'aide « reprise » ; un champ modifié reprend l'aide habituelle.
 - **Validation hybride** :
   - **Pendant la frappe** : silence total. Aucun rouge, aucun compteur de progression.
   - **À la sortie du champ** (`↑`/`↓` ou `Tab`/`Shift+Tab`) ou à la **soumission** (Entrée) : la validation se déclenche. Si invalide, message en rouge à la place de l'aide.
@@ -124,20 +126,22 @@ Contenu :
 - Titre : `On va renommer N fichiers comme ceci :`
 - **3 exemples** `avant → après` (1er, milieu, dernier dans l'ordre alphabétique des noms d'origine ; si N ≤ 4, on les affiche tous).
 - Si `N > 4` : `Les X autres suivent le même format.` après les 3 exemples.
-- Si le bloc des espaces s'affiche aussi : un seul exemple par bloc, deux s'il n'en reste qu'un.
+- Mode compact : dès que deux blocs de renommage s'affichent (préfixe, autre préfixe, espaces), chaque bloc garde un seul exemple, sans ligne vide sous son titre ni ligne `Les X autres…`. Le titre donne déjà le nombre. C'est ce qui garde le titre de l'écran sur 24 lignes avec les trois blocs.
 - Si fichiers déjà préfixés détectés au Constat : rappel `ℹ M fichier(s) sera/seront laissé(s) tel(s) quel(s) (déjà au bon format) :` + liste tronquée si > 3.
 - **Détection de collision au plan-time** : si un nom cible existerait déjà sur disque (hors le fichier source lui-même), l'afficher en `yellow` AVANT exécution :
   `⚠ N fichiers ne pourront pas être renommés` puis `(un fichier porte déjà le nom cible) :` + liste.
 - Si rien n'est à renommer et qu'il reste des collisions, le titre est `ℹ Aucun fichier ne sera renommé.`
-- Les fichiers déjà préfixés qui ont un blanc forment un bloc à part, sous celui du préfixe : `Les espaces deviendront « _ » dans W fichiers déjà préfixés :`, puis des exemples réduits au nom de base. Le titre `On va renommer N fichiers` ne compte que les fichiers qui reçoivent le préfixe et disparaît s'il n'y en a aucun.
-- Phrase de réassurance : `Le nom original est conservé en fin du nouveau nom — rien n'est perdu.` Quand seuls des blancs changent : `Seuls les espaces changent : le reste du nom est conservé.`
-- Footer : `Entrée renommer   Échap modifier la saisie`
+- Les fichiers qui portent un autre préfixe que celui de la saisie forment un bloc jaune, sous celui du préfixe : `⚠ N fichiers portent déjà un autre préfixe :`, le préfixe trouvé (s'il y en a plusieurs : le premier, puis `et X autres préfixes` en dim), `L'ancien préfixe sera remplacé par le nouveau :`, puis des exemples `ancien → nouveau` réduits au nom de base. Deux exemples quand le bloc est seul. Entrée les renomme avec le reste. Un fichier de ce groupe qui part en collision ne figure pas dans ce bloc : il est dans le bloc des collisions, avec son nom complet.
+- Les fichiers qui portent déjà le préfixe saisi et qui ont un blanc forment un bloc à part, sous celui du préfixe : `Les espaces deviendront « _ » dans W fichiers déjà préfixés :`, puis des exemples réduits au nom de base. Le titre `On va renommer N fichiers` ne compte que les bruts, qui reçoivent un premier préfixe, et disparaît s'il n'y en a aucun.
+- Si tous les fichiers portent déjà le préfixe saisi, sans blanc et sans collision : `ℹ Les N fichiers portent déjà le préfixe` (`ℹ Le fichier porte déjà le préfixe` pour un seul), le préfixe en dessous, puis `Rien à renommer.`. Pas de phrase de réassurance. Footer `Entrée continuer   Échap retour à la saisie` : Entrée mène à la variante B du Résultat.
+- Phrase de réassurance : `Le nom original est conservé en fin du nouveau nom — rien n'est perdu.` Quand seuls des blancs changent (aucun préfixe posé ni remplacé) : `Seuls les espaces changent : le reste du nom est conservé.`
+- Footer : `Entrée renommer   Échap modifier la saisie`. Échap ramène à la Saisie avec les valeurs tapées (`retour à la saisie` quand rien n'est à renommer, même effet). Pendant le calcul du plan ou sur une erreur, Échap ramène au Constat.
 
 ### Écran 4 — Résultat
 
 Affiché après exécution. Cinq variantes possibles selon l'issue. Le classement est fait par `src/lib/vigie-chiro/classifyRenameOutcome.ts`. L'écran l'affiche.
 
-En variantes A et C, les fichiers déjà préfixés dont seuls les blancs ont changé ont leur propre ligne : `W fichiers déjà préfixés : espaces remplacés par « _ »`. La ligne `N fichiers renommés avec le préfixe` ne compte que ceux qui ont reçu le préfixe et disparaît quand N vaut 0. En variante D, le compteur `déjà renommés` additionne les deux.
+En variantes A et C, les fichiers déjà préfixés dont seuls les blancs ont changé ont leur propre ligne : `W fichiers déjà préfixés : espaces remplacés par « _ »`. La ligne `N fichiers renommés avec le préfixe` compte les bruts préfixés et les fichiers dont l'ancien préfixe a été remplacé. Elle disparaît quand N vaut 0. Ces derniers ont une ligne de plus en dessous : `dont N qui portaient un autre préfixe` (`dont 1 qui portait…`). Même chose en variante C sous `K fichiers renommés ✓`. En variante D, le compteur `déjà renommés` additionne tout.
 
 Les collisions vues au plan s'affichent dans toutes les variantes sauf B. C'est un bloc jaune `⚠ N fichiers n'ont pas été renommés (un fichier porte déjà le nom cible) :` tronqué à 3 noms + `... et X autres`. Une collision apparue pendant le renommage arrive dans les erreurs avec `EEXIST`.
 
@@ -157,6 +161,7 @@ Les collisions vues au plan s'affichent dans toutes les variantes sauf B. C'est 
 - `N fichiers déjà nommés correctement.`
 - Pas d'erreur, ton positif.
 - Seulement s'il ne reste aucune collision. Sinon, variante E.
+- Jamais quand un fichier portait un autre préfixe : il a été renommé (A, C, D) ou il est en collision (E).
 
 **Variante C — Renommage avec erreurs partielles**
 
@@ -170,9 +175,9 @@ Les collisions vues au plan s'affichent dans toutes les variantes sauf B. C'est 
 **Variante D — Ctrl+C en plein renommage**
 
 - `⚠ Renommage interrompu`
-- `K fichiers déjà renommés ✓ (conservés)`
+- `K fichiers déjà renommés ✓ (conservés)`, puis le préfixe saisi en `cyan` si K ≥ 1 : ce sont les valeurs à retaper à la relance.
 - `Reste R fichiers non traités.`
-- `Vous pouvez relancer chiro, les fichiers déjà renommés seront automatiquement reconnus.` (rappel idempotence)
+- `Vous pouvez relancer chiro à tout moment avec les mêmes valeurs : les fichiers déjà renommés seront reconnus et laissés tels quels.` (rappel idempotence). Avec d'autres valeurs, leur préfixe serait remplacé. À la relance, la Saisie se pré-remplit si tous les fichiers déjà renommés portent le même préfixe.
 - Les erreurs rencontrées avant l'arrêt, groupées comme en variante C, puis le bloc collisions s'il y en a.
 
 **Variante E — Aucun fichier renommé, des collisions restent**
@@ -643,9 +648,14 @@ Un fichier est considéré "déjà préfixé" si son nom matche :
 ^Car\d{6}-\d{4}-Pass\d+-[A-Za-z]\d-
 ```
 
-Si oui → le fichier est skippé (pas renommé), compté séparément, mentionné au Constat et au Résultat.
+Le plan lit ce préfixe (`extractVigiePrefix`, `src/lib/vigie-chiro/isAlreadyPrefixed.ts`) et le compare à celui de la saisie, en tenant compte de la casse :
 
-Exception voulue : un fichier préfixé qui a un blanc dans son nom de base est renommé quand même, préfixe intact. Seuls ses blancs changent (cf. § Blancs dans les noms). Une fois corrigé, il redevient « déjà préfixé ». Le prédicat unique est `isAlreadyCompliant` (`src/lib/vigie-chiro/whitespaceInName.ts`), partagé par le Constat et le plan.
+- Même préfixe → le fichier est skippé (pas renommé), compté séparément, mentionné à la Confirmation et au Résultat.
+- Autre préfixe → l'ancien préfixe est remplacé par le nouveau (`kind: "reprefix"`). Le cas d'usage : elle a tapé Passage 1 au lieu de 2 et relance chiro pour corriger. La comparaison tient compte de la casse : un point `a1` écrit par un autre outil est remplacé par `A1`.
+
+Exception voulue : un fichier qui porte déjà le préfixe saisi mais qui a un blanc dans son nom de base est renommé quand même, préfixe intact. Seuls ses blancs changent (cf. § Blancs dans les noms). Une fois corrigé, il redevient « déjà préfixé ».
+
+Le Constat ne connaît pas encore la saisie. Il compte les fichiers préfixés avec `isAlreadyCompliant` (`src/lib/vigie-chiro/whitespaceInName.ts`) sans savoir s'ils garderont leur préfixe.
 
 ### Construction du nom cible
 
@@ -659,6 +669,7 @@ Où :
 - `{nom-original-sans-extension}` = nom du fichier original débarrassé de son extension
 - L'extension finale est **toujours `.wav` minuscule**, même si l'original était `.WAV` (normalisation).
 - Chaque blanc du nom de base devient `_` (cf. § Blancs dans les noms).
+- Pour un fichier qui porte un autre préfixe, le nom original est le nom de base débarrassé de ce préfixe. Seul le premier préfixe est retiré : un nom préfixé deux fois en garde un. Un seul renommage remplace le préfixe, les blancs et la casse de l'extension.
 
 ### Blancs dans les noms
 
@@ -690,7 +701,7 @@ Pour un fichier trouvé dans `Brut/`, le préfixe s'applique au nom de fichier u
 
 ### Collision (au plan-time et au rename-time)
 
-- **Plan-time** : avant l'exécution, vérifier pour chaque rename prévu que le nom cible n'existe pas déjà sur disque. Si oui, marquer la collision et NE PAS l'inclure dans le batch d'exécution. Afficher la liste en jaune sur l'écran de Confirmation.
+- **Plan-time** : avant l'exécution, vérifier pour chaque rename prévu que le nom cible n'est pas déjà pris sur disque par un autre fichier. Sur un disque insensible à la casse (APFS par défaut), remplacer le point `a1` par `A1` vise un nom que le système dit « existant » : c'est la source elle-même. `isTargetTakenByAnotherFile` (`src/lib/fs/isTargetTaken.ts`) ne compte donc pas comme pris un nom qui ne diffère de la source que par la casse et désigne le même fichier (même `dev` et même `ino`). La même vérification protège `applyRenames` juste avant chaque `rename`. Si oui, marquer la collision et NE PAS l'inclure dans le batch d'exécution. Afficher la liste en jaune sur l'écran de Confirmation.
 - **Rename-time** : double sécurité. Si `fs.rename` échoue avec `EEXIST`, capturer et consigner. (Ne devrait jamais arriver après le plan, mais protection en cas de race condition.)
 - **Collision intra-plan** : si deux fichiers source produisent le même nom cible (cas APFS case-insensitive, ou collisions liées à la normalisation `.WAV → .wav`), le premier dans l'ordre alphabétique est conservé dans `operations`, les suivants vont dans `skippedCollision`. Deux fichiers de même nom dans deux dossiers différents (racine et `Brut/`) ne collisionnent PAS à ce niveau — leurs cibles vivent dans des dossiers distincts et coexistent réellement sur le disque ; ce cas est refusé bien plus tôt, au scan (cf. « Détection des `.wav` »).
 
@@ -698,11 +709,11 @@ Pour un fichier trouvé dans `Brut/`, le préfixe s'applique au nom de fichier u
 
 Chaque session écrit un événement JSONL en `append` dans `~/.chiro/sessions.jsonl` (créer le dossier au boot s'il n'existe pas).
 
-Format d'un événement :
+Format d'un événement de préfixage (`schema_version: 7`) :
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 7,
   "ts": "2026-05-11T21:30:45.123Z",
   "version": "0.1.0",
   "cwd": "/Users/.../Vigie-2026-A1",
@@ -715,14 +726,26 @@ Format d'un événement :
   },
   "result": {
     "renamed": 7,
+    "whitespace_fixed": 0,
+    "reprefixed": 3,
     "skipped_already_prefixed": 1,
     "skipped_collision": 0,
+    "other_prefix": 3,
+    "prefixes_found": ["Car040962-2026-Pass2-A1-", "Car040962-2026-Pass3-A1-"],
+    "prefixes_found_count": 2,
     "errored": [{ "file": "...", "reason": "EACCES" }],
     "interrupted": false,
     "duration_ms": 42
   }
 }
 ```
+
+- `renamed` compte tous les renommages réussis. `whitespace_fixed` (préfixe gardé, blancs remplacés) et `reprefixed` (ancien préfixe remplacé) en comptent deux sortes. Un fichier dont le préfixe et les blancs changent dans le même renommage compte dans `reprefixed` seulement.
+- `other_prefix` compte les fichiers trouvés avec un autre préfixe que celui de la saisie, collisions comprises, renommés ou non. Sur une session interrompue, l'écart avec `reprefixed` dit ce qui restait à faire.
+- `prefixes_found` liste les préfixes distincts lus sur les fichiers du plan, triés, préfixe saisi compris s'il était déjà posé. La liste s'arrête à 20 (`MAX_LOGGED_PREFIXES`). `prefixes_found_count` donne le vrai nombre, comme `volume_count` à côté de `volumes` en v4.
+- Construit par `buildVigiePrefixSessionEvent` (`src/lib/logging/`).
+
+La v7 remplace la v1 (`schema_version: 1`), qui avait la même action sans les quatre derniers compteurs ni la liste. chiro n'écrit plus de v1. Les lignes v1 déjà dans le journal gardent leur forme.
 
 Le log est **append-only** (jamais tronqué). À surveiller dans le futur : rotation si dépassement de taille — pas dans le MVP.
 
@@ -756,7 +779,7 @@ Pour les sessions de découpage, `schema_version: 2`. Format aligné avec v1 (ti
 }
 ```
 
-**v1 reste byte-stable** : tout reader jq existant qui filtre sur `.action == "vigie-prefix"` ou `.schema_version == 1` continue à fonctionner. Un snapshot test (`src/lib/logging/log.test.ts`) asserte caractère par caractère le format v1 pour empêcher toute dérive silencieuse.
+**v7 reste byte-stable** : un snapshot test (`src/lib/logging/log.test.ts`) vérifie caractère par caractère le format v7 pour empêcher toute dérive silencieuse. Un reader jq qui filtre sur `.action == "vigie-prefix"` lit les v1 anciennes et les v7. S'il filtre sur `.schema_version == 1`, il ne voit plus les nouvelles sessions.
 
 ### Schéma v5 — sessions `vigie-archive` (Phase 8, révisé)
 

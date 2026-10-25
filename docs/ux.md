@@ -10,6 +10,7 @@ Ce document est la source de vérité pour **tous les libellés affichés** et l
 | ------------------------------------------------ | --------------------------- | ---------------------------------------------------- |
 | Succès, validation                               | `green`                     | Standard                                             |
 | Avertissement non-bloquant, skip, collision      | `yellow`                    | Standard                                             |
+| Remplacement d'un préfixe déjà posé              | `yellow`                    | Elle revient sur un choix fait avant                 |
 | Erreur, validation invalide                      | `red`                       | Standard                                             |
 | Valeur saisie par l'utilisatrice (mise en avant) | `cyan`                      | Non-anxiogène                                        |
 | Aide contextuelle, raccourcis footer             | `dimColor` (prop booléenne) | Discret, **jamais `gray`** (invisible sur Solarized) |
@@ -121,7 +122,7 @@ En `dimColor`, sans chemin ni footer. Échap revient au menu. P-Constat, A-Const
 📁 /Users/.../Vigie-2026-pointA1
 
 ✓ 8 enregistrements .wav trouvés ici
-  • 1 fichier déjà au bon format sera laissé tel quel
+  • 1 fichier déjà préfixé
   • 2 autres fichiers seront ignorés (pas des .wav)
 
 Ce sont bien les fichiers à préparer ?
@@ -132,15 +133,22 @@ Ce sont bien les fichiers à préparer ?
 **Variantes** :
 
 - Aucun fichier déjà préfixé / aucun fichier ignoré → ne pas afficher les puces correspondantes.
+- La puce dit « déjà préfixé(s) », sans promettre qu'ils seront laissés tels quels : le Constat ne connaît pas encore la saisie, et un fichier qui porte un autre préfixe sera proposé au remplacement à la Confirmation. Au pluriel : `• 3 fichiers déjà préfixés`.
 - Présence de `.WAV` majuscule : ajouter la puce suivante. Elle s'ajoute à celle des fichiers ignorés sans la remplacer. Les `.WAV` ne comptent pas parmi les ignorés. Seuls les bruts comptent : un fichier déjà préfixé en `.WAV` n'est pas renommé :
   ```
   • 2 fichiers en .WAV seront renommés en .wav (minuscule)
   ```
-- Fichiers déjà préfixés avec un espace dans le nom (préfixe Teensy court complété par des espaces) : ils ne comptent plus parmi « déjà au bon format » et ont leur propre puce.
+- Fichiers déjà préfixés avec un espace dans le nom (préfixe Teensy court complété par des espaces) : ils ne comptent pas dans la puce précédente et ont leur propre puce.
   ```
   • 1888 fichiers déjà préfixés : les espaces deviendront « _ »
   ```
-  Au singulier : `• 1 fichier déjà préfixé : les espaces deviendront « _ »`. Les bruts avec espace n'ont pas de puce : ils reçoivent le préfixe de toute façon, et le `_` se voit dans les exemples de la Confirmation.
+  Au singulier : `• 1 fichier déjà préfixé : les espaces deviendront « _ »`. Quand la puce précédente s'affiche aussi, celle-ci dit « autres ». Au pluriel, elle dépasserait les 66 colonnes : elle est coupée après les deux-points, la suite en retrait sous la puce.
+  ```
+  • 1 fichier déjà préfixé
+  • 1887 autres fichiers déjà préfixés :
+    les espaces deviendront « _ »
+  ```
+  Au singulier, la puce tient sur une ligne : `• 1 autre fichier déjà préfixé : les espaces deviendront « _ »`. Les bruts avec espace n'ont pas de puce : ils reçoivent le préfixe de toute façon, et le `_` se voit dans les exemples de la Confirmation.
 - Présence de `temp.wav` ou `Test.wav` (fichiers de travail du Teensy, cf. `spec.md` § Détection des `.wav`) : ajouter en dernière puce, ligne entière en `dimColor` :
   ```
   • 1 fichier temporaire de l'enregistreur sera ignoré
@@ -313,13 +321,33 @@ Code du point d'écoute
 
 - Rendus sans curseur (texte brut).
 - `←` / `→` décrémentent / incrémentent la valeur, clampée à `[1900, 2100]` (Année) et `[1, 9999]` (Passage).
-- Saisie au clavier également possible (chiffres ajoutés à droite, tronqués à la longueur max ; Backspace supprime le dernier chiffre).
+- Saisie au clavier également possible. Tant que le champ n'a pas été modifié, le premier chiffre tapé remplace la valeur : sur un Passage à `1`, taper `2` donne `2`, pas `12` (qui s'afficherait `Pass12` à la Confirmation, différence peu visible). Les chiffres suivants s'ajoutent à droite, tronqués à la longueur max. Backspace supprime le dernier chiffre. Après `←` / `→`, le champ compte comme modifié.
 
 **Soumission** :
 
 **Entrée = toujours tenter la soumission**. `↑`/`↓` (ou `Tab`/`Shift+Tab`) uniquement pour naviguer entre champs. Si la soumission échoue (champs invalides), la validation se déclenche sur **tous** les champs (affichant toutes les erreurs en même temps) et le focus va sur le 1er champ invalide.
 
-**Focus initial** : Au montage du formulaire, le focus est sur le champ Carré (1er champ vide ; Année et Passage sont préremplis avec des valeurs valides).
+**Focus initial** : Au montage du formulaire, le focus est sur le champ Carré, même quand les quatre champs sont pré-remplis.
+
+**Pré-remplissage depuis les fichiers** : quand tous les fichiers déjà préfixés du dossier portent le même préfixe, les quatre champs en reprennent les valeurs (cf. `spec.md` § Écran 2). Deux aides changent :
+
+```
+Code du carré
+  │ 123456  ✓
+  Valeurs reprises des fichiers déjà préfixés.
+
+Année de la session
+    2026  ✓
+  Reprise des fichiers déjà préfixés. Modifiable si besoin.
+```
+
+- La ligne remplace l'aide du Carré, plutôt que de s'ajouter en tête : la Saisie fait déjà plus de 24 lignes, et une ligne de tête serait la première à sortir de l'écran. C'est le champ qui a le focus, donc la ligne qu'elle lit en premier. L'aide de 3 lignes ne sert plus quand le code est déjà là.
+- L'aide de l'Année change parce que « Pré-remplie sur cette année » deviendrait faux.
+- L'aide du Passage reste : c'est elle qui l'aide à ne pas refaire l'erreur.
+- Chaque aide « reprise » ne s'affiche que tant que son champ garde la valeur lue sur les fichiers. Dès qu'elle change le Carré ou l'Année, l'aide habituelle revient.
+- Une Entrée revalide les valeurs des fichiers. S'il n'y a ni brut ni blanc à corriger, la Confirmation dit « ℹ Les N fichiers portent déjà le préfixe ». Après un arrêt pendant un premier préfixage, elle annonce les bruts qui restent à renommer. Changer une valeur est un geste voulu : la Confirmation montre alors le bloc jaune « autre préfixe ».
+
+**Retour depuis la Confirmation** : Échap sur la Confirmation (« modifier la saisie », « retour à la saisie ») ramène à la Saisie avec les valeurs qu'elle avait tapées, qui l'emportent sur le pré-remplissage. Les aides suivent la même règle : « reprise » pour un champ qui garde la valeur des fichiers, habituelle sinon. Sans cela, une année 2025 lue sur les fichiers s'afficherait sous « Pré-remplie sur cette année ».
 
 **Footer** :
 
@@ -372,7 +400,8 @@ vous pouvez retrouver chaque fichier à partir de sa fin.
 **Variantes** :
 
 - Si N ≤ 4 : afficher les N exemples, supprimer la ligne `Les X autres suivent le même format`. À 4, le quatrième s'affiche plutôt qu'une ligne « Les 1 autres ».
-- Si le bloc des espaces s'affiche aussi : un seul exemple par bloc (deux s'il n'en reste qu'un), pour que le titre tienne sur 24 lignes.
+- Mode compact, dès que deux blocs de renommage s'affichent (préfixe, autre préfixe, espaces) : un seul exemple par bloc, sans ligne vide sous le titre du bloc ni `Les X autres…`, puisque le titre donne le nombre. Avec les trois blocs, l'écran fait 24 lignes pile.
+- `On va renommer N fichiers` ne compte que les bruts, qui reçoivent un premier préfixe. Les fichiers dont l'ancien préfixe est remplacé ont leur propre bloc.
 - Si aucun fichier déjà préfixé : supprimer le bloc `ℹ ... laissé tel quel`.
 - Si collisions détectées :
   ```
@@ -409,6 +438,40 @@ vous pouvez retrouver chaque fichier à partir de sa fin.
 
 Cas typique : la carte SD recopiée dans un dossier déjà préfixé. Ce titre s'affiche quand rien n'est à renommer et qu'il reste au moins une collision. Le bloc `ℹ … laissé tel quel` n'apparaît que s'il y a des fichiers déjà préfixés. Entrée mène au Résultat variante E.
 
+### Écran 3 — Confirmation (fichiers qui portent un autre préfixe)
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+⚠ 5 fichiers portent déjà un autre préfixe :
+    Car123456-2026-Pass1-A1-
+  L'ancien préfixe sera remplacé par le nouveau :
+
+    Car123456-2026-Pass1-A1-PaRec1_20260728_205005.wav
+  → Car123456-2026-Pass2-A1-PaRec1_20260728_205005.wav
+
+    Car123456-2026-Pass1-A1-PaRec1_20260728_205010.wav
+  → Car123456-2026-Pass2-A1-PaRec1_20260728_205010.wav
+
+  Les 3 autres suivent le même format.
+
+Le nom original est conservé en fin du nouveau nom — rien n'est
+perdu, vous pouvez retrouver chaque fichier à partir de sa fin.
+
+  Entrée renommer   Échap modifier la saisie
+```
+
+Cas réel : elle a préfixé en Passage 1 au lieu de 2, et relance chiro pour corriger. Entrée renomme : le nouveau préfixe remplace l'ancien.
+
+- Titre et ligne du préfixe trouvé en `yellow` : elle revient sur un choix fait avant, c'est la ligne à vérifier. La phrase et l'ancien nom sont en texte normal, la flèche et le nouveau nom en `cyan`.
+- La flèche est dans la marge, comme dans le bloc des espaces : `Pass1` tombe juste au-dessus de `Pass2`. Exemples réduits au nom de base, sans `Brut/`.
+- Deux exemples quand le bloc est seul. S'il ne reste qu'un fichier en plus, il s'affiche plutôt qu'une ligne « Les 1 autres ». Un exemple en mode compact.
+- Plusieurs préfixes trouvés : une seule ligne, le premier dans l'ordre alphabétique puis `  et N autres préfixes` en `dimColor` (`et 1 autre préfixe`). Les exemples viennent alors de préfixes différents, pour qu'un fichier d'une autre étude se voie avant Entrée.
+- Au singulier : `⚠ 1 fichier porte déjà un autre préfixe :`.
+- Le bloc se place sous celui du préfixe, avant celui des espaces. Un fichier qui porte un autre préfixe et un blanc n'apparaît qu'ici : le même renommage remplace le préfixe et les blancs.
+- Un fichier de ce groupe dont le nouveau nom est déjà pris n'est pas dans ce bloc. Il est dans le bloc des collisions, avec son nom complet.
+- La phrase « Seuls les espaces changent » ne s'affiche jamais avec ce bloc.
+
 ### Écran 3 — Confirmation (espaces dans des noms déjà préfixés)
 
 ```
@@ -432,9 +495,9 @@ Seuls les espaces changent : le reste du nom est conservé.
   Entrée renommer   Échap modifier la saisie
 ```
 
-Cas réel : un dossier entier préfixé avec le préfixe Teensy `PR01 `. Le bloc se place sous celui du préfixe, avant les collisions et les fichiers laissés tels quels. En-tête en texte normal : c'est une action, pas une alerte. Les exemples montrent le seul nom de base, sans `Brut/`. La flèche est dans la marge pour que l'espace et le `_` tombent l'un sous l'autre. Trois exemples quand le bloc est seul, un dès qu'un autre bloc s'affiche. Le bloc du préfixe passe lui aussi à un exemple quand les deux blocs s'affichent. Quand il ne resterait qu'un fichier hors exemples, il s'affiche aussi plutôt qu'une ligne « Les 1 autres ».
+Cas réel : un dossier entier préfixé avec le préfixe Teensy `PR01 `. Ce bloc ne concerne que les fichiers qui portent déjà le préfixe saisi. Le bloc se place sous celui du préfixe et sous celui de l'autre préfixe, avant les collisions et les fichiers laissés tels quels. En-tête en texte normal : c'est une action, pas une alerte. Les exemples montrent le seul nom de base, sans `Brut/`. La flèche est dans la marge pour que l'espace et le `_` tombent l'un sous l'autre. Trois exemples quand le bloc est seul, un dès qu'un autre bloc s'affiche (collisions et fichiers laissés tels quels compris). Avec un autre bloc de renommage, c'est le mode compact. Quand il ne resterait qu'un fichier hors exemples, il s'affiche aussi plutôt qu'une ligne « Les 1 autres ».
 
-« On va renommer N fichiers comme ceci : » ne compte que les fichiers qui reçoivent le préfixe et disparaît s'il n'y en a aucun. La phrase « Seuls les espaces changent » remplace la réassurance habituelle quand aucun préfixe n'est posé. Le footer et « Renommage en cours… (N) » comptent toutes les opérations.
+« On va renommer N fichiers comme ceci : » ne compte que les bruts et disparaît s'il n'y en a aucun. La phrase « Seuls les espaces changent » remplace la réassurance habituelle quand aucun préfixe n'est posé ni remplacé. Le footer et « Renommage en cours… (N) » comptent toutes les opérations.
 
 ### Écran 3 — Confirmation (pendant le renommage)
 
@@ -444,15 +507,20 @@ Renommage en cours… (7 fichiers)
 
 En `dimColor` avec un footer vide. Le nombre est celui des fichiers à renommer, au singulier pour un seul. Ctrl+C arrête le renommage après le fichier en cours et mène à l'Écran 4 variante D. Il n'y a pas d'écran « arrêt en cours » : « Renommage en cours… » reste affiché jusqu'au résultat.
 
-### Écran 3 — Confirmation (cas "0 fichier à renommer, tout est déjà préfixé")
+### Écran 3 — Confirmation (cas "0 fichier à renommer, tout porte déjà le préfixe saisi")
 
 ```
-ℹ Tous les fichiers (8) sont déjà au bon format.
+📁 /Users/.../Vigie-2026-pointA1
 
-Rien à renommer. Vous pouvez retourner au menu.
+ℹ Les 8 fichiers portent déjà le préfixe
+    Car123456-2026-Pass2-A1-
 
-  Entrée retour au menu   Échap retour à la saisie
+Rien à renommer.
+
+  Entrée continuer   Échap retour à la saisie
 ```
+
+Les deux lignes du haut en `cyan`. Le préfixe s'affiche parce que, avec la Saisie pré-remplie, c'est sur cet écran qu'elle vérifie la valeur. Pas de phrase de réassurance : rien n'est renommé. Entrée mène au Résultat variante B, et la session est journalisée. Au singulier : `ℹ Le fichier porte déjà le préfixe`. Un fichier qui porte un autre préfixe n'arrive jamais ici : il a son bloc jaune.
 
 ### Écran 3 — Confirmation (dégradé : erreur pendant le renommage)
 
@@ -504,7 +572,17 @@ tels quels, ils seraient découpés avec les autres.
 
 Au singulier : « Vérifiez ce fichier avant de découper : » puis « tel quel, il serait découpé avec les autres. ». La phrase ne parle pas de copie : une horloge Teensy remise en 2019 peut donner le même nom à deux enregistrements différents.
 
-Quand des fichiers déjà préfixés ont perdu leurs espaces, une ligne à part suit le compteur du préfixe : `  1888 fichiers déjà préfixés : espaces remplacés par « _ »` (au singulier `  1 fichier déjà préfixé : espaces remplacés par « _ »`). Le compteur `N fichiers renommés avec le préfixe` et le préfixe en cyan ne s'affichent que si N vaut au moins 1.
+Les fichiers dont l'ancien préfixe a été remplacé comptent dans `N fichiers renommés avec le préfixe`. Une ligne les détaille sous le préfixe en cyan :
+
+```
+  3 fichiers renommés avec le préfixe
+      Car123456-2026-Pass2-A1-
+  dont 3 qui portaient un autre préfixe
+```
+
+Au singulier : `  dont 1 qui portait un autre préfixe`. Même ligne en variante C, sous `N fichiers renommés ✓`. La variante B (« Rien à faire ») n'apparaît jamais quand un fichier portait un autre préfixe.
+
+Quand des fichiers déjà préfixés ont perdu leurs espaces, une ligne à part suit le compteur du préfixe : `  1888 fichiers déjà préfixés : espaces remplacés par « _ »` (au singulier `  1 fichier déjà préfixé : espaces remplacés par « _ »`). Le compteur `N fichiers renommés avec le préfixe` (bruts et préfixes remplacés) et le préfixe en cyan ne s'affichent que si N vaut au moins 1.
 
 Si une collision a un espace dans son nom, la phrase de fin devient :
 
@@ -594,14 +672,17 @@ Codes d'erreur → libellés :
 ℹ Renommage arrêté à votre demande
 
   3 fichiers déjà renommés (conservés en sécurité)
+      Car040962-2026-Pass3-A1-
 
-Vous pouvez relancer chiro à tout moment — les fichiers déjà
-renommés seront reconnus et ne seront pas touchés deux fois.
+Vous pouvez relancer chiro à tout moment avec les mêmes valeurs :
+les fichiers déjà renommés seront reconnus et laissés tels quels.
 
   Entrée retour au menu
 ```
 
-Le compteur `déjà renommés` additionne les fichiers préfixés et ceux dont seuls les espaces ont changé. Si des fichiers ont échoué avant l'arrêt, les groupes d'erreurs de la variante C s'insèrent sous le compteur (`  X fichiers n'ont pas pu être renommés :` puis les groupes). Le bloc collisions suit s'il y en a.
+Le préfixe saisi s'affiche en `cyan` sous le compteur, comme en variante A, dès qu'au moins un fichier a été renommé : ce sont les valeurs à retaper. La phrase pose la condition « avec les mêmes valeurs » : avec d'autres valeurs, les fichiers déjà renommés arriveraient dans le bloc jaune « autre préfixe ». À la relance, la Saisie se pré-remplit quand tous les fichiers déjà renommés portent le même préfixe. Elle ne se pré-remplit pas après un arrêt en plein remplacement de préfixe, où deux préfixes coexistent.
+
+Le compteur `déjà renommés` additionne les fichiers préfixés, ceux dont l'ancien préfixe a été remplacé et ceux dont seuls les espaces ont changé. Si des fichiers ont échoué avant l'arrêt, les groupes d'erreurs de la variante C s'insèrent sous le compteur (`  X fichiers n'ont pas pu être renommés :` puis les groupes). Le bloc collisions suit s'il y en a.
 
 ### Écran 5 — Mise à jour (installation Homebrew détectée)
 

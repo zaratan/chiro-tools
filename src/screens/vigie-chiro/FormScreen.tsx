@@ -61,22 +61,47 @@ const FIELD_HELPS: Record<FieldKey, string> = {
     "Une lettre suivie d'un chiffre, comme indiqué sur votre plan de carré (A1, B2, C3...).",
 };
 
+const PREFILLED_HELPS: Partial<Record<FieldKey, string>> = {
+  squareCode: "Valeurs reprises des fichiers déjà préfixés.",
+  year: "Reprise des fichiers déjà préfixés. Modifiable si besoin.",
+};
+
+const toFieldValues = (input: FormInput): FieldValues => ({
+  squareCode: input.squareCode,
+  year: input.year.toString(),
+  passNumber: input.passNumber.toString(),
+  pointCode: input.pointCode,
+});
+
 export type FormScreenProps = {
+  initialInput: FormInput | null;
+  filesInput: FormInput | null;
   onSubmit: (input: FormInput) => void;
   onBack: () => void;
 };
 
 export const FormScreen = ({
+  initialInput,
+  filesInput,
   onSubmit,
   onBack,
 }: FormScreenProps): React.JSX.Element => {
   const currentYear = new Date().getFullYear().toString();
-  const [values, setValues] = useState<FieldValues>({
-    squareCode: "",
-    year: currentYear,
-    passNumber: "1",
-    pointCode: "",
-  });
+  const [values, setValues] = useState<FieldValues>(
+    initialInput === null
+      ? { squareCode: "", year: currentYear, passNumber: "1", pointCode: "" }
+      : toFieldValues(initialInput),
+  );
+  const filesValues = filesInput === null ? null : toFieldValues(filesInput);
+  const helpFor = (key: FieldKey): string => {
+    const prefilledHelp = PREFILLED_HELPS[key];
+    return prefilledHelp !== undefined && values[key] === filesValues?.[key]
+      ? prefilledHelp
+      : FIELD_HELPS[key];
+  };
+  const [editedFields, setEditedFields] = useState<ReadonlySet<FieldKey>>(
+    new Set(),
+  );
   const [errors, setErrors] = useState<FieldErrors>({
     squareCode: null,
     year: null,
@@ -87,6 +112,7 @@ export const FormScreen = ({
 
   const updateValue = (key: FieldKey, next: string) => {
     setValues((prev) => ({ ...prev, [key]: next }));
+    setEditedFields((prev) => new Set(prev).add(key));
     // Validation is silent during typing — clear visible error if any.
     if (errors[key] !== null) {
       setErrors((prev) => ({ ...prev, [key]: null }));
@@ -121,7 +147,8 @@ export const FormScreen = ({
   const appendDigitToNumericField = (key: NumericFieldKey, digit: string) => {
     const { max } = NUMERIC_FIELD_BOUNDS[key];
     const maxLength = max.toString().length;
-    const next = (values[key] + digit).slice(-maxLength);
+    const base = editedFields.has(key) ? values[key] : "";
+    const next = (base + digit).slice(-maxLength);
     updateValue(key, next);
   };
 
@@ -208,7 +235,7 @@ export const FormScreen = ({
           }}
           focus={i === focusedIndex}
           error={errors[key]}
-          help={FIELD_HELPS[key]}
+          help={helpFor(key)}
           normalizationHint={
             key === "pointCode" ? pointNormalizationHint : undefined
           }

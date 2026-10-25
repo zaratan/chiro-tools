@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAlreadyPrefixed } from "./isAlreadyPrefixed.js";
+import { extractVigiePrefix, isAlreadyPrefixed } from "./isAlreadyPrefixed.js";
 
 describe("isAlreadyPrefixed", () => {
   it("recognizes a prefixed file (single-digit pass)", () => {
@@ -40,5 +40,41 @@ describe("isAlreadyPrefixed", () => {
     expect(isAlreadyPrefixed("Brut/PaRecPR1925645_20260507_210004.wav")).toBe(
       false,
     );
+  });
+});
+
+describe("extractVigiePrefix", () => {
+  it("returns the prefix with its trailing dash, in the shape buildPrefix produces", () => {
+    expect(extractVigiePrefix("Car040962-2026-Pass3-A1-PaRec_210004.wav")).toBe(
+      "Car040962-2026-Pass3-A1-",
+    );
+  });
+
+  it("returns null for a raw recording", () => {
+    expect(extractVigiePrefix("PaRecPR1925645_20260507_210004.wav")).toBeNull();
+  });
+
+  it("reads the prefix of a file inside Brut/ from its base name", () => {
+    expect(extractVigiePrefix("Brut/Car040962-2026-Pass3-A1-old.wav")).toBe(
+      "Car040962-2026-Pass3-A1-",
+    );
+  });
+
+  it("keeps the case of the point, so that a1 and A1 stay two prefixes", () => {
+    expect(extractVigiePrefix("Car040962-2026-Pass3-a1-old.wav")).toBe(
+      "Car040962-2026-Pass3-a1-",
+    );
+  });
+
+  it("returns null for a lowercase car, which the idempotence check refuses too", () => {
+    expect(extractVigiePrefix("car040962-2026-Pass3-A1-old.wav")).toBeNull();
+  });
+
+  it("returns only the first prefix of a name prefixed twice", () => {
+    expect(
+      extractVigiePrefix(
+        "Car040962-2026-Pass3-A1-Car040962-2026-Pass1-A1-old.wav",
+      ),
+    ).toBe("Car040962-2026-Pass3-A1-");
   });
 });

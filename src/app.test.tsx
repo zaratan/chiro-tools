@@ -76,6 +76,81 @@ const writeToAsyncScreen = (
   rendered.stdin.write(key);
 };
 
+describe("App — prefix values read from the files", () => {
+  let tmpDir: string;
+  const pass1 = "Car123456-2026-Pass1-A1-";
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(path.join(tmpdir(), "chiro-e2e-prefill-"));
+    await Promise.all(
+      TEENSY_FILES.map((name) =>
+        writeFile(path.join(tmpDir, `${pass1}${name}`), ""),
+      ),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const openForm = async (): Promise<ReturnType<typeof render>> => {
+    const rendered = render(<App cwd={tmpDir} onRequestUpdate={vi.fn()} />);
+    rendered.stdin.write("\r");
+    await waitForText(rendered.lastFrame, "3 fichiers déjà préfixés");
+    await settle();
+    rendered.stdin.write("\r");
+    await waitForText(
+      rendered.lastFrame,
+      "Valeurs reprises des fichiers déjà préfixés.",
+    );
+    await settle();
+    return rendered;
+  };
+
+  it("fills the form from a folder prefixed in Pass 1, so a single Entrée finds nothing to rename", async () => {
+    const { stdin, lastFrame } = await openForm();
+
+    stdin.write("\r");
+    await waitForText(lastFrame, "ℹ Les 3 fichiers portent déjà le préfixe");
+
+    expect(lastFrame() ?? "").toContain("Car123456-2026-Pass1-A1-");
+  });
+
+  it("brings back the values she typed when she presses Échap on the confirmation", async () => {
+    const { stdin, lastFrame } = await openForm();
+    stdin.write("\t");
+    await settle();
+    stdin.write("\t");
+    await settle();
+    stdin.write("2");
+    await settle();
+    stdin.write("\r");
+    await waitForText(
+      lastFrame,
+      "⚠ 3 fichiers portent déjà un autre préfixe :",
+    );
+    await settle();
+
+    stdin.write("\x1B");
+    await waitForText(lastFrame, "Code du carré");
+    await settle();
+    const form = lastFrame() ?? "";
+    stdin.write("\r");
+    await waitForText(
+      lastFrame,
+      "⚠ 3 fichiers portent déjà un autre préfixe :",
+    );
+
+    expect(
+      form.split("\n").map((line) => line.replaceAll("│", "").trim()),
+    ).toContain("2  ✓");
+    expect(form).toContain("123456");
+    expect(lastFrame() ?? "").toContain(
+      "→ Car123456-2026-Pass2-A1-PaRecPR1925645_20260507_210004.wav",
+    );
+  });
+});
+
 describe("App — end-to-end", () => {
   let tmpDir: string;
 
@@ -206,6 +281,7 @@ describe("App — end-to-end", () => {
       return {
         renamed: [],
         whitespaceFixed: [],
+        reprefixed: [],
         skippedAlreadyPrefixed: plan.skippedAlreadyPrefixed,
         skippedCollision: plan.skippedCollision,
         errored: [],

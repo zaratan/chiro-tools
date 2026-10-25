@@ -1,11 +1,14 @@
-import { access } from "node:fs/promises";
 import path from "node:path";
-import type { RenamePlan } from "../../types.js";
-import { isAlreadyPrefixed } from "../vigie-chiro/isAlreadyPrefixed.js";
+import type { RenameOperation, RenamePlan } from "../../types.js";
 import {
-  isAlreadyCompliant,
+  extractVigiePrefix,
+  removeVigiePrefix,
+} from "../vigie-chiro/isAlreadyPrefixed.js";
+import {
+  hasWhitespaceInBaseName,
   replaceWhitespaceInBaseName,
 } from "../vigie-chiro/whitespaceInName.js";
+import { isTargetTakenByAnotherFile } from "./isTargetTaken.js";
 
 /**
  * Derives the target filename for a given source name and prefix.
@@ -29,28 +32,34 @@ const buildTargetName = (filename: string, prefix: string): string => {
   );
 };
 
-/**
- * Checks whether a file exists on disk.
- *
- * @returns `true` if the file exists, `false` otherwise (ENOENT).
- */
-const fileExists = async (filePath: string): Promise<boolean> => {
-  try {
-    await access(filePath);
-    return true;
-  } catch {
-    return false;
+type Step = { kind: "skip" } | { kind: RenameOperation["kind"]; to: string };
+
+const planStep = (filename: string, prefix: string): Step => {
+  const foundPrefix = extractVigiePrefix(filename);
+  if (foundPrefix === null) {
+    return { kind: "prefix", to: buildTargetName(filename, prefix) };
   }
+  if (foundPrefix !== prefix) {
+    const unprefixed = path.join(
+      path.dirname(filename),
+      removeVigiePrefix(path.basename(filename)),
+    );
+    return { kind: "reprefix", to: buildTargetName(unprefixed, prefix) };
+  }
+  return hasWhitespaceInBaseName(filename)
+    ? { kind: "whitespace", to: replaceWhitespaceInBaseName(filename) }
+    : { kind: "skip" };
 };
 
 /**
  * Builds the complete rename plan for a list of WAV filenames.
  *
  * For each file:
- * - If `isAlreadyCompliant(file)` → skipped (already-prefixed bucket)
- * - If already prefixed but with whitespace in its base name → `whitespace` operation, prefix untouched
+ * - Already carries `prefix` (case-sensitive) and has no whitespace → skipped (already-prefixed bucket)
+ * - Already carries `prefix` with whitespace in its base name → `whitespace` operation, prefix untouched
+ * - Carries another Vigie-Chiro prefix → `reprefix` operation: the old prefix is replaced, whitespace replaced too
  * - Otherwise, compute the target name = prefix + basename-without-ext + ".wav" (lowercase ext), whitespace replaced
- * - If the target already exists on disk → skipped (collision bucket)
+ * - If the target is held on disk by another file → skipped (collision bucket)
  * - If two source files would produce the SAME target (intra-plan collision, e.g. APFS case-insensitive) → keep the first one in operations, push the rest to the collision bucket
  *
  * Operations are sorted alphabetically by `from`.
@@ -86,32 +95,30 @@ export const planRenames = async (
   const claimedTargets = new Set<string>();
 
   for (const filename of sortedFiles) {
-    if (isAlreadyCompliant(filename)) {
+    const step = planStep(filename, prefix);
+    if (step.kind === "skip") {
       plan.skippedAlreadyPrefixed.push(filename);
       continue;
     }
 
-    const kind = isAlreadyPrefixed(filename) ? "whitespace" : "prefix";
-    const targetName =
-      kind === "whitespace"
-        ? replaceWhitespaceInBaseName(filename)
-        : buildTargetName(filename, prefix);
-
     // Intra-plan collision: another source already claims this target.
-    if (claimedTargets.has(targetName)) {
+    if (claimedTargets.has(step.to)) {
       plan.skippedCollision.push(filename);
       continue;
     }
 
-    // External collision: the target already exists on disk.
-    const targetExists = await fileExists(path.join(dir, targetName));
-    if (targetExists) {
+    if (
+      await isTargetTakenByAnotherFile(
+        path.join(dir, filename),
+        path.join(dir, step.to),
+      )
+    ) {
       plan.skippedCollision.push(filename);
       continue;
     }
 
-    claimedTargets.add(targetName);
-    plan.operations.push({ from: filename, to: targetName, kind });
+    claimedTargets.add(step.to);
+    plan.operations.push({ from: filename, to: step.to, kind: step.kind });
   }
 
   return plan;
