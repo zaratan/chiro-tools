@@ -78,16 +78,68 @@ exit 3`,
     expect(result).toEqual({ kind: "bucket-missing" });
   });
 
-  it("maps exit 1 to config-error", async () => {
+  it("maps exit 1 to config-error only when rclone failed to create the file system", async () => {
     const bin = await makeFakeRclone(
       tmpDir,
       "fake-rclone",
-      `echo "didn't find section in config file" >&2
+      `echo '2026/10/25 10:12:03 CRITICAL: Failed to create file system for "chiro-coffre:chiro-manon/vigie-chiro/x.zip": didn'"'"'t find section in config file ("chiro-coffre")' >&2
 exit 1`,
     );
     const deps: RemoteStatDeps = { binPath: bin };
     const result = await remoteStat(deps, { settings, key: "x.zip" });
     expect(result).toEqual({ kind: "config-error" });
+  });
+
+  it("classifies a DNS failure on exit 1 as rclone-exit:1, not config-error, because Failed to lsjson is not Failed to create file system", async () => {
+    const bin = await makeFakeRclone(
+      tmpDir,
+      "fake-rclone",
+      `echo '2026/10/25 10:12:03 CRITICAL: Failed to lsjson: operation error S3: HeadObject, https response error StatusCode: 0, request send failed, Head "https://chiro-manon.s3.fr-par.scw.cloud/vigie-chiro/x.zip": dial tcp: lookup chiro-manon.s3.fr-par.scw.cloud: no such host' >&2
+exit 1`,
+    );
+    const deps: RemoteStatDeps = { binPath: bin };
+    const result = await remoteStat(deps, { settings, key: "x.zip" });
+    expect(result).toEqual({ kind: "error", code: "rclone-exit:1" });
+  });
+
+  it("still finds the config failure on the last stderr line after more noise than the tail keeps", async () => {
+    const bin = await makeFakeRclone(
+      tmpDir,
+      "fake-rclone",
+      `i=0
+while [ $i -lt 2000 ]; do echo "2026/10/25 10:12:03 DEBUG : noise line number $i, padded to make the tail overflow" >&2; i=$((i+1)); done
+echo '2026/10/25 10:12:03 CRITICAL: Failed to create file system for "chiro-coffre:chiro-manon": didn'"'"'t find backend called "s4"' >&2
+exit 1`,
+    );
+    const deps: RemoteStatDeps = { binPath: bin };
+    const result = await remoteStat(deps, { settings, key: "x.zip" });
+    expect(result).toEqual({ kind: "config-error" });
+  });
+
+  it("finds the config failure even when rclone's last line reaches us split across two reads", async () => {
+    const bin = await makeFakeRclone(
+      tmpDir,
+      "fake-rclone",
+      `printf '2026/10/25 10:12:03 CRITICAL: Failed to cre' >&2
+sleep 0.05
+printf 'ate file system for "chiro-coffre:chiro-manon": didn'"'"'t find section in config file\n' >&2
+exit 1`,
+    );
+    const deps: RemoteStatDeps = { binPath: bin };
+    const result = await remoteStat(deps, { settings, key: "x.zip" });
+    expect(result).toEqual({ kind: "config-error" });
+  });
+
+  it("does not read a config failure into an exit code other than 1", async () => {
+    const bin = await makeFakeRclone(
+      tmpDir,
+      "fake-rclone",
+      `echo 'Failed to create file system' >&2
+exit 42`,
+    );
+    const deps: RemoteStatDeps = { binPath: bin };
+    const result = await remoteStat(deps, { settings, key: "x.zip" });
+    expect(result).toEqual({ kind: "error", code: "rclone-exit:42" });
   });
 
   it("maps an unrecognised exit code to a generic error", async () => {
