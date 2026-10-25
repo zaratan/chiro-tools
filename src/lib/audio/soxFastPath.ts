@@ -383,7 +383,7 @@ export const runSoxBatch = async (
   }
 
   const { queue, skippedTooLarge, skippedAlreadyChunked, errored } =
-    await buildQueue(files, dir, maxInputBytes);
+    await buildQueue(files, dir, maxInputBytes, signal);
   state.skippedTooLarge = skippedTooLarge;
   state.skippedAlreadyChunked = skippedAlreadyChunked;
   state.errored = errored;

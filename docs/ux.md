@@ -136,6 +136,12 @@ Ce sont bien les fichiers à préparer ?
   ```
   • 2 fichiers en .WAV seront renommés en .wav (minuscule)
   ```
+- Présence de `temp.wav` ou `Test.wav` (fichiers de travail du Teensy, cf. `spec.md` § Détection des `.wav`) : ajouter en dernière puce, ligne entière en `dimColor` :
+  ```
+  • 1 fichier temporaire de l'enregistreur sera ignoré
+  • 2 fichiers temporaires de l'enregistreur seront ignorés
+  ```
+  Une puce et pas une ligne entre parenthèses : sous « autres fichiers seront ignorés (pas des .wav) », une parenthèse se lirait comme un détail de cette puce. Ces fichiers ne comptent ni dans « N enregistrements » ni parmi les autres fichiers ignorés.
 - **Sous-dossier `Brut`/`Bruts`** (casse indifférente) présent à côté des `.wav` de la racine : le scan cherche aux deux emplacements et fusionne en un seul lot (cf. `spec.md` § Détection des `.wav`). Quand tout vient de la racine, l'écran **ne change pas d'un caractère**. Sinon :
   - Tout vient du sous-dossier :
     ```
@@ -172,6 +178,7 @@ Liste bornée à 4 noms, avec un total et un `... et N autres` si dépassement. 
 📁 /Users/.../Documents
 
 Aucun enregistrement .wav trouvé dans ce dossier.
+  (1 fichier temporaire de l'enregistreur ignoré)
 
 Vérifiez que vous êtes bien dans le dossier contenant vos fichiers.
 Astuce : dans le Terminal, tapez `pwd` pour voir où vous êtes,
@@ -179,6 +186,8 @@ ou `ls` pour voir les fichiers présents.
 
   Échap retour au menu
 ```
+
+La ligne `dimColor` sous le titre n'apparaît que si le dossier contient un `temp.wav` ou un `Test.wav`. Elle est au participe passé : l'écran n'a pas de suite (Échap seulement), et un futur promettrait une opération qui n'aura pas lieu. Elle répond à ce que l'utilisatrice verra en tapant `ls`. Même ligne sur le dégradé de P-Constat.
 
 ### Écran 1 — Constat (dégradé : dossier non writable)
 
@@ -705,6 +714,15 @@ ou, si mélange des deux emplacements :
   Volume total : 1.4 Go
   (8 ici et 404 dans ./Brut/)
 ```
+
+**Variante — fichiers temporaires de l'enregistreur** (`temp.wav`, `Test.wav`) : une ligne `dimColor` au participe, sous « Volume total » et la ligne d'origine éventuelle. Même chaîne que sur le dégradé « aucun `.wav` » (`format/scratchFiles.ts`) :
+
+```
+  Volume total : 1.4 Go
+  (1 fichier temporaire de l'enregistreur ignoré)
+```
+
+Au pluriel : `(2 fichiers temporaires de l'enregistreur ignorés)`.
 
 **Dégradé — basenames dupliqués racine/Brut** : même écran partagé qu'à l'Écran 1 (cf. § Écran 1 — Constat, dégradé basenames dupliqués) — `components/DuplicateNamesScreen.tsx`.
 

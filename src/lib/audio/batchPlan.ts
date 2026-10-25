@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { ProcessError, ProgressEvent } from "../../types.js";
 import { extractErrorCode } from "../fs/safeFsOps.js";
+import { checkAdmission, readWavHeader } from "./wavAdmission.js";
 
 // Matches sox/worker-pool output (baseName_NNN.wav) so a batch never
 // re-splits its own previous output.
@@ -77,6 +78,10 @@ export type QueuedFile = {
   fileSizeBytes: number;
   absSource: string;
   baseName: string;
+  sampleRate: number;
+  channels: number;
+  bitsPerSample: number;
+  dataBytes: number;
 };
 
 export type BuildQueueResult = {
@@ -87,14 +92,16 @@ export type BuildQueueResult = {
 };
 
 // Admission policy shared by both pipelines: skip already-chunked output,
-// stat each remaining source, skip anything over maxInputBytes, and error
-// out anything whose stat call fails. fileIndex is assigned by original
-// position in `files` (including skipped/errored entries) so progress
-// events keep referring to a stable index regardless of admission outcome.
+// stat each remaining source, skip anything over maxInputBytes without
+// reading it, then error out anything whose header the splitter would refuse.
+// fileIndex is assigned by original position in `files` (including
+// skipped/errored entries) so progress events keep referring to a stable
+// index regardless of admission outcome.
 export const buildQueue = async (
   files: string[],
   dir: string,
   maxInputBytes: number,
+  signal?: AbortSignal,
 ): Promise<BuildQueueResult> => {
   const result: BuildQueueResult = {
     queue: [],
@@ -106,6 +113,7 @@ export const buildQueue = async (
   let globalFileIndex = 0;
 
   for (const file of files) {
+    if (signal?.aborted === true) break;
     const fileIndex = globalFileIndex;
     globalFileIndex += 1;
 
@@ -129,12 +137,28 @@ export const buildQueue = async (
       continue;
     }
 
+    const headerResult = await readWavHeader(absSource);
+    if (headerResult.kind === "error") {
+      result.errored.push({ file, reason: headerResult.code });
+      continue;
+    }
+    const { header } = headerResult;
+    const refusal = checkAdmission(header);
+    if (refusal !== null) {
+      result.errored.push({ file, reason: refusal });
+      continue;
+    }
+
     result.queue.push({
       file,
       fileIndex,
       fileSizeBytes: size,
       absSource,
       baseName: path.parse(file).name,
+      sampleRate: header.sampleRate,
+      channels: header.channels,
+      bitsPerSample: header.bitsPerSample,
+      dataBytes: header.dataBytes,
     });
   }
 

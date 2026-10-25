@@ -8,7 +8,7 @@ const UNEXPECTED_MESSAGE_PREFIX = "erreur inattendue";
 
 /**
  * Every *identifiable* code family actually emitted by the producers,
- * grepped from `splitWavFile.ts` (SplitErrorCode literals), `splitWorker.ts`
+ * grepped from `wavFormat.ts` (SplitErrorCode literals), `splitWorker.ts`
  * / `splitWorkerPool.ts` (raw fs errno strings, `mkdir:<code>`, and the
  * dead-worker codes `worker-died` / `worker-spawn-failed` /
  * `no-workers-available`) and `soxFastPath.ts` (`sox-exit:<code>`,

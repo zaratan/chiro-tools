@@ -5,6 +5,7 @@ import { DuplicateNamesScreen } from "../../components/DuplicateNamesScreen.js";
 import { Footer } from "../../components/Footer.js";
 import { buildOutDir } from "../../lib/audio/batchPlan.js";
 import { formatBytes } from "../../format/bytes.js";
+import { formatScratchFilesIgnored } from "../../format/scratchFiles.js";
 import { describeScanOrigin } from "../../format/scanOrigin.js";
 import { fitPath } from "../../format/path.js";
 import {
@@ -19,7 +20,7 @@ type ScanState =
   | { kind: "not-writable" }
   | { kind: "scan-error"; rawCode: string }
   | { kind: "duplicate-names"; names: string[] }
-  | { kind: "no-wav" }
+  | { kind: "no-wav"; scratchCount: number }
   | {
       kind: "processed-conflict";
       conflictCount: number;
@@ -36,6 +37,7 @@ type ScanState =
       subDirName: string | null;
       rootCount: number;
       subCount: number;
+      scratchCount: number;
     };
 
 const scanDirectory = async (
@@ -48,8 +50,9 @@ const scanDirectory = async (
   }
 
   const { wavFiles, subDirName, rootCount, subCount } = scanResult;
+  const scratchCount = scanResult.scratchFiles.length;
   if (wavFiles.length === 0) {
-    return { kind: "no-wav" };
+    return { kind: "no-wav", scratchCount };
   }
 
   const processedState = await checkProcessedDirConflict(buildOutDir(cwd));
@@ -89,6 +92,7 @@ const scanDirectory = async (
     subDirName,
     rootCount,
     subCount,
+    scratchCount,
   };
 };
 
@@ -204,8 +208,13 @@ export const ConstatScreen = ({
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
         <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
-        <Box marginTop={1}>
+        <Box marginTop={1} flexDirection="column">
           <Text>Aucun enregistrement .wav trouvé dans ce dossier.</Text>
+          {state.scratchCount > 0 ? (
+            <Text dimColor>
+              {`  ${formatScratchFilesIgnored(state.scratchCount)}`}
+            </Text>
+          ) : null}
         </Box>
         <Box marginTop={1} flexDirection="column">
           <Text>
@@ -295,6 +304,11 @@ export const ConstatScreen = ({
             ? `  (trouvés dans ${origin.label})`
             : `  (${origin.rootCount.toString()} ici et ${origin.subCount.toString()} dans ${origin.label})`}
         </Text>
+      ) : null}
+      {state.scratchCount > 0 ? (
+        <Text
+          dimColor
+        >{`  ${formatScratchFilesIgnored(state.scratchCount)}`}</Text>
       ) : null}
       <Box marginTop={1}>
         <Text>Ce sont bien les fichiers à découper ?</Text>

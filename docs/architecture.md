@@ -41,6 +41,8 @@
 
 **Conclusion** : `wavefile` répond exactement au besoin (modification d'en-tête + slice de samples), s'embarque proprement dans `bun --compile` (validé par le spike A.0 : 27 modules bundled, 0 warning), et son comportement de drop des chunks `LIST` au re-encode est aligné avec celui de Kaleidoscope — référence canonique du protocole Vigie-Chiro.
 
+`wavAdmission.readWavHeader` ne remet pas en cause ce choix. Il lit seulement l'en-tête (`fmt` et la taille de `data`) pour décider de l'admission avant le choix du moteur. Le décodage reste à `wavefile`. Il refuse RF64 et RIFX, que `wavefile` sait lire.
+
 ### Référence canonique — Kaleidoscope
 
 Le protocole Vigie-Chiro Point Fixe (documenté dans `test-data/Tutoriel Vigie Chiro - Perso.pdf`, page 7) prescrit l'usage de Kaleidoscope pour deux paramètres :
@@ -140,11 +142,14 @@ chiro-tools/
 │   │   │   └── renderThrottle.ts  # THROTTLE_MS + shouldRenderNow — partagé par les 2 hooks de progression
 │   │   ├── fs/
 │   │   │   ├── scanDirectory.ts   # scan unique des 3 flows : scanDirectory (racine + Brut(s)/, 1 niveau, fusionné, refuse les basenames dupliqués) + sumFileSizes + checkProcessedDirConflict + isVisibleNonTmpEntry
+│   │   │   ├── isRecorderScratchFile.ts # temp.wav / Test.wav du Teensy (et forme Car…-), écartés par scanDirectory
 │   │   │   ├── safeFsOps.ts       # renameWithFallback (EXDEV) + writeFileAtomic (.tmp + rename)
 │   │   │   ├── planRenames.ts     # produit la liste {from, to, skipReason?}
 │   │   │   └── applyRenames.ts    # consume renameWithFallback, séquentiel, gestion SIGINT
 │   │   ├── audio/                 # lib audio Phase 5-7 — split + TE×10 lossless + perf + métadonnées
-│   │   │   ├── batchPlan.ts       # politique commune A/B : admission (regex, cap 500 MB), processed/, concurrence, buildChunkName
+│   │   │   ├── batchPlan.ts       # politique commune A/B : admission (regex, cap 500 MB, en-tête), processed/, concurrence, buildChunkName
+│   │   │   ├── wavAdmission.ts    # readWavHeader (4 Kio d'un coup, puis lecture positionnelle) + checkAdmission
+│   │   │   ├── wavFormat.ts       # checkSplittable — allowlist unique (PCM entier 16/24 bits), sans I/O
 │   │   │   ├── constants.ts       # CHUNK_OUTPUT_SECONDS=50, CHUNK_REAL_SECONDS=5, TIME_EXPANSION_FACTOR=10
 │   │   │   ├── splitWavFile.ts    # Generator<chunk|abort|error> ; pas d'I/O
 │   │   │   ├── processWavFiles.ts # orchestrateur — route vers soxFastPath ou splitWorkerPool, gère le fallback
@@ -446,7 +451,7 @@ Il prend un `Uint8Array` (= contenu lu d'un .wav) et yield un chunk encodé à l
 Trois responsabilités, trois modules :
 
 - **`src/lib/audio/processWavFiles.ts`** — routeur (~50 lignes) : choisit le moteur (sox si `options.sox` fourni, worker pool sinon), applique la politique de fallback per-batch first-error, pose `engine` / `engine_fallback_count` / `metadata` sur le `ProcessResult`.
-- **`src/lib/audio/batchPlan.ts`** — politique d'admission commune aux deux moteurs : filtre regex `_\d{3}\.wav$` → `skippedAlreadyChunked`, `stat` + cap `maxInputBytes` (500 MB) → `skippedTooLarge`, constitution de la file (`buildQueue`), nom du dossier de sortie, heuristique de concurrence, `buildChunkName` (la convention `_NNN.wav` que la regex doit reconnaître).
+- **`src/lib/audio/batchPlan.ts`** — politique d'admission commune aux deux moteurs : filtre regex `_\d{3}\.wav$` → `skippedAlreadyChunked`, `stat` + cap `maxInputBytes` (500 MB) → `skippedTooLarge`, puis en-tête (`wavAdmission`) → `errored`, constitution de la file (`buildQueue`), nom du dossier de sortie, heuristique de concurrence, `buildChunkName` (la convention `_NNN.wav` que la regex doit reconnaître).
 - **`splitWorkerPool.ts` / `soxFastPath.ts`** — exécution : lecture, split, écriture atomique (`.tmp` puis `rename`, fallback `EXDEV`), retour `ProcessOutcome` avec processed / errored / skipped / interrupted / durationMs.
 
 ### Non-destructivité — invariants garantis
@@ -460,13 +465,20 @@ Le contrat « originaux jamais touchés » est garanti par construction :
 
 ### Allowlist de formats
 
-`splitWavFile` accepte uniquement :
+Une seule allowlist, `checkSplittable` (`wavFormat.ts`, sans I/O) :
 
 - `audioFormat === 1` (PCM linéaire standard)
-- `audioFormat === 0xFFFE` (`WAVE_FORMAT_EXTENSIBLE`) avec `subformat` PCM (préfixe `[0x01, 0x00]`)
+- `audioFormat === 0xFFFE` (`WAVE_FORMAT_EXTENSIBLE`) avec un subformat PCM : premier `uint32` du GUID égal à `1`. `wavefile` expose le GUID en quatre `uint32` (`[1, 1048576, 2852126848, 1905997824]` pour le PCM).
 - bit depth 16 ou 24 (16 = `Int16Array`, 24 = `Int32Array` côté wavefile)
 
-Tout autre format (float, A-law, µ-law, ADPCM) retourne `{ kind: "error", code: "unsupported-format" }`. Volontairement strict : la chaîne Vigie-Chiro/Tadarida ne traite que des PCM entiers.
+Tout autre format (float, A-law, µ-law, ADPCM) donne `unsupported-format`, une autre profondeur `unsupported-bit-depth`. Volontairement strict : la chaîne Vigie-Chiro/Tadarida ne traite que des PCM entiers.
+
+**Appliquée à l'admission, avant le choix du moteur.** Sox découpe tout ce qu'il sait lire et `rewriteHeaderToStandardPcm` écrit `audioFormat=1` sans regarder les octets. Sans contrôle commun, sox publierait un float32 ou un A-law comme du PCM : du bruit. `buildQueue` appelle `readWavHeader` puis `checkAdmission` sur chaque fichier admis par le plafond de 500 Mo :
+
+- `readWavHeader` lit les 4 premiers Kio en une seule fois et y cherche les chunks. Au-delà (un long LIST ou JUNK avant `data`), il continue par `read` positionnel : 12 octets RIFF/WAVE, puis chaque en-tête de chunk de 8 octets. Il lit le payload de `fmt` (40 octets au plus) et saute les autres chunks (LIST, JUNK…), avec l'octet de bourrage des tailles impaires. Il s'arrête sur `data`, sans jamais charger le fichier. Pas de RIFF/WAVE, pas de `fmt` ou de `data`, `data` avant `fmt`, `fmt` trop court, fichier coupé ou plus de 64 chunks avant `data` : `invalid-header`. Une erreur d'ouverture ou de lecture remonte son code fs.
+- `checkAdmission` refuse d'abord la structure (`channels` ou `sampleRate` à 0 : `invalid-header`), puis applique `checkSplittable`, puis `no-samples` si `data` contient moins d'une trame (`channels × bitsPerSample / 8` octets). `blockAlign` n'est pas lu. `wavefile` l'ignore, et le croire laisserait passer un stéréo de 2 octets que sox découpe en fichier vide.
+
+`splitWavFile` rappelle `checkSplittable` et garde son contrôle `no-samples` sur le nombre d'échantillons, comme seconde défense.
 
 ### Quirks `wavefile` à connaître
 
@@ -523,7 +535,9 @@ Le découpage est CPU-bound : `wavefile.toBuffer()` ré-encode header + samples 
 
 ### Politique de batch commune — `src/lib/audio/batchPlan.ts`
 
-Extraite des deux pipelines (chantier A, août 2026) pour rendre leur divergence structurellement impossible — une seule source pour : `ALREADY_CHUNKED_REGEX` (`_\d{3}\.wav$`, skip des chunks déjà produits), `DEFAULT_MAX_INPUT_BYTES` (500 MB), `PROCESSED_DIRNAME`/`buildOutDir`/`PROCESSED_DIR_DISPLAY`, `buildQueue` (la boucle d'admission complète), `makeEmit` (throttle de progression), `clampWorkerCount`/`computeConcurrency` (heuristique ci-dessous, partagée par les deux moteurs), et `buildChunkName` (production du nom `_NNN.wav` — partagée pour que la regex reconnaisse toujours sa propre sortie).
+Extraite des deux pipelines (chantier A, août 2026) pour rendre leur divergence structurellement impossible — une seule source pour : `ALREADY_CHUNKED_REGEX` (`_\d{3}\.wav$`, skip des chunks déjà produits), `DEFAULT_MAX_INPUT_BYTES` (500 MB), le contrôle d'en-tête (cf. § Allowlist de formats), `PROCESSED_DIRNAME`/`buildOutDir`/`PROCESSED_DIR_DISPLAY`, `buildQueue` (la boucle d'admission complète), `makeEmit` (throttle de progression), `clampWorkerCount`/`computeConcurrency` (heuristique ci-dessous, partagée par les deux moteurs), et `buildChunkName` (production du nom `_NNN.wav` — partagée pour que la regex reconnaisse toujours sa propre sortie).
+
+**Ordre d'admission** dans `buildQueue` : `_NNN` → `stat` → plafond de 500 Mo, sans lecture → en-tête. L'estimation de la barre de progression passe par la même fonction, donc un fichier refusé n'y compte pas non plus. Chaque `QueuedFile` porte la fréquence, les canaux, la profondeur et la taille de `data` lues dans l'en-tête. `buildQueue` prend l'`AbortSignal` du run ou de l'estimation et s'arrête entre deux fichiers. Coût mesuré sur 1 888 en-têtes réels, disque local, cache chaud : 114 à 139 ms, contre 17 à 22 ms pour le seul `stat`. Par fichier : `open` ~27 µs, la lecture ~11 µs, `close` ~8 µs, en plus du `stat` (~10 µs). Lire les 4 Kio d'un coup économise trois `read` sur quatre (163 à 194 ms en lisant chunk par chunk). `open` et `close` restent incompressibles tant qu'on lit le fichier. Non mesuré sur carte SD.
 
 **Invariants partagés A/B** : (1) admission → `batchPlan`, (2) header canonique → `wavHeader.rewriteHeaderToStandardPcm`, (3) nommage de sortie → `batchPlan.buildChunkName`. Tout nouvel invariant inter-pipelines doit vivre ici, pas être dupliqué.
 
