@@ -49,7 +49,7 @@ Si l'une de ces vérifications échoue, rien n'est publié.
 
 **Un dossier du même nom existe déjà.** chiro ne l'écrase pas : il ajoute un suffixe au moment de publier.
 
-**Une série précédente s'est arrêtée brutalement** (coupure de courant, `kill -9`). Le dossier de travail caché qu'elle a laissé est nettoyé automatiquement au démarrage du flux suivant — mais seulement s'il a plus de 24 heures et que le programme qui l'a créé n'existe plus. Le nettoyage supprime fichier par fichier, uniquement les noms qu'il s'attend à trouver, et renonce s'il trouve autre chose.
+**Une série précédente s'est arrêtée brutalement** (coupure de courant, `kill -9`). Le dossier de travail caché qu'elle a laissé est nettoyé automatiquement à la prochaine création de fichiers zip à déposer. Il suffit que le programme qui l'a créé n'existe plus ou que le dossier ait plus de 24 heures. Le nettoyage supprime fichier par fichier, uniquement les noms qu'il s'attend à trouver, et renonce s'il trouve autre chose.
 
 **Vous voulez des fichiers plus petits ou plus gros.** La variable `CHIRO_MAX_VOLUME_BYTES` permet de changer la taille limite. Elle est bornée entre 1 Mio et environ 4 Go — au-delà, le ZIP64 redeviendrait inévitable.
 

@@ -306,7 +306,7 @@ Accessible depuis l'item de menu **"Vérifier les mises à jour"**. Indépendant
 
 **Flux** :
 
-1. Au mount, l'écran lance `fetchLatestVersion` (cache pas relu — l'utilisatrice attend une vérif fraîche puisqu'elle a cliqué explicitement). Pendant le fetch, l'écran affiche `Vérification de la dernière version…` et **désactive Ctrl+C global** via `runningRef` pour ne pas tuer le fetch en cours (l'utilisatrice peut toujours sortir avec Échap).
+1. Au mount, l'écran lance `fetchLatestVersion` (cache pas relu : l'utilisatrice attend une vérif fraîche puisqu'elle a cliqué explicitement). Pendant le fetch, l'écran affiche `Vérification de la dernière version…`. Ctrl+C y annule le fetch et revient au menu comme Échap, au lieu de quitter chiro. `runningRef` empêche seulement le Ctrl+C global de quitter pendant ce temps (cf. `ux.md` § Écran 5 — Mise à jour (vérification en cours)).
 2. Selon le résultat :
    - **Version distante > `CHIRO_VERSION`** : affiche `✓ Une nouvelle version est disponible : vX.Y.Z` + avertissement explicite que chiro va se fermer + footer `Entrée installer   Échap retour au menu`.
    - **Versions égales ou locale > distante** : affiche `✓ Vous êtes à jour.` + footer `Échap retour au menu`.
@@ -383,7 +383,7 @@ Aperçu (nom du fichier, emplacement, taille maximale) puis exécution en place 
 
 **Progression** : barre pilotée par les **octets lus en source** (`bytesRead / totalBytes`), pas par le nombre d'entrées ni par les octets écrits — la compression varie d'une entrée à l'autre et rendrait une barre en octets écrits non monotone en apparence. `Enregistrement X sur N` + temps écoulé + temps restant, ce dernier via `etaTracker` alimenté à chaque entrée terminée (byte-weighted, cf. § Calcul de l'ETA). Throttle 100 ms, `finalizeRender()` synchrone pour forcer 100 % avant démontage.
 
-**Ctrl+C pendant le run** : géré par le `useInput` de l'écran (le handler global d'`app.tsx` s'efface tant que `runningRef` est vrai) → abort → le `.tmp` en cours est supprimé → A-Résultat variante « interrompu ». Aucun zip partiel ne subsiste.
+**Ctrl+C pendant le run** : géré par le `useInput` de l'écran (le handler global d'`app.tsx` s'efface tant que `runningRef` est vrai) → abort → état `cleaning` (« Annulation en cours… ») pendant la suppression du `.tmp` en cours → A-Résultat variante « interrompu ». Aucun zip partiel ne subsiste.
 
 **Erreur pendant le run** : reste sur A-Confirmation en variante `run-error` (message mappé + détail technique), `Échap` revient au Constat.
 
@@ -827,7 +827,7 @@ Pour les sessions de découpage, `schema_version: 2`. Format aligné avec v1 (ti
 | Fichier source modifié / supprimé pendant le zip          | `file-changed` → `.tmp` supprimé, aucun zip produit                                                                                                    | A-Confirmation              |
 | Disque plein pendant le zip                               | `ENOSPC` (souvent au `sync()`) → `.tmp` supprimé, aucun zip produit                                                                                    | A-Confirmation              |
 | Zip écrit mais vérification en échec                      | `verify-failed` → `.tmp` supprimé, rien dans `archived/`                                                                                               | A-Confirmation              |
-| Ctrl+C pendant la création du zip                         | Abort, `.tmp` supprimé, Résultat variante interruption                                                                                                 | A-Confirmation → A-Résultat |
+| Ctrl+C pendant la création du zip                         | Abort, état `cleaning` (« Annulation en cours… ») pendant la suppression du `.tmp`, puis Résultat variante interruption                                | A-Confirmation → A-Résultat |
 | `.tmp` orphelins d'un run précédent tué                   | Nettoyés au run suivant si le PID embarqué ne tourne plus                                                                                              | A-Confirmation              |
 | `rclone` absent ou < 1.53                                 | Entrée de menu **et** touche `A` inexistantes. Silence total, aucun message                                                                            | Menu / A-Résultat           |
 | `settings.json` absent ou bloc `coffre` invalide          | Idem — `absent` et `invalid` se résolvent tous deux en « entrée masquée », sans distinction visible                                                    | Menu / A-Résultat           |

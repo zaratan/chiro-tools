@@ -49,18 +49,18 @@ Couleur : `dimColor`. Séparateur : 3 espaces (pas de pipe `|`).
 
 - **Sur les écrans dégradés (constat KO)**, le footer n'affiche que `Échap retour au menu`.
 - **Sur les écrans d'erreur pendant l'exécution** (run-error, cf. Écran 3 et P-Confirmation dégradés), le footer affiche `Échap revenir au début` : Échap ramène à l'écran Constat, pas au menu — un simple « retour » serait ambigu sur ce qu'il désigne. Le run-error des flows zip ajoute `Entrée réessayer` devant (cf. A-Confirmation dégradé), **mais seulement quand le code d'erreur est transitoire** — leurs runs sont longs, et un réessai qui ne peut pas aboutir est pire que pas de réessai.
-- **Sur l'écran de Confirmation pendant l'exécution du renommage**, le footer est vide (Ctrl+C reste fonctionnel mais on ne l'affiche pas pour éviter les abandons accidentels).
+- **Sur l'écran de Confirmation pendant l'exécution du renommage**, le footer est vide (Ctrl+C arrête proprement le renommage mais on ne l'affiche pas pour éviter les abandons accidentels).
 
 ## Navigation clavier — référence
 
-| Touche            | Action                                                                                                                                                                                                                                                     | Affichée en footer ?       |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| `Tab` / `Maj+Tab` | Champ suivant / précédent (FormScreen) — alias de `↓` / `↑`                                                                                                                                                                                                | Non (redondant avec `↑↓`)  |
-| `↑` / `↓`         | Naviguer dans le menu, ou entre les champs du formulaire                                                                                                                                                                                                   | MenuScreen, FormScreen     |
-| `←` / `→`         | Décrémenter / incrémenter un champ numérique (Année, Passage)                                                                                                                                                                                              | Oui sur FormScreen         |
-| `Entrée`          | Valider l'écran courant (sur UpdateScreen : uniquement quand une version est dispo)                                                                                                                                                                        | Toujours                   |
-| `Échap`           | Revenir à l'écran précédent (ou quitter depuis Menu)                                                                                                                                                                                                       | Toujours sauf Résultat     |
-| `Ctrl+C`          | Quitter immédiatement (sauf : pendant un renommage/découpage en cours, où Ctrl+C est ignoré ; pendant une création de zip ou de série, où il **annule proprement** le run ; pendant un check de mise à jour, où il annule et revient au menu, comme Échap) | Implicite — jamais affiché |
+| Touche            | Action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Affichée en footer ?      |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `Tab` / `Maj+Tab` | Champ suivant / précédent (FormScreen), alias de `↓` / `↑`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Non (redondant avec `↑↓`) |
+| `↑` / `↓`         | Naviguer dans le menu, ou entre les champs du formulaire                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | MenuScreen, FormScreen    |
+| `←` / `→`         | Décrémenter / incrémenter un champ numérique (Année, Passage)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Oui sur FormScreen        |
+| `Entrée`          | Valider l'écran courant (sur UpdateScreen : uniquement quand une version est dispo)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Toujours                  |
+| `Échap`           | Revenir à l'écran précédent (ou quitter depuis Menu)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Toujours sauf Résultat    |
+| `Ctrl+C`          | Quitter immédiatement, sauf pendant une opération en cours. Pendant les cinq runs longs (renommage, découpage, zip de sauvegarde, série de dépôt, archivage en ligne), il **arrête proprement** le run et mène à l'écran d'interruption du flux (ou au résultat normal si le run finit pendant l'arrêt). Le renommage et le découpage n'ont pas d'écran d'arrêt : l'écran courant reste affiché jusqu'au résultat. Un second Ctrl+C pendant l'arrêt est sans effet, y compris sur « Annulation en cours… » (flux zip) et « Arrêt en cours… » (archivage en ligne). Pendant le check de mise à jour et le chargement d'O-Constat, il annule et revient au menu, comme Échap | Implicite, jamais affiché |
 
 ## Wordings par écran — prêts à coller
 
@@ -107,6 +107,14 @@ Que voulez-vous faire ?
 
 L'auto-check est silencieux : si le réseau échoue ou que la version locale est à jour, le hint n'apparaît jamais. La seconde ligne en `dimColor` indique l'action à faire. Cache disque de 6 h sur `~/.chiro/update-check.json` pour ménager le rate-limit GitHub.
 
+### Écran 1 — Constat (chargement)
+
+```
+Analyse du dossier…
+```
+
+En `dimColor`, sans chemin ni footer. Échap revient au menu. P-Constat, A-Constat et U-Constat affichent le même écran pendant leur scan.
+
 ### Écran 1 — Constat (nominal)
 
 ```
@@ -124,18 +132,18 @@ Ce sont bien les fichiers à préparer ?
 **Variantes** :
 
 - Aucun fichier déjà préfixé / aucun fichier ignoré → ne pas afficher les puces correspondantes.
-- Présence de `.WAV` majuscule : remplacer la puce ignorée par :
+- Présence de `.WAV` majuscule : ajouter la puce suivante. Elle s'ajoute à celle des fichiers ignorés sans la remplacer. Les `.WAV` ne comptent pas parmi les ignorés :
   ```
   • 2 fichiers en .WAV seront renommés en .wav (minuscule)
   ```
 - **Sous-dossier `Brut`/`Bruts`** (casse indifférente) présent à côté des `.wav` de la racine : le scan cherche aux deux emplacements et fusionne en un seul lot (cf. `spec.md` § Détection des `.wav`). Quand tout vient de la racine, l'écran **ne change pas d'un caractère**. Sinon :
   - Tout vient du sous-dossier :
     ```
-    ✓ 412 enregistrements trouvés dans ./Brut/
+    ✓ 412 enregistrements .wav trouvés dans ./Brut/
     ```
   - Mélange des deux :
     ```
-    ✓ 412 enregistrements trouvés
+    ✓ 412 enregistrements .wav trouvés
       (8 ici et 404 dans ./Brut/)
     ```
     La seconde ligne est en `dimColor`.
@@ -305,6 +313,26 @@ Code du point d'écoute
   ↑↓ champ   ←→ ajuster   Entrée valider   Échap retour
 ```
 
+### Écran 3 — Confirmation (chargement)
+
+```
+Préparation du plan…
+```
+
+Affiché en `dimColor` pendant le calcul des noms cibles. Ni chemin ni footer. Échap ramène à l'écran Constat.
+
+### Écran 3 — Confirmation (dégradé : plan impossible à préparer)
+
+```
+⚠ Impossible de préparer le plan de renommage.
+
+Détail technique : EACCES
+
+  Échap retour
+```
+
+Titre en `yellow`, code brut en `cyan`. Pas de chemin, pas de rappel « à transmettre ». Échap ramène à l'écran Constat.
+
 ### Écran 3 — Confirmation (nominal)
 
 ```
@@ -339,6 +367,14 @@ vous pouvez retrouver chaque fichier à partir de sa fin.
       bar.wav
   ```
   Inséré AVANT la phrase de réassurance.
+
+### Écran 3 — Confirmation (pendant le renommage)
+
+```
+Renommage en cours… (7 fichiers)
+```
+
+En `dimColor` avec un footer vide. Le nombre est celui des fichiers à renommer, au singulier pour un seul. Ctrl+C arrête le renommage après le fichier en cours et mène à l'Écran 4 variante D. Il n'y a pas d'écran « arrêt en cours » : « Renommage en cours… » reste affiché jusqu'au résultat.
 
 ### Écran 3 — Confirmation (cas "0 fichier à renommer, tout est déjà préfixé")
 
@@ -378,8 +414,8 @@ Même structure que l'écran 1 « erreur inattendue au scan » : titre bienveill
       Car040962-2026-Pass3-A1-
   1 fichier laissé tel quel (déjà au bon format)
 
-Vous pouvez maintenant les découper, puis créer les zips à déposer
-sur Vigie-Chiro.
+Vous pouvez maintenant les découper, puis créer les fichiers
+zip à déposer sur Vigie-Chiro.
 
   Entrée retour au menu
 ```
@@ -418,7 +454,7 @@ Les autres fichiers ont bien été renommés.
   Entrée retour au menu
 ```
 
-Si > 5 fichiers du même code d'erreur, tronquer à 5 + `... et X autres`.
+Si > 3 fichiers du même code d'erreur, tronquer à 3 + `... et X autres`.
 
 Codes d'erreur → libellés :
 
@@ -436,7 +472,6 @@ Codes d'erreur → libellés :
 ℹ Renommage arrêté à votre demande
 
   3 fichiers déjà renommés (conservés en sécurité)
-  Il restait 5 fichiers à traiter.
 
 Vous pouvez relancer chiro à tout moment — les fichiers déjà
 renommés seront reconnus et ne seront pas touchés deux fois.
@@ -548,7 +583,7 @@ Message dédié pour `http-403` — la connexion fonctionne, c'est GitHub qui ra
 | `http-403`    | GitHub bloque temporairement les vérifications. | C'est normal si vous lancez chiro très souvent. Réessayez dans une heure. | quota GitHub atteint     |
 | `http-404`    | Impossible de vérifier la dernière version.     | Aucune version publiée. Contactez le développeur.                         | aucune version publiée   |
 | `parse`       | Impossible de vérifier la dernière version.     | Réessayez ; si le problème persiste, contactez le développeur.            | réponse inattendue       |
-| `parse-local` | Impossible de comparer les versions.            | Réinstallez chiro depuis le site.                                         | version locale illisible |
+| `parse-local` | Impossible de comparer les versions.            | Réinstallez chiro depuis https://github.com/zaratan/chiro-tools.          | version locale illisible |
 
 ## Boot — messages hors-Ink (stderr / stdout)
 
@@ -780,13 +815,13 @@ en fichiers de 5 secondes.
 
 Découpage en cours…
 
-  Fichier 1 sur 100  •  20260507_210501T.WAV
+  Fichier 1 sur 100
 
   █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  2 %
-  3 fichiers • Temps écoulé 5 s • Calcul du temps restant…
+  Temps écoulé 5 s • Calcul du temps restant…
 
-  Vos fichiers d'origine ne sont pas modifiés.
-  Dossier de sortie : ./processed/
+Vos fichiers d'origine ne sont pas modifiés.
+Dossier de sortie : ./processed/
 ```
 
 **Variante 2 — après ≥ 1 fichier complet (ETA visible)** :
@@ -796,23 +831,22 @@ Découpage en cours…
 
 Découpage en cours…
 
-  Fichier 6 sur 100  •  20260507_212001T.WAV
+  Fichier 6 sur 100
 
   ████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  12 %
-  120 fichiers • Temps écoulé 1 min 30 s • Encore environ 5 min 40 s
+  Temps écoulé 1 min 30 s • Encore environ 5 min 40 s
 
-  Vos fichiers d'origine ne sont pas modifiés.
-  Dossier de sortie : ./processed/
+Vos fichiers d'origine ne sont pas modifiés.
+Dossier de sortie : ./processed/
 ```
 
-Les 2 dernières lignes en `dimColor`. **Barre de 40 caractères** : `█` pour la partie remplie, `░` pour la partie vide. Pourcentage = `round((chunksWritten / totalChunksEstimate) × 100)` clamp à 100.
+La ligne de stats et les 2 dernières lignes en `dimColor`. **Barre de 40 caractères** : `█` pour la partie remplie, `░` pour la partie vide. Pourcentage = `round((chunksWritten / totalChunksEstimate) × 100)` clamp à 100.
 
 **Wordings calibrés** :
 
 - `Calcul du temps restant…` (pas `Estimation en cours…`)
 - `Encore environ X` (pas `Restant ≈ X` — `≈` est trop technique)
 - `Temps écoulé X` (pas `Écoulé X` — elliptique)
-- `N fichiers` (pas `N fichiers créés` — redondant, on voit qu'on crée)
 
 **Format court de durée** (pour `Temps écoulé` et `Encore environ`) :
 
@@ -820,11 +854,11 @@ Les 2 dernières lignes en `dimColor`. **Barre de 40 caractères** : `█` pour 
 - `< 1 h` → `1 min` ou `2 min 05 s`
 - `≥ 1 h` → `1 h 30 min`
 
-**Adaptive masking — petits batches** : si `filesTotal < 5`, la barre reste affichée mais la portion `• Encore environ X` (ou `• Calcul du temps restant…`) est **masquée** de la ligne stats. La ligne devient alors `N fichiers • Temps écoulé X`. Raison : sur un petit batch (< 25 s de run estimé), l'ETA n'apporte rien et la barre seule suffit.
+**Adaptive masking (petits batches)** : si `filesTotal < 5`, la barre reste affichée mais la portion `• Encore environ X` (ou `• Calcul du temps restant…`) est **masquée** de la ligne stats. La ligne devient alors `Temps écoulé X`. Raison : sur un petit batch (< 25 s de run estimé), l'ETA n'apporte rien et la barre seule suffit.
 
 **Refresh** : throttle UI à ~10 Hz (100 ms entre setStates sur `chunk-written`). `file-start` et `file-done` forcent un setState. Un `finalizeRender()` synchrone est appelé avant `onComplete()` pour garantir la barre à 100 % juste avant l'unmount (jamais dans un cleanup `useEffect` — risque de setState post-unmount).
 
-Footer vide (cf. Footer raccourcis § Cas particuliers — pas afficher Ctrl+C pour éviter les abandons accidentels sur un run de 25 min).
+Footer vide (cf. Footer raccourcis § Cas particuliers). On n'affiche pas Ctrl+C pour éviter les abandons accidentels sur un run de 25 min. Ctrl+C arrête proprement le découpage et mène à P-Résultat variante B. Il n'y a pas d'écran « arrêt en cours » : la progression reste affichée jusqu'au résultat.
 
 ### P-Confirmation (dégradé : erreur pendant le découpage)
 
@@ -854,12 +888,12 @@ Même structure que P-Constat § espace disque insuffisant : titre bienveillant,
   720 fichiers créés dans ./processed/
   Temps écoulé : 12 minutes
 
-  Vos fichiers d'origine sont intacts dans ce dossier.
+Vos fichiers d'origine sont intacts dans ce dossier.
 
   Entrée retour au menu
 ```
 
-`Temps écoulé` est en `dimColor` (information secondaire). Le format suit `formatDuration` (cf. `src/format/duration.ts`) : secondes sous 1 min, minutes sous 1 h, sinon `X h MM`.
+`Temps écoulé` et la ligne « Vos fichiers d'origine… » sont en `dimColor` (informations secondaires). Le format suit `formatDuration` (cf. `src/format/duration.ts`) : secondes sous 1 min, minutes sous 1 h, sinon `X h MM`.
 
 Si applicable, ajouter en `dimColor` après le compte de fichiers :
 
@@ -877,13 +911,14 @@ Si applicable, ajouter en `dimColor` après le compte de fichiers :
   180 fichiers créés dans ./processed/
   Temps écoulé : 5 minutes
 
-  Vous pouvez relancer chiro plus tard — il faudra d'abord renommer
-  ou supprimer le dossier « processed » créé.
+Vous pouvez relancer chiro plus tard — il faudra d'abord renommer
+ou supprimer le dossier « processed » créé.
+Vos fichiers d'origine sont intacts dans ce dossier.
 
   Entrée retour au menu
 ```
 
-L'invitation au re-run mentionne le dossier `processed/` partiel — l'utilisatrice doit savoir qu'il existe et qu'il faudra le déplacer/supprimer avant un nouveau run.
+L'invitation au re-run mentionne le dossier `processed/` partiel. L'utilisatrice doit savoir qu'il existe et qu'il faudra le déplacer/supprimer avant un nouveau run. La dernière ligne est en `dimColor`.
 
 ### P-Résultat (variante C : tout en échec)
 
@@ -910,37 +945,41 @@ Pas de phrase de réassurance — la situation est anormale, l'utilisatrice doit
 
   2 enregistrements n'ont pas pu être découpés :
 
-    • format audio inhabituel — non géré pour l'instant (1 fichier)
+    • format audio inhabituel — non géré pour l'instant (1
+    fichier)
         PaRec3_20260511_213045.wav
-    • fichier illisible — peut-être corrompu pendant le transfert (1 fichier)
+
+    • fichier illisible — peut-être corrompu pendant le transfert
+    (1 fichier)
         PaRec3_20260511_220011.wav
 
-  Les autres enregistrements ont bien été découpés.
-  Vos fichiers d'origine sont intacts dans ce dossier.
+
+Les autres enregistrements ont bien été découpés.
+Vos fichiers d'origine sont intacts dans ce dossier.
 
   Entrée retour au menu
 ```
 
-Groupage par message d'erreur (max 5 fichiers affichés par groupe, le reste résumé en `dimColor` `... et N autres`).
+Groupage par message d'erreur (max 3 fichiers affichés par groupe, le reste résumé en `dimColor` `... et N autres`). Une ligne vide suit chaque groupe, d'où deux lignes vides avant « Les autres… ». Un libellé de groupe trop long passe à la ligne sous la puce, comme ci-dessus. La dernière ligne est en `dimColor`.
 
 ### Codes d'erreur Process → libellés FR
 
-| Code interne                                                      | Libellé FR                                                                                                           |
-| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `invalid-header`                                                  | `fichier illisible — peut-être corrompu pendant le transfert`                                                        |
-| `unsupported-format`                                              | `format audio inhabituel — non géré pour l'instant`                                                                  |
-| `unsupported-bit-depth`                                           | `résolution audio non supportée (16 ou 24 bits uniquement)`                                                          |
-| `no-samples`                                                      | `fichier sans contenu audio`                                                                                         |
-| `ENOENT`                                                          | `le fichier a disparu pendant l'opération`                                                                           |
-| `EACCES`, `EPERM`                                                 | `permission refusée par le système`                                                                                  |
-| `ENOSPC`                                                          | `plus de place sur le disque — libérez de l'espace puis relancez`                                                    |
-| `EROFS`                                                           | `ce disque est protégé en écriture — copiez les fichiers ailleurs puis relancez`                                     |
-| `EXDEV`                                                           | `impossible de déplacer le fichier d'un disque à un autre (carte SD, disque externe…)`                               |
-| `sox-*` (`sox-exit:N`, `sox-no-output`), `non-aligned-data-size*` | `chiro n'a pas réussi à traiter cet enregistrement — réessayez, et si ça recommence transmettez le détail technique` |
-| `worker-died`, `worker-spawn-failed`, `no-workers-available`      | `le découpage s'est interrompu de façon inattendue — réessayez, et si ça recommence transmettez le détail technique` |
-| `mkdir:<X>`                                                       | `impossible de créer le sous-dossier « processed »`                                                                  |
-| `skippedTooLarge` (compte)                                        | `fichier trop volumineux (> 500 Mo) — non géré pour l'instant`                                                       |
-| `skippedAlreadyChunked` (c)                                       | (skip silencieux — pas affiché comme une erreur)                                                                     |
+| Code interne                                                      | Libellé FR                                                                                                                                                         |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `invalid-header`                                                  | `fichier illisible — peut-être corrompu pendant le transfert`                                                                                                      |
+| `unsupported-format`                                              | `format audio inhabituel — non géré pour l'instant`                                                                                                                |
+| `unsupported-bit-depth`                                           | `résolution audio non supportée (16 ou 24 bits uniquement)`                                                                                                        |
+| `no-samples`                                                      | `fichier sans contenu audio`                                                                                                                                       |
+| `ENOENT`                                                          | `le fichier a disparu pendant l'opération`                                                                                                                         |
+| `EACCES`, `EPERM`                                                 | `permission refusée par le système`                                                                                                                                |
+| `ENOSPC`                                                          | `plus de place sur le disque — libérez de l'espace puis relancez`                                                                                                  |
+| `EROFS`                                                           | `ce disque est protégé en écriture — copiez les fichiers ailleurs puis relancez`                                                                                   |
+| `EXDEV`                                                           | `impossible de déplacer le fichier d'un disque à un autre (carte SD, disque externe…)`                                                                             |
+| `sox-*` (`sox-exit:N`, `sox-no-output`), `non-aligned-data-size*` | `chiro n'a pas réussi à traiter cet enregistrement — réessayez, et si ça recommence transmettez le détail technique`                                               |
+| `worker-died`, `worker-spawn-failed`, `no-workers-available`      | `le découpage s'est interrompu de façon inattendue — réessayez, et si ça recommence transmettez le détail technique`                                               |
+| `mkdir:<X>`                                                       | `impossible de créer le sous-dossier « processed »`                                                                                                                |
+| `skippedTooLarge` (compte)                                        | `N fichiers trop volumineux (> 500 Mo) — découpez-les avec un autre outil` (variante C). Ailleurs, en `dimColor` : `N fichiers trop volumineux ignorés (> 500 Mo)` |
+| `skippedAlreadyChunked` (c)                                       | (skip silencieux, pas affiché comme une erreur)                                                                                                                    |
 
 ## Wordings — Flow « Sauvegarder les enregistrements découpés » (Phase 8)
 
@@ -999,6 +1038,14 @@ Mêmes patterns que P-Constat. Deux spécificités :
 - non writable → « L'outil ne peut pas créer le sous-dossier « archived » ici. »
 - espace insuffisant → ajouter `Le zip est une copie de vos enregistrements : il peut occuper presque autant de place.` puis `Libérez de la place puis réessayez.` (le modèle mental « un zip compresse » ne prédit pas le besoin d'espace).
 
+### A-Confirmation (chargement)
+
+```
+Préparation…
+```
+
+Affiché en `dimColor` sans chemin ni footer, le temps de choisir le nom du zip ou du dossier de dépôt. Échap ramène au Constat. U-Confirmation affiche le même écran, et cet écran revient après `Entrée réessayer` sur une erreur transitoire.
+
 ### A-Confirmation
 
 ```
@@ -1043,6 +1090,18 @@ Vous pouvez laisser cette fenêtre ouverte, ça continue tout seul.
 ```
 
 La ligne de stats reprend **mot pour mot** le format du flow Découper (`Temps écoulé X • Encore environ Y`, séparateur `•`) : les formes `~X` et `≈ X` sont rejetées comme trop notationnelles, et deux flows affichant la même information de deux façons différentes est une confusion à eux seuls. Les trois dernières lignes en `dimColor`. Le cadre entier (chemin, titre, compteurs, barre, stats, réassurance, footer vide) est le composant partagé `components/ProgressPanel.tsx` depuis la Phase 9.0 — les trois `RunningView` de l'app n'en fournissent que les chaînes.
+
+### A-Confirmation (annulation en cours)
+
+Après Ctrl+C, le même écran intermédiaire que le dépôt s'affiche avant le résultat (cf. § U-Confirmation (annulation en cours)). Ici seul le `.tmp` du zip est à supprimer.
+
+```
+Annulation en cours…
+
+Nettoyage des fichiers temporaires, un instant.
+```
+
+Seconde ligne en `dimColor`, footer vide, aucune touche active.
 
 ### A-Confirmation (dégradé : erreur pendant la création)
 
@@ -1554,10 +1613,10 @@ plutôt qu'un « Encore environ 0 s » figé sous une barre pleine, indiscernabl
 ```
 Arrêt en cours…
 
-  chiro termine proprement, un instant.
+chiro termine proprement, un instant.
 ```
 
-Footer vide, aucune touche active — l'annulation est déjà en cours.
+Seconde ligne en `dimColor`. Footer vide, aucune touche active : l'annulation est déjà en cours.
 
 ### O-Résultat (succès, vérifié)
 
@@ -1691,5 +1750,5 @@ Continuent la numérotation des trois règles figées en 9.D (§ ci-dessus) :
 - **Confirmation explicite Entrée**, jamais une touche aléatoire pour déclencher l'action destructive.
 - **« enregistrements » jamais « morceaux » ni « chunks »** (cf. Wording-clé P-Confirmation), **durée en minutes** jamais en compte de fichiers côté Confirm, **réassurance non-destructive** systématique sur Confirm + Result du flow découper. Depuis la Phase 9 s'ajoutent trois règles figées : **« déposer »** verbe unique, **« fichiers zip »** jamais « zips », **compteurs globaux** jamais par volume (cf. § « Règles de vocabulaire figées en 9.D »).
 - **Deux entrées de menu pour les deux flux zip**, jamais un sélecteur ni une question « pour quoi faire ? » : les deux sorties coexistent, servent à deux choses différentes, et le choix se fait à l'entrée du flux, pas à l'intérieur.
-- **Moteur de découpage silencieux** (Phase 6). Le pipeline interne (worker pool wavefile vs fast-path sox) est invisible dans la TUI : aucun footer "Moteur : sox", aucun hint "Astuce : installez sox". La cible naturaliste n'a pas le modèle mental ; nommer un moteur invite une question sans réponse utile. L'ETA absorbe naturellement les écarts via la moyenne glissante. L'incitation à installer sox vit **uniquement** dans le README (lu par le binôme dev au setup initial). Le pipeline réellement utilisé est loggé dans `~/.chiro/sessions.jsonl` (`engine: "wavefile" | "sox"`, `engine_fallback_count`) pour diagnostic dev.
+- **Moteur de découpage silencieux** (Phase 6). Le pipeline interne (worker pool wavefile vs fast-path sox) est invisible dans la TUI : aucun footer "Moteur : sox", aucun hint "Astuce : installez sox". La cible naturaliste n'a pas le modèle mental. Nommer un moteur invite une question sans réponse utile. L'ETA absorbe naturellement les écarts via la moyenne glissante. L'incitation à installer sox vit **uniquement** dans le README (lu par le binôme dev au setup initial) et dans `docs/features/decouper.md` § Vitesse. Le pipeline réellement utilisé est loggé dans `~/.chiro/sessions.jsonl` (`engine: "wavefile" | "sox"`, `engine_fallback_count`) pour diagnostic dev.
 - **`formatDuration` affiche la durée audio source**, pas le wall-clock estimé du traitement. Avec sox, le wall-clock devient bien inférieur à la durée audio — c'est attendu, la "durée annoncée" reste celle des enregistrements, jamais le temps de calcul.
