@@ -69,14 +69,26 @@ Patterns à respecter (sinon code review rouge) :
 
 ## Workflow attendu
 
+### Session directe
+
 1. **Toute tâche non-triviale** passe par le mode plan d'abord. Demander à `lead-engineer-reviewer` + `tech-architect` + `ui-ux-designer` (en parallèle) de relire le plan avant `ExitPlanMode`.
 2. **Implémentation déléguée** au `clean-ts-developer` pour le gros du dev TS/Ink. Garde les modifs ciblées en main.
 3. **Découpage en sous-phases** (A / B / C / D…). À la fin de chaque sous-phase, repasser la main pour test manuel.
-4. **`pnpm check` doit être vert** avant de proposer la fin d'une sous-phase. Pas d'exception.
-5. **Docs synchronisées** : toute modif de comportement → update `docs/ux.md` et/ou `docs/spec.md` et/ou `docs/architecture.md` dans la même sous-phase (sous-phase D dédiée).
-6. **Review post-implé** : `lead-engineer-reviewer` toujours. `ui-ux-designer` si UI touchée. `tech-architect` si architecture touchée. En parallèle.
 
-**Jamais de `git commit` / `git tag` / `git push` depuis l'agent.** L'utilisateur fait tous ses commits lui-même. Tu peux `git add` et proposer un message, c'est tout.
+### Issue traitée par un agent de la tour de contrôle
+
+Un worktree par grappe, une branche par issue, une consigne de la tour qui donne les points de l'issue (ils sont sur le board, pas dans le corps).
+
+1. **5 points ou plus** : un plan écrit avant de coder, relu par `lead-engineer-reviewer`, et aussi par `ui-ux-designer` quand l'issue crée ou change des composants d'écran. Puis des sous-phases, avec un compte rendu partiel et un arrêt à la fin de chacune.
+2. **Moins de 5 points** : ni plan ni revue de plan. Une passe, un compte rendu.
+
+### Dans les deux cas
+
+- **`pnpm check` doit être vert** avant de proposer la fin d'une sous-phase ou de rendre un compte rendu. Pas d'exception.
+- **Docs synchronisées** : toute modif de comportement → update `docs/ux.md` et/ou `docs/spec.md` et/ou `docs/architecture.md` dans la même sous-phase, ou dans la même PR.
+- **Review post-implé** : `lead-engineer-reviewer` toujours. `ui-ux-designer` si UI touchée. `tech-architect` si architecture touchée. En parallèle.
+
+**Aucune commande git qui écrit depuis un agent**, `git add` compris : ni `commit`, ni `tag`, ni `push`. L'utilisateur construit l'historique lui-même.
 
 ## Cible utilisatrice — rappels
 
