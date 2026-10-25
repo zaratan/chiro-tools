@@ -124,6 +124,7 @@ chiro-tools/
 │   │   │   ├── prefix.ts          # buildPrefix({carre,annee,passage,point}) → "Car..."
 │   │   │   ├── isAlreadyPrefixed.ts
 │   │   │   ├── buildConstatCounts.ts # compteurs du Constat (alreadyPrefixed/upperCaseWav/otherIgnored)
+│   │   │   ├── classifyRenameOutcome.ts # variante du Résultat (succès, rien à faire, aucun renommé, erreurs, interrompu)
 │   │   │   └── validation.ts      # validators purs par champ
 │   │   ├── archive/               # lib zip Phases 8-9 — writer ZIP maison, deflate, ZIP64, vérification, volumes
 │   │   │   ├── crc32.ts           # table 256, CRC32_INITIAL / crc32Update / crc32Final

@@ -258,7 +258,11 @@ export const ConfirmScreen = ({
   return (
     <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
       <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
-      {plan.operations.length === 0 && alreadyCount > 0 ? (
+      {plan.operations.length === 0 && collisionsCount > 0 ? (
+        <Box marginTop={1}>
+          <Text color="cyan">ℹ Aucun fichier ne sera renommé.</Text>
+        </Box>
+      ) : plan.operations.length === 0 && alreadyCount > 0 ? (
         <Box marginTop={1}>
           <Text color="cyan">
             ℹ Tous les fichiers ({alreadyCount.toString()}) sont déjà au bon
@@ -308,7 +312,8 @@ export const ConfirmScreen = ({
         </Box>
       ) : null}
 
-      {alreadyCount > 0 && plan.operations.length > 0 ? (
+      {alreadyCount > 0 &&
+      (plan.operations.length > 0 || collisionsCount > 0) ? (
         <Box flexDirection="column" marginTop={1}>
           <Text color="cyan">
             ℹ {alreadyCount.toString()} fichier

@@ -1,4 +1,7 @@
 import { render } from "ink-testing-library";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { FormInput } from "../../../types.js";
 import { ConfirmScreen, type ApplyRenamesFn } from "../ConfirmScreen.js";
@@ -115,5 +118,75 @@ describe("ConfirmScreen (vigie-chiro) — run-error (degraded)", () => {
     const getFrame = await triggerRunError(failingApply, runningRef);
 
     expect(getFrame()).toContain("Échap revenir au début");
+  });
+});
+
+describe("ConfirmScreen (vigie-chiro) — nothing to rename because of collisions", () => {
+  const renderPlanFor = async (
+    onDisk: readonly string[],
+    wavFiles: string[],
+  ): Promise<string> => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "chiro-test-confirm-"));
+    try {
+      for (const name of onDisk) {
+        await writeFile(path.join(dir, name), "");
+      }
+      const { lastFrame, unmount } = render(
+        <ConfirmScreen
+          cwd={dir}
+          input={input}
+          wavFiles={wavFiles}
+          runningRef={{ current: false }}
+          applyRenames={() => Promise.reject(new Error("unused"))}
+          onComplete={() => undefined}
+          onBack={() => undefined}
+        />,
+      );
+      try {
+        await waitUntil(
+          () => !(lastFrame() ?? "").includes("Préparation du plan…"),
+        );
+        return lastFrame() ?? "";
+      } finally {
+        unmount();
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  };
+
+  it("does not announce renaming zero files when every file collides", async () => {
+    const frame = await renderPlanFor(
+      ["a.wav", "Car040962-2026-Pass3-A1-a.wav"],
+      ["a.wav"],
+    );
+
+    expect(frame).not.toContain("On va renommer");
+    expect(frame).toContain("ℹ Aucun fichier ne sera renommé.");
+    expect(frame).toContain("⚠ 1 fichier ne pourra pas être renommé");
+  });
+
+  it("does not claim every file is already in format when raw copies collide with the prefixed ones", async () => {
+    const frame = await renderPlanFor(
+      ["a.wav", "Car040962-2026-Pass3-A1-a.wav"],
+      ["a.wav", "Car040962-2026-Pass3-A1-a.wav"],
+    );
+
+    expect(frame).not.toContain("Tous les fichiers");
+    expect(frame).toContain("ℹ Aucun fichier ne sera renommé.");
+    expect(frame).toContain("⚠ 1 fichier ne pourra pas être renommé");
+    expect(frame).toContain(
+      "ℹ 1 fichier sera laissé tel quel (déjà au bon format) :",
+    );
+  });
+
+  it("keeps the all-already-prefixed title when nothing collides", async () => {
+    const frame = await renderPlanFor(
+      ["Car040962-2026-Pass3-A1-a.wav"],
+      ["Car040962-2026-Pass3-A1-a.wav"],
+    );
+
+    expect(frame).toContain("ℹ Tous les fichiers (1) sont déjà au bon format.");
+    expect(frame).not.toContain("Aucun fichier ne sera renommé");
   });
 });
