@@ -50,7 +50,7 @@ Quand sox produit un résultat suspect, chiro s'en aperçoit — il compare troi
 
 **Un fichier est illisible ou corrompu.** Il est signalé et le reste du lot continue. L'écran final regroupe les erreurs par type plutôt que de vous lister 300 lignes.
 
-**Vous appuyez sur Ctrl+C.** Le découpage s'arrête et l'écran de fin dit combien d'enregistrements ont été découpés. Vos fichiers d'origine n'ont pas bougé. En revanche `processed/` peut contenir des enregistrements découpés à moitié. Renommez ou supprimez ce dossier avant de relancer. L'écran de fin vous le rappelle.
+**Vous appuyez sur Ctrl+C.** Le découpage s'arrête et l'écran de fin dit combien d'enregistrements ont été découpés. Vos fichiers d'origine n'ont pas bougé. `processed/` ne garde que les enregistrements comptés à l'écran. Ceux qui étaient en cours n'y laissent aucun fichier. Un enregistrement dont la dernière tranche s'écrivait au moment du Ctrl+C est terminé et compté. Renommez ou supprimez ce dossier avant de relancer. L'écran de fin vous le rappelle.
 
 **`processed/` existe déjà et contient des fichiers.** chiro s'arrête en jaune avant de commencer. Renommez l'ancien dossier ou supprimez-le s'il ne vous sert plus, puis relancez. chiro ne le renomme ni ne le supprime jamais lui-même.
 

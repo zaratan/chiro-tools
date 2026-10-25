@@ -230,7 +230,10 @@ const processOneFile = async (
     let chunkIndex = 0;
 
     for (const rawFile of rawFiles) {
-      if (isAborted()) return { kind: "aborted" };
+      if (isAborted()) {
+        await cleanPartialOutput(outDir, baseName);
+        return { kind: "aborted" };
+      }
 
       const rawPath = path.join(tmpSubDir, rawFile);
       await rewriteHeaderToStandardPcm(rawPath, expand10x);
