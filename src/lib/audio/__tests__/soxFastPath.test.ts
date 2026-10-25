@@ -276,6 +276,42 @@ describe("runSoxBatch", () => {
       expect(proc.outputSampleRate).toBe(48000);
     }, 30_000);
 
+    it("removes every chunk of a recording that fails at its second chunk, and spares a sibling whose name extends it", async () => {
+      const threeChunks = {
+        sampleRate: 8000,
+        bitDepth: "16" as const,
+        durationSeconds: 110,
+      };
+      await writeWav("A.wav", threeChunks);
+      await writeWav("X_211006.wav", threeChunks);
+      await writeWav("X_211006_Not_Processed.wav", threeChunks);
+      const outDir = path.join(tmpDir, "processed");
+      await mkdir(path.join(outDir, "X_211006_001.wav"), { recursive: true });
+
+      if (!SOX_BIN) throw new Error("sox not available");
+      const result = await runSoxBatch(
+        SOX_BIN,
+        ["A.wav", "X_211006.wav", "X_211006_Not_Processed.wav"],
+        tmpDir,
+        { mode: "preserve" },
+      );
+
+      expect(result.kind).toBe("completed");
+      if (result.kind !== "completed") throw new Error("type narrowing");
+      expect(result.outcome.errored).toEqual([
+        { file: "X_211006.wav", reason: "EISDIR" },
+      ]);
+      const remaining = (await readdir(outDir)).filter(
+        (name) => !name.startsWith("A_"),
+      );
+      expect(remaining.sort()).toEqual([
+        "X_211006_001.wav",
+        "X_211006_Not_Processed_000.wav",
+        "X_211006_Not_Processed_001.wav",
+        "X_211006_Not_Processed_002.wav",
+      ]);
+    }, 30_000);
+
     it("spot-check passes on synthetic WAV — does not fall back", async () => {
       await writeWav("source.wav", {
         sampleRate: 48000,

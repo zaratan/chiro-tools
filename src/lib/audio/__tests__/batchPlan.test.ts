@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ALREADY_CHUNKED_REGEX,
+  buildChunkFileRegex,
   buildChunkName,
   buildOutDir,
   buildQueue,
@@ -35,6 +36,56 @@ describe("buildChunkName", () => {
 
   it("produces names recognized by ALREADY_CHUNKED_REGEX", () => {
     expect(ALREADY_CHUNKED_REGEX.test(buildChunkName("x", 1))).toBe(true);
+  });
+});
+
+describe("ALREADY_CHUNKED_REGEX", () => {
+  it("does not take a recording ending in its HHMMSS time for a chunk, so real Teensy and AudioMoth files get split", () => {
+    expect(ALREADY_CHUNKED_REGEX.test("PR1925645_20260728_205005.wav")).toBe(
+      false,
+    );
+    expect(ALREADY_CHUNKED_REGEX.test("20211006_221500.wav")).toBe(false);
+  });
+});
+
+describe("buildChunkFileRegex", () => {
+  it("matches the chunks of a recording and their in-flight .tmp files", () => {
+    const regex = buildChunkFileRegex("X_211006");
+    expect(regex.test(buildChunkName("X_211006", 0))).toBe(true);
+    expect(regex.test("X_211006_001.wav.e13c0285.tmp")).toBe(true);
+  });
+
+  it("matches a chunk numbered 1000 or more, past the 3-digit padding", () => {
+    const regex = buildChunkFileRegex("X_211006");
+    expect(regex.test(buildChunkName("X_211006", 1000))).toBe(true);
+    expect(regex.test("X_211006_1000.wav.e13c0285.tmp")).toBe(true);
+  });
+
+  it("ignores the chunks of a sibling named after the recording plus a time, so a cleanup spares them", () => {
+    const regex = buildChunkFileRegex("X_211006");
+    expect(regex.test("X_211006_221500_000.wav")).toBe(false);
+  });
+
+  it("ignores a sibling whose name extends the recording's, so its chunks survive a cleanup", () => {
+    const regex = buildChunkFileRegex("X_211006");
+    expect(regex.test("X_211006_Not_Processed_000.wav")).toBe(false);
+    expect(regex.test("X_211006_Not_Processed_000.wav.e13c0285.tmp")).toBe(
+      false,
+    );
+  });
+
+  it("ignores the source file and names that only look like chunks", () => {
+    const regex = buildChunkFileRegex("X_211006");
+    expect(regex.test("X_211006.wav")).toBe(false);
+    expect(regex.test("X_211006_000.wav.tmp")).toBe(false);
+    expect(regex.test("X_211006_000.WAV")).toBe(false);
+  });
+
+  it("treats regex metacharacters in the recording name literally", () => {
+    const regex = buildChunkFileRegex("rec.(1)+");
+    expect(regex.test("rec.(1)+_000.wav")).toBe(true);
+    expect(regex.test("recX(1)+_000.wav")).toBe(false);
+    expect(regex.test("rec.11_000.wav")).toBe(false);
   });
 });
 

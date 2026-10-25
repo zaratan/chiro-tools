@@ -23,6 +23,14 @@ export const buildOutDir = (dir: string): string =>
 export const buildChunkName = (baseName: string, index: number): string =>
   `${baseName}_${String(index).padStart(3, "0")}.wav`;
 
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+export const buildChunkFileRegex = (baseName: string): RegExp =>
+  new RegExp(
+    `^${escapeRegExp(baseName)}_\\d{3,}\\.wav(\\.[0-9a-f]{8}\\.tmp)?$`,
+  );
+
 const MEMORY_PER_WORKER_MB = 400;
 const MEMORY_USABLE_FRACTION = 0.7;
 const HARD_CAP = 12;

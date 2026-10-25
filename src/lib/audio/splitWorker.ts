@@ -8,7 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { parentPort } from "node:worker_threads";
-import { buildChunkName } from "./batchPlan.js";
+import { buildChunkFileRegex, buildChunkName } from "./batchPlan.js";
 import { finalizeChunk } from "./finalizeChunk.js";
 import { splitWavFile } from "./splitWavFile.js";
 import { TIME_EXPANSION_FACTOR } from "./constants.js";
@@ -204,9 +204,9 @@ const cleanupOrphanTmps = async (
   } catch {
     return;
   }
-  const prefix = `${baseName}_`;
+  const chunkFileRegex = buildChunkFileRegex(baseName);
   for (const entry of entries) {
-    if (entry.startsWith(prefix) && entry.endsWith(".tmp")) {
+    if (entry.endsWith(".tmp") && chunkFileRegex.test(entry)) {
       await unlink(`${outDir}/${entry}`).catch(() => undefined);
     }
   }

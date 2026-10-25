@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -259,6 +266,76 @@ describe("splitWorkerPool", () => {
     const chunks = await readdir(processedDir);
     expect(chunks.some((c) => c.startsWith("good_"))).toBe(true);
   });
+
+  it("removes every chunk of a recording that fails at its second chunk, and spares a sibling whose name extends it", async () => {
+    const threeChunks = {
+      sampleRate: 8000,
+      bitDepth: "16" as const,
+      durationSeconds: 110,
+    };
+    await writeWav("X_211006.wav", threeChunks);
+    await writeWav("X_211006_Not_Processed.wav", threeChunks);
+    const processedDir = path.join(tmpDir, "processed");
+    await mkdir(path.join(processedDir, "X_211006_001.wav"), {
+      recursive: true,
+    });
+
+    const outcome = await runPool(
+      ["X_211006.wav", "X_211006_Not_Processed.wav"],
+      tmpDir,
+      { mode: "preserve" },
+    );
+
+    expect(outcome.errored).toEqual([
+      { file: "X_211006.wav", reason: "EISDIR" },
+    ]);
+    expect((await readdir(processedDir)).sort()).toEqual([
+      "X_211006_001.wav",
+      "X_211006_Not_Processed_000.wav",
+      "X_211006_Not_Processed_001.wav",
+      "X_211006_Not_Processed_002.wav",
+    ]);
+  });
+
+  it("removes the chunks a worker wrote before dying, and spares a sibling whose name extends it", async () => {
+    const dyingWorkerPath = path.join(tmpDir, "dying-worker.mjs");
+    await writeFile(
+      dyingWorkerPath,
+      [
+        'import { writeFileSync } from "node:fs";',
+        'import { parentPort } from "node:worker_threads";',
+        "if (parentPort !== null) {",
+        '  parentPort.on("message", (msg) => {',
+        '    writeFileSync(`${msg.outDir}/${msg.baseName}_000.wav`, "chunk");',
+        '    writeFileSync(`${msg.outDir}/${msg.baseName}_001.wav.0123abcd.tmp`, "partial");',
+        "    process.exit(1);",
+        "  });",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    await writeWav("X_211006.wav", { durationSeconds: 2 });
+    const processedDir = path.join(tmpDir, "processed");
+    await mkdir(processedDir, { recursive: true });
+    await writeFile(
+      path.join(processedDir, "X_211006_Not_Processed_000.wav"),
+      "sibling chunk",
+    );
+
+    const outcome = await runPool(
+      ["X_211006.wav"],
+      tmpDir,
+      { mode: "preserve" },
+      { workerPath: dyingWorkerPath },
+    );
+
+    expect(outcome.errored).toEqual([
+      { file: "X_211006.wav", reason: "worker-died" },
+    ]);
+    expect(await readdir(processedDir)).toEqual([
+      "X_211006_Not_Processed_000.wav",
+    ]);
+  }, 5000);
 
   it("handles empty file list", async () => {
     const outcome = await runPool([], tmpDir, { mode: "preserve" });
