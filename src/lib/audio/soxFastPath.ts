@@ -27,6 +27,7 @@ import { buildWamdChunk } from "./metadata/wamd.js";
 import { parseSourceTimestamp } from "../files/parseTimestamp.js";
 import { extractErrorCode } from "../fs/safeFsOps.js";
 import {
+  buildChunkFileRegex,
   buildChunkName,
   buildOutDir,
   buildQueue,
@@ -55,15 +56,7 @@ const listRawChunks = async (outDir: string): Promise<string[]> => {
     });
 };
 
-const escapeRegExp = (value: string): string =>
-  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
 // Cleans up partial sox output for a file — leaves no state on fallback.
-// Removes the final chunks (baseName_NNN.wav) and the tmp subdirectory.
-//
-// The final-chunk match is anchored on `${baseName}_NNN.wav` exactly — a
-// plain startsWith would also delete a sibling file whose baseName is a
-// strict prefix of this one (e.g. "X_211006" vs "X_211006_Not_Processed").
 export const cleanPartialOutput = async (
   outDir: string,
   baseName: string,
@@ -79,11 +72,9 @@ export const cleanPartialOutput = async (
   } catch {
     return;
   }
-  const finalChunkRegex = new RegExp(
-    `^${escapeRegExp(baseName)}_\\d{3}\\.wav$`,
-  );
+  const chunkFileRegex = buildChunkFileRegex(baseName);
   for (const entry of entries) {
-    if (finalChunkRegex.test(entry)) {
+    if (chunkFileRegex.test(entry)) {
       await unlink(path.join(outDir, entry)).catch(() => undefined);
     }
   }
@@ -171,8 +162,7 @@ const processOneFile = async (
   // collisions when multiple files are processed concurrently.
   const tmpSubDir = path.join(outDir, `.sox-tmp-${baseName}`);
 
-  // On any per-file error, no chunk for this file must survive in outDir —
-  // this matches the worker pool's per-file atomicity guarantee.
+  // No chunk of a failed file may survive in outDir, same rule as the pool.
   const failWithCleanup = async (
     reason: string,
   ): Promise<ProcessOneFileResult> => {

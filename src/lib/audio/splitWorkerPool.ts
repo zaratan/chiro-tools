@@ -12,6 +12,7 @@ import { CHUNK_OUTPUT_SECONDS } from "./constants.js";
 import { parseSourceTimestamp } from "../files/parseTimestamp.js";
 import { extractErrorCode } from "../fs/safeFsOps.js";
 import {
+  buildChunkFileRegex,
   buildOutDir,
   buildQueue,
   computeConcurrency,
@@ -71,6 +72,24 @@ const preCleanOrphanTmps = async (outDir: string): Promise<void> => {
   }
   for (const entry of entries) {
     if (entry.endsWith(".tmp")) {
+      await unlink(path.join(outDir, entry)).catch(() => undefined);
+    }
+  }
+};
+
+const removePartialChunks = async (
+  outDir: string,
+  baseName: string,
+): Promise<void> => {
+  let entries: string[];
+  try {
+    entries = await readdir(outDir);
+  } catch {
+    return;
+  }
+  const chunkFileRegex = buildChunkFileRegex(baseName);
+  for (const entry of entries) {
+    if (chunkFileRegex.test(entry)) {
       await unlink(path.join(outDir, entry)).catch(() => undefined);
     }
   }
@@ -196,9 +215,23 @@ export const run = async (
 
   const workerCount = Math.min(computeConcurrency(), queue.length);
   const fileSizeMap = new Map<number, number>();
+  const baseNameMap = new Map<number, string>();
   for (const q of queue) {
     fileSizeMap.set(q.fileIndex, q.fileSizeBytes);
+    baseNameMap.set(q.fileIndex, q.baseName);
   }
+
+  const pendingCleanups: Promise<void>[] = [];
+  const cleanUpFailedFile = (
+    fileIndex: number,
+    after: Promise<unknown> = Promise.resolve(),
+  ): void => {
+    const baseName = baseNameMap.get(fileIndex);
+    if (baseName === undefined) return;
+    pendingCleanups.push(
+      after.then(() => removePartialChunks(outDir, baseName)),
+    );
+  };
 
   const workerBundlePath = options?.workerPath ?? resolveWorkerPath();
   const workerStates: WorkerState[] = [];
@@ -307,6 +340,8 @@ export const run = async (
       if (ws.currentFileIndex !== null) {
         const sourceFile = files[ws.currentFileIndex] ?? "";
         state.errored.push({ file: sourceFile, reason: WORKER_DIED_REASON });
+        const threadStopped = ws.worker.terminate().catch(() => undefined);
+        cleanUpFailedFile(ws.currentFileIndex, threadStopped);
         ws.currentFileIndex = null;
         pendingFiles -= 1;
       }
@@ -365,6 +400,7 @@ export const run = async (
         if (msg.kind === "file-error") {
           const sourceFile = files[msg.fileIndex] ?? "";
           state.errored.push({ file: sourceFile, reason: msg.reason });
+          cleanUpFailedFile(msg.fileIndex);
           pendingFiles -= 1;
           ws.currentFileIndex = null;
           ws.idle = true;
@@ -433,6 +469,7 @@ export const run = async (
   } else {
     await terminateWorkers(workerStates);
   }
+  await Promise.all(pendingCleanups);
 
   return { ...state, durationMs: performance.now() - start };
 };
