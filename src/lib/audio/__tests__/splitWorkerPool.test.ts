@@ -338,6 +338,151 @@ describe("splitWorkerPool", () => {
     ]);
   }, 5000);
 
+  it("removes the chunks of the recording interrupted by an abort, and keeps the finished one", async () => {
+    const interruptibleWorkerPath = path.join(
+      tmpDir,
+      "interruptible-worker.mjs",
+    );
+    await writeFile(
+      interruptibleWorkerPath,
+      [
+        'import { writeFileSync } from "node:fs";',
+        'import { parentPort } from "node:worker_threads";',
+        "let busy = false;",
+        "if (parentPort !== null) {",
+        '  parentPort.on("message", (msg) => {',
+        '    if (msg.kind === "abort") {',
+        '      if (busy) parentPort.postMessage({ kind: "aborted" });',
+        "      return;",
+        "    }",
+        "    busy = true;",
+        '    writeFileSync(`${msg.outDir}/${msg.baseName}_000.wav`, "chunk");',
+        '    parentPort.postMessage({ kind: "chunk-written", fileIndex: msg.fileIndex, chunkIndex: 0 });',
+        '    if (msg.baseName === "finished") {',
+        "      busy = false;",
+        '      parentPort.postMessage({ kind: "file-done", fileIndex: msg.fileIndex, chunkCount: 1, fileSizeBytes: 0, outputSampleRate: 8000, channels: 1 });',
+        "    }",
+        "  });",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    await writeWav("finished.wav", { durationSeconds: 1 });
+    await writeWav("interrupted.wav", { durationSeconds: 1 });
+    const originalEnv = process.env.CHIRO_WORKER_COUNT;
+    process.env.CHIRO_WORKER_COUNT = "1";
+
+    try {
+      const controller = new AbortController();
+      const outcome = await runPool(
+        ["finished.wav", "interrupted.wav"],
+        tmpDir,
+        { mode: "preserve" },
+        {
+          workerPath: interruptibleWorkerPath,
+          signal: controller.signal,
+          onProgress: (event) => {
+            if (event.kind === "chunk-written" && event.fileIndex === 1) {
+              controller.abort();
+            }
+          },
+        },
+      );
+
+      expect(outcome.interrupted).toBe(true);
+      expect(outcome.processed.map((p) => p.sourceFile)).toEqual([
+        "finished.wav",
+      ]);
+      expect(await readdir(path.join(tmpDir, "processed"))).toEqual([
+        "finished_000.wav",
+      ]);
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.CHIRO_WORKER_COUNT;
+      } else {
+        process.env.CHIRO_WORKER_COUNT = originalEnv;
+      }
+    }
+  }, 5000);
+
+  it("removes the chunks and temporary files of a recording whose worker ignores the abort and is terminated after the timeout", async () => {
+    const deafWorkerPath = path.join(tmpDir, "deaf-worker.mjs");
+    await writeFile(
+      deafWorkerPath,
+      [
+        'import { writeFileSync } from "node:fs";',
+        'import { parentPort } from "node:worker_threads";',
+        "if (parentPort !== null) {",
+        '  parentPort.on("message", (msg) => {',
+        '    if (msg.kind === "abort") return;',
+        '    writeFileSync(`${msg.outDir}/${msg.baseName}_000.wav`, "chunk");',
+        '    writeFileSync(`${msg.outDir}/${msg.baseName}_001.wav.0123abcd.tmp`, "partial");',
+        '    parentPort.postMessage({ kind: "chunk-written", fileIndex: msg.fileIndex, chunkIndex: 0 });',
+        "  });",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    await writeWav("stuck.wav", { durationSeconds: 1 });
+
+    const controller = new AbortController();
+    const outcome = await runPool(
+      ["stuck.wav"],
+      tmpDir,
+      { mode: "preserve" },
+      {
+        workerPath: deafWorkerPath,
+        signal: controller.signal,
+        abortTimeoutMs: 50,
+        onProgress: (event) => {
+          if (event.kind === "chunk-written") controller.abort();
+        },
+      },
+    );
+
+    expect(outcome.interrupted).toBe(true);
+    expect(outcome.processed).toEqual([]);
+    expect(await readdir(path.join(tmpDir, "processed"))).toEqual([]);
+  }, 5000);
+
+  it("keeps and counts a recording whose last chunk was being written when the abort arrived", async () => {
+    await writeWav("last.wav", { sampleRate: 192000, durationSeconds: 100 });
+    const originalEnv = process.env.CHIRO_WORKER_COUNT;
+    process.env.CHIRO_WORKER_COUNT = "1";
+
+    try {
+      const controller = new AbortController();
+      const outcome = await runPool(
+        ["last.wav"],
+        tmpDir,
+        { mode: "preserve" },
+        {
+          signal: controller.signal,
+          onProgress: (event) => {
+            if (event.kind === "chunk-written" && event.chunkIndex === 0) {
+              controller.abort();
+            }
+          },
+        },
+      );
+
+      expect(outcome.interrupted).toBe(true);
+      expect(outcome.processed).toEqual([
+        expect.objectContaining({ sourceFile: "last.wav", chunkCount: 2 }),
+      ]);
+      expect((await readdir(path.join(tmpDir, "processed"))).sort()).toEqual([
+        "last_000.wav",
+        "last_001.wav",
+      ]);
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.CHIRO_WORKER_COUNT;
+      } else {
+        process.env.CHIRO_WORKER_COUNT = originalEnv;
+      }
+    }
+  }, 30000);
+
   it("handles empty file list", async () => {
     const outcome = await runPool([], tmpDir, { mode: "preserve" });
 

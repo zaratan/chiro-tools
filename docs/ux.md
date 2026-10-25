@@ -1210,6 +1210,8 @@ Vos fichiers d'origine sont intacts dans ce dossier.
 
 L'invitation au re-run mentionne le dossier `processed/` partiel. L'utilisatrice doit savoir qu'il existe et qu'il faudra le déplacer/supprimer avant un nouveau run. La dernière ligne est en `dimColor`.
 
+chiro supprime les fichiers déjà écrits des enregistrements interrompus, avec sox comme avec le pool. Les deux nombres sont donc ceux du disque.
+
 ### P-Résultat (variante C : tout en échec)
 
 `color="yellow"`. Rare en pratique (disque plein dès le 1ᵉʳ chunk, ou tous les fichiers non-PCM).

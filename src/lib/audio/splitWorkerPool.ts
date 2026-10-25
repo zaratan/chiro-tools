@@ -466,6 +466,9 @@ export const run = async (
     // Abort path: send abort to workers and wait for them to finish in-flight
     // renames before terminating. This guarantees no orphan .tmp on disk.
     await abortAndWaitWorkers(workerStates, abortTimeoutMs);
+    for (const ws of workerStates) {
+      if (ws.currentFileIndex !== null) cleanUpFailedFile(ws.currentFileIndex);
+    }
   } else {
     await terminateWorkers(workerStates);
   }

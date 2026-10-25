@@ -179,11 +179,6 @@ const processFile = async (
     lastChannels = chunk.channels;
   }
 
-  if (abortRequested) {
-    post({ kind: "aborted" } satisfies WorkerOutMessage);
-    return;
-  }
-
   post({
     kind: "file-done",
     fileIndex,

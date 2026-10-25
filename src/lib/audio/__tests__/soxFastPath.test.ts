@@ -379,6 +379,45 @@ describe("runSoxBatch", () => {
       expect(events[events.length - 1]?.kind).toBe("file-done");
     }, 30_000);
 
+    it("removes the chunks already renamed for a recording aborted between two chunks", async () => {
+      const threeChunks = {
+        sampleRate: 8000,
+        bitDepth: "16" as const,
+        durationSeconds: 110,
+      };
+      await writeWav("A.wav", threeChunks);
+      await writeWav("B.wav", threeChunks);
+
+      if (!SOX_BIN) throw new Error("sox not available");
+      const controller = new AbortController();
+      const result = await runSoxBatch(
+        SOX_BIN,
+        ["A.wav", "B.wav"],
+        tmpDir,
+        { mode: "preserve" },
+        {
+          signal: controller.signal,
+          onProgress: (e) => {
+            if (e.kind === "chunk-written" && e.fileIndex === 1) {
+              controller.abort();
+            }
+          },
+        },
+      );
+
+      expect(result.kind).toBe("completed");
+      if (result.kind !== "completed") throw new Error("type narrowing");
+      expect(result.outcome.interrupted).toBe(true);
+      expect(result.outcome.processed.map((p) => p.sourceFile)).toEqual([
+        "A.wav",
+      ]);
+      expect((await readdir(path.join(tmpDir, "processed"))).sort()).toEqual([
+        "A_000.wav",
+        "A_001.wav",
+        "A_002.wav",
+      ]);
+    }, 30_000);
+
     it("refuses a corrupt non-first file at admission and still splits the rest", async () => {
       await writeWav("good1.wav", {
         sampleRate: 48000,
