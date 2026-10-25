@@ -1,4 +1,5 @@
 import { render } from "ink-testing-library";
+import type { ReactElement } from "react";
 import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
@@ -54,6 +55,17 @@ const waitForText = async (
     }
     await new Promise((r) => setTimeout(r, 20));
   }
+};
+
+// A screen mounted by an async update subscribes useInput one event-loop turn after its frame;
+// rerendering the same element flushes that effect synchronously.
+const writeToAsyncScreen = (
+  rendered: Pick<ReturnType<typeof render>, "rerender" | "stdin">,
+  app: ReactElement,
+  key: string,
+): void => {
+  rendered.rerender(app);
+  rendered.stdin.write(key);
 };
 
 describe("App — end-to-end", () => {
@@ -586,9 +598,9 @@ describe("App — end-to-end", () => {
       await mkdir(processedDir, { recursive: true });
       await writeFile(path.join(processedDir, "a.wav"), "content a");
 
-      const { stdin, lastFrame } = render(
-        <App cwd={tmpDir} onRequestUpdate={vi.fn()} />,
-      );
+      const app = <App cwd={tmpDir} onRequestUpdate={vi.fn()} />;
+      const rendered = render(app);
+      const { stdin, lastFrame } = rendered;
 
       stdin.write("\x1B[B");
       await settle();
@@ -605,14 +617,10 @@ describe("App — end-to-end", () => {
       await new Promise((r) => setTimeout(r, 200));
 
       stdin.write("\r");
-      await new Promise((r) => setTimeout(r, 400));
+      await waitForText(lastFrame, "Terminé");
 
-      expect(lastFrame() ?? "").toContain("Terminé");
-
-      stdin.write("\r");
-      await settle();
-
-      expect(lastFrame() ?? "").toContain("chiro — outils Vigie-Chiro");
+      writeToAsyncScreen(rendered, app, "\r");
+      await waitForText(lastFrame, "chiro — outils Vigie-Chiro");
     });
 
     it("shows run-error without exiting the app when createZipArchive fails, and Échap returns to archive:constat (not the menu)", async () => {
@@ -836,12 +844,12 @@ describe("App — end-to-end", () => {
       expect(lastFrame() ?? "").toContain("On va rassembler");
 
       stdin.write("\r");
-      await new Promise((r) => setTimeout(r, 300));
-
-      const errorFrame = lastFrame() ?? "";
-      expect(errorFrame).toContain(
+      await waitForText(
+        lastFrame,
         "Une erreur est survenue pendant la préparation des fichiers zip.",
       );
+
+      const errorFrame = lastFrame() ?? "";
       expect(errorFrame).toContain("ENOSPC");
       expect(lastFrame()).not.toBeNull();
 
@@ -960,7 +968,7 @@ describe("App — end-to-end", () => {
           verified: "size-match",
         });
 
-      const { stdin, lastFrame } = render(
+      const app = (
         <App
           cwd={tmpDir}
           onRequestUpdate={vi.fn()}
@@ -968,8 +976,10 @@ describe("App — end-to-end", () => {
           pickArchiveToUpload={pickArchiveToUpload}
           remoteStat={remoteStat}
           uploadArchive={uploadArchive}
-        />,
+        />
       );
+      const rendered = render(app);
+      const { stdin, lastFrame } = rendered;
 
       for (let i = 0; i < 4; i++) {
         stdin.write("\x1B[B");
@@ -992,7 +1002,7 @@ describe("App — end-to-end", () => {
       );
 
       // Entrée returns to the menu.
-      stdin.write("\r");
+      writeToAsyncScreen(rendered, app, "\r");
       await waitForText(lastFrame, "chiro — outils Vigie-Chiro");
     });
   });

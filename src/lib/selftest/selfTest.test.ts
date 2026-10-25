@@ -1,16 +1,26 @@
-import { readdir } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runSelfTest } from "./selfTest.js";
 
 describe("runSelfTest", () => {
-  it("completes with kind 'ok', reports every check, and leaves no residue", async () => {
-    // Residue is asserted here rather than in its own test: the separate one
-    // re-ran the whole self-test (3 s) for a `readdir` diff, and asserted on
-    // `os.tmpdir()` — a *shared* directory, so any parallel process running a
-    // self-test failed it. That was a real flake, not a real finding.
-    const before = new Set(await readdir(tmpdir()));
+  let ownTmpDir: string;
+  let savedTmpDir: string | undefined;
 
+  beforeEach(async () => {
+    ownTmpDir = await mkdtemp(path.join(tmpdir(), "chiro-selftest-test-"));
+    savedTmpDir = process.env.TMPDIR;
+    process.env.TMPDIR = ownTmpDir;
+  });
+
+  afterEach(async () => {
+    if (savedTmpDir === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = savedTmpDir;
+    await rm(ownTmpDir, { recursive: true, force: true });
+  });
+
+  it("completes with kind 'ok', reports every check, and leaves no residue in its own tmpdir even with another suite running", async () => {
     const result = await runSelfTest();
 
     if (result.kind === "error") {
@@ -27,9 +37,6 @@ describe("runSelfTest", () => {
     // test, but exactly one sox-related check line must be present.
     expect(result.checks.some((c) => c.startsWith("sox :"))).toBe(true);
 
-    const leftovers = (await readdir(tmpdir())).filter(
-      (entry) => entry.startsWith("chiro-selftest-") && !before.has(entry),
-    );
-    expect(leftovers).toEqual([]);
+    expect(await readdir(ownTmpDir)).toEqual([]);
   }, 30_000);
 });
