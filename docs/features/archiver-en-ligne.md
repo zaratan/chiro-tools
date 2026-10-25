@@ -70,7 +70,7 @@ Sur macOS, chiro empêche l'ordinateur de s'endormir pendant le transfert — **
 
 Si un fichier du même nom existe déjà en ligne **avec une taille différente**, chiro vous propose de le **remplacer**. L'ancien est définitivement perdu — il n'y a pas de versionnage sur le bucket.
 
-C'est le seul endroit de chiro où quelque chose est écrasé. C'est défendable parce qu'un transfert interrompu ne laisse jamais de fichier visible : un fichier présent avec une taille différente est forcément une version antérieure complète, jamais un envoi tronqué. Mais c'est une suppression, et elle vous est présentée comme telle.
+C'est le seul endroit de chiro où quelque chose est écrasé. C'est défendable parce qu'un transfert interrompu ne laisse jamais de fichier visible : un fichier présent avec une taille différente est forcément une version antérieure complète, jamais un envoi tronqué. Et c'est bien une version du même dossier : le nom de la sauvegarde porte le préfixe Vigie-Chiro du passage. chiro refuse de sauvegarder un dossier sans préfixe. Il refuse aussi d'archiver une ancienne sauvegarde `processed_…`, dont le nom peut être partagé par d'autres dossiers. Mais c'est une suppression, et elle vous est présentée comme telle.
 
 ## Récupérer une archive
 

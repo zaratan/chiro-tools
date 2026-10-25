@@ -2,8 +2,13 @@ import { Box, Text, useInput } from "ink";
 import { useEffect, useRef, useState } from "react";
 import { Footer } from "../../components/Footer.js";
 import {
+  resolveBackupRedoSteps,
+  type BackupRedoSteps,
+} from "../../lib/archive/backupRedoSteps.js";
+import {
   ARCHIVED_DIR_DISPLAY,
   buildArchivedDir,
+  isUnprefixedArchiveName,
 } from "../../lib/archive/planArchive.js";
 import { formatBytes } from "../../format/bytes.js";
 import { formatDayMonth, formatDayMonthYear } from "../../format/date.js";
@@ -40,6 +45,11 @@ type ConstatState =
   | { kind: "loading-remote"; chosen: ChosenArchive; otherCount: number }
   | { kind: "no-backup" }
   | { kind: "scan-error"; rawCode: string }
+  | {
+      kind: "unprefixed-backup";
+      chosen: ChosenArchive;
+      steps: BackupRedoSteps;
+    }
   | { kind: "ready"; chosen: ChosenArchive; otherCount: number }
   | { kind: "already-online"; chosen: ChosenArchive; modTime: string }
   | { kind: "size-mismatch"; chosen: ChosenArchive; remoteBytes: number }
@@ -74,6 +84,10 @@ const scanArchived = async (
   }
 
   const { chosen, otherCount } = picked;
+  if (isUnprefixedArchiveName(chosen.name)) {
+    const steps = await resolveBackupRedoSteps(cwd, signal);
+    return { kind: "unprefixed-backup", chosen, steps };
+  }
   onPhaseChange({ kind: "loading-remote", chosen, otherCount });
 
   const result = await stat(
@@ -248,6 +262,42 @@ export const ConstatScreen = ({
             Détail technique : <Text color="cyan">{state.rawCode}</Text>
           </Text>
           <Text dimColor>{"  (à transmettre si vous demandez de l'aide)"}</Text>
+        </Box>
+        <Footer hints={minimalFooter} />
+      </Box>
+    );
+  }
+
+  if (state.kind === "unprefixed-backup") {
+    return (
+      <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
+        <Box marginTop={1}>
+          <Text color="yellow">
+            ⚠ Cette sauvegarde n'a pas de préfixe Vigie-Chiro dans son nom.
+          </Text>
+        </Box>
+        <Box marginTop={1}>
+          <Text>{`  Fichier : ${state.chosen.name}`}</Text>
+        </Box>
+        <Box marginTop={1} flexDirection="column">
+          <Text>
+            {"En ligne, elle prendrait la place de celle d'un autre dossier."}
+          </Text>
+          <Text>{"Pour en refaire une avec le préfixe :"}</Text>
+          {state.steps.prefix ? (
+            <Text>{"  • lancez « Préfixer des enregistrements »"}</Text>
+          ) : null}
+          {state.steps.split ? (
+            <>
+              <Text>{"  • renommez l'ancien dossier « processed »"}</Text>
+              <Text>{"  • relancez « Découper les enregistrements »"}</Text>
+            </>
+          ) : null}
+          <Text>
+            {"  • lancez « Sauvegarder les enregistrements découpés »"}
+          </Text>
+          <Text>{"  • puis revenez ici"}</Text>
         </Box>
         <Footer hints={minimalFooter} />
       </Box>

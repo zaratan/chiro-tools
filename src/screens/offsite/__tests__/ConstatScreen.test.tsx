@@ -1,5 +1,7 @@
 import { render } from "ink-testing-library";
-import { describe, expect, it, vi } from "vitest";
+import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConstatScreen } from "../ConstatScreen.js";
 import type { PickArchiveToUploadFn, RemoteStatFn } from "../ConstatScreen.js";
 import type { ChosenArchive } from "../../../lib/offsite/pickArchiveToUpload.js";
@@ -327,5 +329,118 @@ describe("OffsiteConstatScreen — Ctrl+C during loading", () => {
     // Resolve the still-pending promise afterwards, purely so it doesn't
     // linger unresolved past the test.
     resolvePick?.();
+  });
+});
+
+describe("OffsiteConstatScreen — unprefixed backup", () => {
+  let cwd: string;
+
+  beforeEach(async () => {
+    cwd = await mkdtemp(path.join("/tmp", "chiro-test-offsite-unprefixed-"));
+    await mkdir(path.join(cwd, "archived"));
+  });
+
+  afterEach(async () => {
+    await rm(cwd, { recursive: true, force: true });
+  });
+
+  const writeIn = async (dir: string, names: readonly string[]) => {
+    await mkdir(path.join(cwd, dir), { recursive: true });
+    for (const name of names) {
+      await writeFile(path.join(cwd, dir, name), "1234");
+    }
+  };
+
+  const renderRefusal = async (onContinue = vi.fn()) => {
+    const stat = vi.fn<RemoteStatFn>(() => Promise.resolve({ kind: "absent" }));
+    const screen = render(
+      <ConstatScreen
+        {...baseProps}
+        cwd={cwd}
+        runningRef={makeRunningRef()}
+        onContinue={onContinue}
+        remoteStat={stat}
+      />,
+    );
+    await waitUntil(() =>
+      (screen.lastFrame() ?? "").includes("n'a pas de préfixe Vigie-Chiro"),
+    );
+    return { ...screen, stat };
+  };
+
+  it("refuses a processed_ zip without asking the vault, since every unprefixed folder backed up that day shares its online name", async () => {
+    await writeIn("archived", ["processed_20261025.zip"]);
+    await writeIn("processed", ["PaRec123_20261025_210000_000.wav"]);
+    await writeIn(".", ["PaRec123_20261025_210000.wav"]);
+    const onContinue = vi.fn();
+
+    const { stdin, lastFrame, stat } = await renderRefusal(onContinue);
+
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain(
+      "⚠ Cette sauvegarde n'a pas de préfixe Vigie-Chiro dans son nom.",
+    );
+    expect(frame).toContain("Fichier : processed_20261025.zip");
+    expect(frame).toContain(
+      "En ligne, elle prendrait la place de celle d'un autre dossier.",
+    );
+    expect(frame).toContain("• lancez « Préfixer des enregistrements »");
+    expect(frame).toContain("• renommez l'ancien dossier « processed »");
+    expect(frame).toContain("• relancez « Découper les enregistrements »");
+    expect(frame).toContain(
+      "• lancez « Sauvegarder les enregistrements découpés »",
+    );
+    expect(frame).toContain("• puis revenez ici");
+    expect(stat).not.toHaveBeenCalled();
+
+    stdin.write("\r");
+    await settle();
+    expect(onContinue).not.toHaveBeenCalled();
+  });
+
+  it("only asks for a new backup when processed/ already shares a prefix, so she does not split again for nothing", async () => {
+    await writeIn("archived", ["processed_20261025.zip"]);
+    await writeIn("processed", ["Car340581-2026-Pass1-A1-x_000.wav"]);
+
+    const { lastFrame } = await renderRefusal();
+
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain(
+      "• lancez « Sauvegarder les enregistrements découpés »",
+    );
+    expect(frame).not.toContain("Préfixer des enregistrements");
+    expect(frame).not.toContain("renommez");
+    expect(frame).not.toContain("Découper les enregistrements");
+  });
+
+  it("drops the prefixing step when the sources were prefixed since, but still asks to split again", async () => {
+    await writeIn("archived", ["processed_20261025.zip"]);
+    await writeIn("processed", ["PaRec_x_000.wav"]);
+    await writeIn(".", ["Car340581-2026-Pass1-A1-PaRec_x.wav"]);
+
+    const { lastFrame } = await renderRefusal();
+
+    const frame = lastFrame() ?? "";
+    expect(frame).not.toContain("Préfixer des enregistrements");
+    expect(frame).toContain("• renommez l'ancien dossier « processed »");
+    expect(frame).toContain("• relancez « Découper les enregistrements »");
+  });
+
+  it("refuses the most recent backup when it is unprefixed, even if an older prefixed one sits next to it", async () => {
+    await writeIn("archived", [
+      "Car340581-2026-Pass1-A1_20261001.zip",
+      "processed_20261025.zip",
+    ]);
+    const old = new Date(2026, 9, 1);
+    await utimes(
+      path.join(cwd, "archived", "Car340581-2026-Pass1-A1_20261001.zip"),
+      old,
+      old,
+    );
+
+    const { lastFrame, stat } = await renderRefusal();
+
+    expect(lastFrame() ?? "").toContain("Fichier : processed_20261025.zip");
+    expect(stat).not.toHaveBeenCalled();
   });
 });

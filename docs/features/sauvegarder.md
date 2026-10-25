@@ -39,6 +39,8 @@ archived/Car340581-2026-Pass1-A1_20260902.zip
 
 **Des enregistrements ont un espace dans leur nom.** La sauvegarde les garde tels quels et l'écran du début le signale sans bloquer. Ces noms seraient refusés au dépôt sur Vigie-Chiro.
 
+**Les enregistrements n'ont pas le même préfixe Vigie-Chiro.** La sauvegarde refuse le dossier, qu'il n'ait aucun préfixe ou plusieurs. Le nom du fichier vient de ce préfixe. Sans lui, deux dossiers sauvegardés le même jour porteraient le même nom, et l'archivage en ligne de l'un remplacerait l'autre. L'écran du début indique quoi faire : préfixer, renommer l'ancien `processed/`, redécouper.
+
 ## Après la sauvegarde
 
 L'écran de fin vous propose directement d'archiver ce fichier en ligne, avec la touche `A` — à condition que [l'archivage en ligne](./archiver-en-ligne.md) soit configuré. Sinon, la touche n'apparaît pas.

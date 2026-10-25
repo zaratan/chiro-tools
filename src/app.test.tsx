@@ -510,7 +510,7 @@ describe("App — end-to-end", () => {
   });
 
   describe("backup flow", () => {
-    it("completes the backup flow end-to-end with the real createZipArchive: Menu → archive:constat → archive:confirm → archive:result", async () => {
+    it("completes the backup flow end-to-end with the real createZipArchive, naming the zip after the recordings' Vigie-Chiro prefix: Menu → archive:constat → archive:confirm → archive:result", async () => {
       const processedDir = path.join(tmpDir, "processed");
       await mkdir(processedDir, { recursive: true });
       const archiveFileNames = [
@@ -584,6 +584,7 @@ describe("App — end-to-end", () => {
       expect(zipNames).toHaveLength(1);
       const zipName = zipNames[0];
       if (zipName === undefined) throw new Error("no zip found");
+      expect(zipName).toMatch(/^Car040962-2026-Pass1-A1_\d{8}\.zip$/);
       const zipPath = path.join(archivedDir, zipName);
 
       // It's a valid, readable zip with the right entries and content.
@@ -640,7 +641,10 @@ describe("App — end-to-end", () => {
     it("returns to the menu when pressing Entrée on archive:result after a successful run", async () => {
       const processedDir = path.join(tmpDir, "processed");
       await mkdir(processedDir, { recursive: true });
-      await writeFile(path.join(processedDir, "a.wav"), "content a");
+      await writeFile(
+        path.join(processedDir, "Car040962-2026-Pass1-A1-a.wav"),
+        "content a",
+      );
 
       const app = <App cwd={tmpDir} onRequestUpdate={vi.fn()} />;
       const rendered = render(app);
@@ -670,7 +674,10 @@ describe("App — end-to-end", () => {
     it("shows run-error without exiting the app when createZipArchive fails, and Échap returns to archive:constat (not the menu)", async () => {
       const processedDir = path.join(tmpDir, "processed");
       await mkdir(processedDir, { recursive: true });
-      await writeFile(path.join(processedDir, "a.wav"), "content a");
+      await writeFile(
+        path.join(processedDir, "Car040962-2026-Pass1-A1-a.wav"),
+        "content a",
+      );
 
       const failingCreateZipArchive: CreateZipArchiveFn = () =>
         Promise.resolve({ kind: "error" as const, code: "ENOSPC" });

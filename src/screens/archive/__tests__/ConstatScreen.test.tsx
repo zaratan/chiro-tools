@@ -123,6 +123,8 @@ describe("ArchiveConstatScreen — empty-processed", () => {
 });
 
 describe("ArchiveConstatScreen — ready", () => {
+  const prefixed = (name: string): string => `Car340581-2026-Pass1-A1-${name}`;
+
   const writeProcessedFiles = async (
     names: readonly string[],
   ): Promise<string> => {
@@ -135,7 +137,9 @@ describe("ArchiveConstatScreen — ready", () => {
   };
 
   it("shows the count, volume, and confirmation question for N files (plural), backup mode", async () => {
-    await writeProcessedFiles(["a_001.wav", "a_002.wav", "a_003.wav"]);
+    await writeProcessedFiles(
+      ["a_001.wav", "a_002.wav", "a_003.wav"].map(prefixed),
+    );
 
     const { lastFrame } = render(
       <ConstatScreen
@@ -158,7 +162,7 @@ describe("ArchiveConstatScreen — ready", () => {
   });
 
   it("shows the upload-flavored closing question in package mode", async () => {
-    await writeProcessedFiles(["a_001.wav"]);
+    await writeProcessedFiles([prefixed("a_001.wav")]);
 
     const { lastFrame } = render(
       <ConstatScreen
@@ -179,7 +183,7 @@ describe("ArchiveConstatScreen — ready", () => {
   });
 
   it("uses the singular form for a single file", async () => {
-    await writeProcessedFiles(["a_001.wav"]);
+    await writeProcessedFiles([prefixed("a_001.wav")]);
 
     const { lastFrame } = render(
       <ConstatScreen
@@ -201,21 +205,23 @@ describe("ArchiveConstatScreen — ready", () => {
     expect(frame).not.toContain("1 enregistrements");
   });
 
-  it("calls onContinue with the scanned entries and total bytes on Entrée", async () => {
-    await writeProcessedFiles(["a_001.wav", "a_002.wav"]);
+  it("calls onContinue with the scanned entries, total bytes and the prefix the backup is named after on Entrée", async () => {
+    await writeProcessedFiles(["a_001.wav", "a_002.wav"].map(prefixed));
 
     const resultBox: {
       entries: readonly ArchiveEntryStat[] | null;
       totalBytes: number | null;
-    } = { entries: null, totalBytes: null };
+      prefix: string | null;
+    } = { entries: null, totalBytes: null, prefix: null };
 
     const { stdin, lastFrame } = render(
       <ConstatScreen
         mode="backup"
         cwd={tmpDir}
-        onContinue={(entries, totalBytes) => {
+        onContinue={(entries, totalBytes, prefix) => {
           resultBox.entries = entries;
           resultBox.totalBytes = totalBytes;
+          resultBox.prefix = prefix;
         }}
         onBack={() => undefined}
       />,
@@ -225,15 +231,15 @@ describe("ArchiveConstatScreen — ready", () => {
     stdin.write("\r");
     await waitUntil(() => resultBox.entries !== null);
 
-    expect(resultBox.entries?.map((e) => e.name)).toEqual([
-      "a_001.wav",
-      "a_002.wav",
-    ]);
+    expect(resultBox.entries?.map((e) => e.name)).toEqual(
+      ["a_001.wav", "a_002.wav"].map(prefixed),
+    );
     expect(resultBox.totalBytes).toBe(8);
+    expect(resultBox.prefix).toBe("Car340581-2026-Pass1-A1");
   });
 
   it("calls onBack on Échap", async () => {
-    await writeProcessedFiles(["a_001.wav"]);
+    await writeProcessedFiles([prefixed("a_001.wav")]);
 
     const onBackCalls: number[] = [];
     const { stdin, lastFrame } = render(
@@ -259,7 +265,10 @@ describe("ArchiveConstatScreen — not-writable", () => {
     async () => {
       const processedDir = path.join(tmpDir, "processed");
       await mkdir(processedDir);
-      await writeFile(path.join(processedDir, "a_001.wav"), "1234");
+      await writeFile(
+        path.join(processedDir, "Car340581-2026-Pass1-A1-a_001.wav"),
+        "1234",
+      );
 
       await chmod(tmpDir, 0o500);
 
@@ -374,7 +383,10 @@ describe("ArchiveConstatScreen — package mode orphan cleanup", () => {
   it("does not touch upload/ in backup mode", async () => {
     const processedDir = path.join(tmpDir, "processed");
     await mkdir(processedDir);
-    await writeFile(path.join(processedDir, "a_001.wav"), "1234");
+    await writeFile(
+      path.join(processedDir, "Car340581-2026-Pass1-A1-a_001.wav"),
+      "1234",
+    );
 
     const uploadDir = path.join(tmpDir, "upload");
     await mkdir(uploadDir);
@@ -539,5 +551,147 @@ describe("ArchiveConstatScreen — names with spaces", () => {
     expect(frame).toContain(
       "Vigie-Chiro, il faudra d'abord remplacer cet espace.",
     );
+  });
+});
+
+describe("ArchiveConstatScreen — no common Vigie-Chiro prefix", () => {
+  const writeProcessed = async (names: readonly string[]): Promise<void> => {
+    await mkdir(path.join(tmpDir, "processed"));
+    for (const name of names) {
+      await writeFile(path.join(tmpDir, "processed", name), "1234");
+    }
+  };
+
+  const renderBackup = async (onContinue: () => void = () => undefined) => {
+    const screen = render(
+      <ConstatScreen
+        mode="backup"
+        cwd={tmpDir}
+        onContinue={onContinue}
+        onBack={() => undefined}
+      />,
+    );
+    await waitUntil(
+      () => !(screen.lastFrame() ?? "").includes("Analyse du dossier…"),
+    );
+    return screen;
+  };
+
+  it("refuses to back up unprefixed recordings and gives the path back to prefixing, since two such folders would share one name online", async () => {
+    await writeProcessed([
+      "PaRec123_20261025_210000_000.wav",
+      "PaRec123_20261025_210000_001.wav",
+    ]);
+    await writeFile(path.join(tmpDir, "PaRec123_20261025_210000.wav"), "");
+
+    const { lastFrame } = await renderBackup();
+
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain(
+      "⚠ Ces enregistrements n'ont pas tous le même préfixe Vigie-Chiro.",
+    );
+    expect(frame).toContain(
+      "chiro nomme la sauvegarde d'après ce préfixe. Pour l'ajouter :",
+    );
+    expect(frame).toContain("• lancez « Préfixer des enregistrements »");
+    expect(frame).toContain("• renommez l'ancien dossier « processed »");
+    expect(frame).toContain(
+      "• relancez « Découper les enregistrements », puis revenez ici",
+    );
+    expect(frame).not.toContain("Entrée");
+  });
+
+  it("refuses recordings from two passes with the same message, since they share no single prefix", async () => {
+    await writeProcessed([
+      "Car123456-2026-Pass1-A1-x_000.wav",
+      "Car123456-2026-Pass2-A1-y_000.wav",
+    ]);
+
+    const { lastFrame } = await renderBackup();
+
+    expect(lastFrame() ?? "").toContain(
+      "⚠ Ces enregistrements n'ont pas tous le même préfixe Vigie-Chiro.",
+    );
+  });
+
+  it("drops the prefixing step once every source is already prefixed, since prefixing again would find nothing to do", async () => {
+    await writeProcessed(["PaRec123_20261025_210000_000.wav"]);
+    await mkdir(path.join(tmpDir, "Brut"));
+    await writeFile(
+      path.join(
+        tmpDir,
+        "Brut",
+        "Car340581-2026-Pass1-A1-PaRec123_20261025_210000.wav",
+      ),
+      "",
+    );
+
+    const { lastFrame } = await renderBackup();
+
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("• renommez l'ancien dossier « processed »");
+    expect(frame).not.toContain("Préfixer des enregistrements");
+  });
+
+  it("drops the prefixing step for sources prefixed on two passes, since prefixing would find nothing to do there either", async () => {
+    await writeProcessed([
+      "Car123456-2026-Pass1-A1-x_000.wav",
+      "Car123456-2026-Pass2-A1-y_000.wav",
+    ]);
+    await writeFile(path.join(tmpDir, "Car123456-2026-Pass1-A1-x.wav"), "");
+    await writeFile(path.join(tmpDir, "Car123456-2026-Pass2-A1-y.wav"), "");
+
+    const { lastFrame } = await renderBackup();
+
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("n'ont pas tous le même préfixe Vigie-Chiro");
+    expect(frame).not.toContain("Préfixer des enregistrements");
+  });
+
+  it("never continues to the confirmation on Entrée while it refuses", async () => {
+    await writeProcessed(["PaRec123_20261025_210000_000.wav"]);
+    const calls: number[] = [];
+
+    const { stdin } = await renderBackup(() => calls.push(1));
+    stdin.write("\r");
+    await settle();
+
+    expect(calls).toEqual([]);
+  });
+
+  itUnlessRoot(
+    "refuses before checking the folder can be written to, and keeps the prefixing step when the sources cannot be read",
+    async () => {
+      await writeProcessed(["PaRec123_20261025_210000_000.wav"]);
+      await chmod(tmpDir, 0o500);
+
+      const { lastFrame } = await renderBackup();
+
+      const frame = lastFrame() ?? "";
+      expect(frame).toContain("n'ont pas tous le même préfixe Vigie-Chiro");
+      expect(frame).not.toContain("protégé en écriture");
+      expect(frame).toContain("• lancez « Préfixer des enregistrements »");
+    },
+  );
+
+  it("leaves the upload flow unchanged, since its series falls back to a local depot_ name", async () => {
+    await writeProcessed(["PaRec123_20261025_210000_000.wav"]);
+    const continued: number[] = [];
+
+    const { stdin, lastFrame } = render(
+      <ConstatScreen
+        mode="package"
+        cwd={tmpDir}
+        onContinue={() => continued.push(1)}
+        onBack={() => undefined}
+      />,
+    );
+    await waitUntil(() => !(lastFrame() ?? "").includes("Analyse du dossier…"));
+
+    expect(lastFrame() ?? "").toContain(
+      "1 enregistrement trouvé dans ./processed/",
+    );
+    stdin.write("\r");
+    await waitUntil(() => continued.length === 1);
   });
 });

@@ -13,8 +13,8 @@ export const buildUploadDir = (cwd: string): string =>
  * Builds the name of the dated series directory a `createZipVolumes` run
  * publishes into `upload/`: `{prefix}_YYYYMMDD`, no extension — it's a
  * directory, not a file. `prefix` defaults to `"depot"` (the honest
- * fallback when `extractCommonPrefix` can't find one unique Vigie-Chiro
- * prefix across the batch). Same
+ * fallback when `findCommonRecordingPrefix` can't find one unique
+ * Vigie-Chiro prefix across the batch's recordings). Same
  * `formatDateStamp` as `buildArchiveName`, so both name builders agree on
  * what "today" looks like.
  */

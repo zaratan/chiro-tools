@@ -145,7 +145,7 @@ describe("createZipArchive — same-minute name collision, end to end", () => {
       await writeSourceFile("b.wav", "second file in the first archive"),
     ];
 
-    const baseName = buildArchiveName(new Date());
+    const baseName = buildArchiveName(new Date(), "Car340581-2026-Pass1-A1");
 
     const firstResolved = await resolveArchiveFileName(archivedDir, baseName);
     if (firstResolved.kind !== "ok") throw new Error("type narrowing");

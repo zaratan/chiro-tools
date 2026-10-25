@@ -5,13 +5,11 @@ import {
   ARCHIVE_ZIP_NAME_REGEX,
   buildArchiveName,
   resolveArchiveFileName,
-  type ArchiveEntryStat,
 } from "../../lib/archive/planArchive.js";
 import {
   buildArchiveSessionEvent,
   type ArchiveSessionOutcome,
 } from "../../lib/logging/buildArchiveSessionEvent.js";
-import { extractCommonPrefix } from "../../lib/vigie-chiro/extractCommonPrefix.js";
 import type {
   ArchiveRunner,
   BackupOkResult,
@@ -47,21 +45,15 @@ export type BackupBehavior = {
 
 /**
  * Builds the `useArchiveRun` triplet for the single-zip backup flow: one
- * `createZipArchive` call, ZIP64 left nominal (the plan's D4 explicitly
- * excludes this flow from the "forbid" guard — it isn't going to the
- * Vigie-Chiro portal). `entries` is captured here (constant for the
- * lifetime of a Confirmation screen instance) so the closures below don't
- * need it passed in again at call time beyond what `ArchiveRunner` already
- * provides.
+ * `createZipArchive` call, ZIP64 left nominal: this zip never goes to the
+ * Vigie-Chiro portal, so the "forbid" guard does not apply.
  */
 export const createBackupBehavior = (
   processedDir: string,
   archivedDir: string,
-  entries: readonly ArchiveEntryStat[],
+  prefix: string,
   createZipArchive: CreateZipArchiveFn,
 ): BackupBehavior => {
-  const prefix = extractCommonPrefix(entries.map((e) => e.name));
-
   const resolveTargetName: ResolveTargetName = async () => {
     const baseName = buildArchiveName(new Date(), prefix);
     const [resolved, alreadyExists] = await Promise.all([

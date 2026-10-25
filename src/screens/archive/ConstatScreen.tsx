@@ -8,9 +8,11 @@ import {
   PROCESSED_DIR_DISPLAY,
 } from "../../lib/audio/batchPlan.js";
 import {
+  findCommonRecordingPrefix,
   scanProcessedForArchive,
   type ArchiveEntryStat,
 } from "../../lib/archive/planArchive.js";
+import { sourcesNeedPrefixing } from "../../lib/archive/backupRedoSteps.js";
 import { buildUploadDir } from "../../lib/archive/planUpload.js";
 import { cleanOrphanStagingDirs } from "../../lib/archive/createZipVolumes.js";
 import { scanDirectory } from "../../lib/fs/scanDirectory.js";
@@ -34,11 +36,13 @@ type ScanState =
       availableBytes: number;
     }
   | { kind: "whitespace-names"; count: number; sourcesFixed: boolean }
+  | { kind: "no-common-prefix"; prefixStep: boolean }
   | {
       kind: "ready";
       entries: ArchiveEntryStat[];
       totalBytes: number;
       whitespaceCount: number;
+      prefix: string | null;
     };
 
 const DIR_LABEL: Record<ArchiveFlowMode, string> = {
@@ -89,6 +93,15 @@ const scanForArchive = async (
   }
 
   const { entries, totalBytes } = scanResult;
+  const prefix = findCommonRecordingPrefix(entries.map((entry) => entry.name));
+
+  if (mode === "backup" && prefix === null) {
+    const sources = await scanDirectory(cwd);
+    const prefixStep =
+      sources.kind !== "ok" || sourcesNeedPrefixing(sources.wavFiles);
+    return { kind: "no-common-prefix", prefixStep };
+  }
+
   const whitespaceCount = countRecordingsWithWhitespace(
     entries.map((entry) => entry.name),
   );
@@ -121,24 +134,31 @@ const scanForArchive = async (
     // statfs failed — proceed; the run will surface ENOSPC if needed.
   }
 
-  return { kind: "ready", entries, totalBytes, whitespaceCount };
+  return { kind: "ready", entries, totalBytes, whitespaceCount, prefix };
 };
 
 export type ArchiveConstatScreenProps = {
-  /** Wording-only branch: the target-folder label and the
-   * closing question differ; the scan itself does not. */
-  mode: ArchiveFlowMode;
   cwd: string;
-  onContinue: (entries: ArchiveEntryStat[], totalBytes: number) => void;
   onBack: () => void;
-};
+} & (
+  | {
+      mode: "backup";
+      onContinue: (
+        entries: ArchiveEntryStat[],
+        totalBytes: number,
+        prefix: string,
+      ) => void;
+    }
+  | {
+      mode: "package";
+      onContinue: (entries: ArchiveEntryStat[], totalBytes: number) => void;
+    }
+);
 
-export const ConstatScreen = ({
-  mode,
-  cwd,
-  onContinue,
-  onBack,
-}: ArchiveConstatScreenProps): React.JSX.Element => {
+export const ConstatScreen = (
+  props: ArchiveConstatScreenProps,
+): React.JSX.Element => {
+  const { mode, cwd, onBack } = props;
   const [state, setState] = useState<ScanState>({ kind: "loading" });
 
   useEffect(() => {
@@ -160,7 +180,11 @@ export const ConstatScreen = ({
       return;
     }
     if (key.return && state.kind === "ready") {
-      onContinue(state.entries, state.totalBytes);
+      if (props.mode === "package") {
+        props.onContinue(state.entries, state.totalBytes);
+      } else if (state.prefix !== null) {
+        props.onContinue(state.entries, state.totalBytes, state.prefix);
+      }
     }
   });
 
@@ -287,6 +311,32 @@ export const ConstatScreen = ({
           {state.sourcesFixed ? null : (
             <Text>{"  • lancez « Préfixer des enregistrements »"}</Text>
           )}
+          <Text>{"  • renommez l'ancien dossier « processed »"}</Text>
+          <Text>
+            {"  • relancez « Découper les enregistrements », puis revenez ici"}
+          </Text>
+        </Box>
+        <Footer hints={minimalFooter} />
+      </Box>
+    );
+  }
+
+  if (state.kind === "no-common-prefix") {
+    return (
+      <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
+        <Text>{`📁 ${fitPath(cwd, 63)}`}</Text>
+        <Box marginTop={1}>
+          <Text color="yellow">
+            ⚠ Ces enregistrements n'ont pas tous le même préfixe Vigie-Chiro.
+          </Text>
+        </Box>
+        <Box flexDirection="column" marginTop={1}>
+          <Text>
+            {"chiro nomme la sauvegarde d'après ce préfixe. Pour l'ajouter :"}
+          </Text>
+          {state.prefixStep ? (
+            <Text>{"  • lancez « Préfixer des enregistrements »"}</Text>
+          ) : null}
           <Text>{"  • renommez l'ancien dossier « processed »"}</Text>
           <Text>
             {"  • relancez « Découper les enregistrements », puis revenez ici"}

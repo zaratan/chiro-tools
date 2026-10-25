@@ -2,18 +2,34 @@ import { access, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { extractErrorCode } from "../fs/safeFsOps.js";
 import { isVisibleNonTmpEntry } from "../fs/scanDirectory.js";
+import { extractCommonPrefix } from "../vigie-chiro/extractCommonPrefix.js";
 
 export const ARCHIVED_DIRNAME = "archived";
 
 /**
- * Matches a backup zip's file name: `processed_YYYYMMDD.zip` or a
- * prefixed-study form, optionally minute-stamped, with an optional `-N`
- * collision suffix. Shared by `hasExistingArchiveZip` (screens/archive) and
- * `pickArchiveToUpload` (lib/offsite) — both need to recognize "is this file
- * a backup zip", so the pattern lives here rather than in either caller.
+ * Matches a backup zip's file name: a prefixed-study form or the legacy
+ * `processed_YYYYMMDD.zip` one, optionally minute-stamped, with an optional
+ * `-N` collision suffix. Shared by `hasExistingArchiveZip`
+ * (screens/archive) and `pickArchiveToUpload` (lib/offsite) — both need to
+ * recognize "is this file a backup zip", so the pattern lives here rather
+ * than in either caller.
  */
 export const ARCHIVE_ZIP_NAME_REGEX =
   /^(?:processed|Car\d{6}-\d{4}-Pass\d+-[A-Z0-9]+)_\d{8}(?:\d{4})?(-\d+)?\.zip$/;
+
+export const isUnprefixedArchiveName = (name: string): boolean =>
+  name.startsWith("processed_");
+
+const WAV_EXTENSION = /\.wav$/i;
+
+export const findCommonRecordingPrefix = (
+  names: readonly string[],
+): string | null =>
+  extractCommonPrefix(
+    names
+      .filter((name) => WAV_EXTENSION.test(name))
+      .map((name) => path.basename(name)),
+  );
 
 /** Relative-path form shown to the user in the TUI (e.g. "./archived/"). */
 export const ARCHIVED_DIR_DISPLAY = `./${ARCHIVED_DIRNAME}/`;
@@ -35,19 +51,13 @@ export const formatDateStamp = (date: Date): string =>
 /**
  * Builds the archive file name from a (local-time) date: `{prefix}_
  * YYYYMMDD.zip`, day granularity only — more meaningful for "which study,
- * roughly when" than a minute-stamped name. `prefix` defaults to
- * `"processed"`, which is what both zip flows fall back to when the batch has
- * no common Vigie-Chiro prefix — they do pass one otherwise, via
- * `extractCommonPrefix` (`backupBehavior.ts`, `packageBehavior.ts`). A
- * same-day collision falls through to `resolveFreeName`'s
- * `-2`..`-99` suffix logic, unchanged. Pure — the caller supplies `date` so
- * the "now" moment is a single decision made once by the orchestrator, not
- * re-read here.
+ * roughly when" than a minute-stamped name. A same-day collision falls
+ * through to `resolveFreeName`'s `-2`..`-99` suffix logic, unchanged. Pure —
+ * the caller supplies `date` so the "now" moment is a single decision made
+ * once by the orchestrator, not re-read here.
  */
-export const buildArchiveName = (
-  date: Date,
-  prefix: string | null = null,
-): string => `${prefix ?? "processed"}_${formatDateStamp(date)}.zip`;
+export const buildArchiveName = (date: Date, prefix: string): string =>
+  `${prefix}_${formatDateStamp(date)}.zip`;
 
 const MAX_COLLISION_SUFFIX = 99;
 const FIRST_COLLISION_SUFFIX = 2;
@@ -91,8 +101,9 @@ const pathExists = async (targetPath: string): Promise<boolean> => {
 
 /**
  * Resolves a non-colliding name inside `dir` for `baseName` (a file name
- * like `processed_20260812.zip`, or a bare directory name): the base name
- * itself if free, otherwise the first free `collisionNameCandidates` suffix.
+ * like `Car340581-2026-Pass1-A1_20260812.zip`, or a bare directory name):
+ * the base name itself if free, otherwise the first free
+ * `collisionNameCandidates` suffix.
  * Generalized out of the original archive-filename-only resolver so any
  * access-based "what name is free" call site shares the single -2..-99 rule.
  */
