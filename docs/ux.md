@@ -1192,7 +1192,7 @@ Groupage par message d'erreur (max 3 fichiers affichés par groupe, le reste ré
 
 ## Wordings — Flow « Sauvegarder les enregistrements découpés » (Phase 8)
 
-Zippe le contenu de `processed/` vers `archived/{préfixe}_YYYYMMDD.zip` (ou `processed_YYYYMMDD.zip` en repli). Non-destructif : `processed/` n'est jamais touché. Depuis la Phase 9, ce zip est la **copie de sauvegarde**, pas l'objet du dépôt — le portail refuse le ZIP64 dans lequel il tombe sur des volumes réels. Tous les wordings qui invitaient au dépôt ont donc été corrigés (cf. A-Résultat).
+Zippe le contenu de `processed/` vers `archived/{préfixe}_YYYYMMDD.zip`. Sans préfixe Vigie-Chiro commun, le Constat refuse (voir plus bas). Non-destructif : `processed/` n'est jamais touché. Depuis la Phase 9, ce zip est la **copie de sauvegarde**, pas l'objet du dépôt — le portail refuse le ZIP64 dans lequel il tombe sur des volumes réels. Tous les wordings qui invitaient au dépôt ont donc été corrigés (cf. A-Résultat).
 
 ### A-Constat (nominal)
 
@@ -1249,6 +1249,23 @@ les enregistrements », puis revenez ici.
 
   Échap retour au menu
 ```
+
+### A-Constat (dégradé : pas de préfixe Vigie-Chiro commun)
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+⚠ Ces enregistrements n'ont pas tous le même préfixe Vigie-Chiro.
+
+chiro nomme la sauvegarde d'après ce préfixe. Pour l'ajouter :
+  • lancez « Préfixer des enregistrements »
+  • renommez l'ancien dossier « processed »
+  • relancez « Découper les enregistrements », puis revenez ici
+
+  Échap retour au menu
+```
+
+Bloquant : sans préfixe, deux dossiers sauvegardés le même jour porteraient le même nom, et donc la même clé en ligne. Un seul message couvre les deux cas, aucun préfixe ou des préfixes mélangés. « n'ont pas tous le même préfixe » reste vrai quand aucun n'en a. Seuls les `.wav` comptent. Le renvoi reprend la forme de U-Constat « espaces dans les noms » : « Préfixer » ne touche pas `processed/`, d'où le renommage et le nouveau découpage. La puce « lancez Préfixer » disparaît si les `.wav` de la racine et de `Brut/` sont tous déjà préfixés et sans espace, sinon « Préfixer » répondrait « Rien à faire ». Si cette lecture échoue, la puce reste. Impasse assumée : si `processed/` mélange deux passages déjà préfixés, redécouper redonne le même mélange. La seule sortie est de ranger chaque passage dans son dossier. Le cas est rare : un dossier correspond à un passage. Cet écran passe avant les contrôles d'écriture et d'espace disque. Le flux de dépôt n'est pas concerné : sa série `depot_YYYYMMDD` reste locale.
 
 ### A-Constat (dégradé : dossier non writable / espace insuffisant / erreur de scan)
 
@@ -1655,6 +1672,28 @@ bon dossier. Dans le Terminal, tapez pwd pour voir où vous êtes.
 ```
 
 `pwd` en `cyan`, même convention que les autres écrans « mauvais dossier ».
+
+### O-Constat (dégradé : sauvegarde sans préfixe)
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+⚠ Cette sauvegarde n'a pas de préfixe Vigie-Chiro dans son nom.
+
+  Fichier : processed_20261025.zip
+
+En ligne, elle prendrait la place de celle d'un autre dossier.
+Pour en refaire une avec le préfixe :
+  • lancez « Préfixer des enregistrements »
+  • renommez l'ancien dossier « processed »
+  • relancez « Découper les enregistrements »
+  • lancez « Sauvegarder les enregistrements découpés »
+  • puis revenez ici
+
+  Échap retour au menu
+```
+
+Pour un zip `processed_*` fait avant que la sauvegarde exige un préfixe. Tous les dossiers non préfixés sauvegardés le même jour partagent ce nom en ligne : l'écran « taille différente » proposerait de remplacer la sauvegarde d'un autre dossier. Le refus tombe avant la vérification en ligne, sans « Vérification en ligne… ». Il s'applique au zip le plus récent, même si un zip préfixé plus ancien existe. Avant le refus, chiro relit `processed/` et les sources (`resolveBackupRedoSteps`, lectures locales seulement) et ne garde que les puces utiles. Si `processed/` a déjà un préfixe commun, il ne reste que « lancez « Sauvegarder… » » et « puis revenez ici ». Sinon la puce « lancez Préfixer » disparaît quand les sources sont toutes préfixées et sans espace, comme dans A-Constat.
 
 ### O-Constat (dégradé : erreur de scan)
 

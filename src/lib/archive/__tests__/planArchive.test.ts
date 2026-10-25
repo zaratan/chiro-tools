@@ -3,11 +3,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  ARCHIVE_ZIP_NAME_REGEX,
   ARCHIVED_DIR_DISPLAY,
   ARCHIVED_DIRNAME,
   buildArchivedDir,
   buildArchiveName,
   collisionNameCandidates,
+  findCommonRecordingPrefix,
+  isUnprefixedArchiveName,
   resolveArchiveFileName,
   resolveFreeName,
   scanProcessedForArchive,
@@ -26,22 +29,97 @@ describe("buildArchivedDir / ARCHIVED_DIR_DISPLAY", () => {
 });
 
 describe("buildArchiveName", () => {
-  it("formats as processed_YYYYMMDD.zip in local time, zero-padded", () => {
-    expect(buildArchiveName(new Date(2026, 7, 12, 14, 30))).toBe(
-      "processed_20260812.zip",
-    );
+  it("formats as {prefix}_YYYYMMDD.zip in local time, zero-padded", () => {
+    expect(
+      buildArchiveName(
+        new Date(2026, 7, 12, 14, 30),
+        "Car340581-2026-Pass1-A1",
+      ),
+    ).toBe("Car340581-2026-Pass1-A1_20260812.zip");
   });
 
   it("zero-pads single-digit month and day", () => {
-    expect(buildArchiveName(new Date(2026, 0, 2, 3, 4))).toBe(
-      "processed_20260102.zip",
-    );
+    expect(
+      buildArchiveName(new Date(2026, 0, 2, 3, 4), "Car340581-2026-Pass1-A1"),
+    ).toBe("Car340581-2026-Pass1-A1_20260102.zip");
+  });
+});
+
+describe("findCommonRecordingPrefix", () => {
+  it("returns the prefix every recording shares, so the backup gets a name of its own", () => {
+    expect(
+      findCommonRecordingPrefix([
+        "Car340581-2026-Pass1-A1-PaRec123_20261025_210000_000.wav",
+        "Car340581-2026-Pass1-A1-PaRec123_20261025_210000_001.wav",
+      ]),
+    ).toBe("Car340581-2026-Pass1-A1");
   });
 
-  it("uses the given prefix instead of processed when provided", () => {
+  it("refuses unprefixed Teensy recordings, which two folders would share as processed_YYYYMMDD.zip", () => {
     expect(
-      buildArchiveName(new Date(2026, 7, 14), "Car340581-2026-Pass1-A1"),
-    ).toBe("Car340581-2026-Pass1-A1_20260814.zip");
+      findCommonRecordingPrefix([
+        "PaRec123_20261025_210000_000.wav",
+        "PaRec123_20261025_210000_001.wav",
+      ]),
+    ).toBeNull();
+  });
+
+  it("refuses recordings from two passes, which share no single prefix", () => {
+    expect(
+      findCommonRecordingPrefix([
+        "Car123456-2026-Pass1-A1-x.wav",
+        "Car123456-2026-Pass2-A1-y.wav",
+      ]),
+    ).toBeNull();
+  });
+
+  it("ignores files that are not recordings, so a field note does not block the backup", () => {
+    expect(
+      findCommonRecordingPrefix([
+        "Car340581-2026-Pass1-A1-PaRec123_20261025_210000_000.wav",
+        "notes terrain.txt",
+      ]),
+    ).toBe("Car340581-2026-Pass1-A1");
+  });
+
+  it("reads the file name, not the path, so recordings under Brut/ count", () => {
+    expect(
+      findCommonRecordingPrefix([
+        "Brut/Car340581-2026-Pass1-A1-PaRec123_20261025_210000.WAV",
+        "Car340581-2026-Pass1-A1-PaRec123_20261025_210005.wav",
+      ]),
+    ).toBe("Car340581-2026-Pass1-A1");
+  });
+
+  it("reads the .WAV extension case-insensitively, as recorders write it", () => {
+    expect(
+      findCommonRecordingPrefix([
+        "Car340581-2026-Pass1-A1-PaRec123_20261025_210000.WAV",
+      ]),
+    ).toBe("Car340581-2026-Pass1-A1");
+  });
+
+  it("refuses a folder with no recording at all", () => {
+    expect(findCommonRecordingPrefix(["notes terrain.txt"])).toBeNull();
+  });
+});
+
+describe("ARCHIVE_ZIP_NAME_REGEX", () => {
+  it("still recognizes a processed_ zip, so an old unprefixed backup is found and refused rather than ignored", () => {
+    expect(ARCHIVE_ZIP_NAME_REGEX.test("processed_20261025.zip")).toBe(true);
+  });
+});
+
+describe("isUnprefixedArchiveName", () => {
+  it("flags a backup zip named after the processed fallback", () => {
+    expect(isUnprefixedArchiveName("processed_20261025.zip")).toBe(true);
+    expect(isUnprefixedArchiveName("processed_20261025-2.zip")).toBe(true);
+  });
+
+  it("lets a prefixed backup zip through", () => {
+    expect(
+      isUnprefixedArchiveName("Car340581-2026-Pass1-A1_20261025.zip"),
+    ).toBe(false);
   });
 });
 

@@ -363,8 +363,8 @@ Rassemble le contenu de `processed/` (sortie du flow Découper) dans **une** arc
 
 - **Source** : `<cwd>/processed/`, niveau 1 uniquement (pas de récursion).
 - **Destination** : `<cwd>/archived/`, créé au besoin (`mkdir -p`).
-- **Nom** : `{préfixe}_YYYYMMDD.zip` — date **locale** au moment de l'entrée dans l'écran de Confirmation (`buildArchiveName`, pur). Le `{préfixe}` est le préfixe Vigie-Chiro commun à **tous** les fichiers du lot (`extractCommonPrefix`), sinon `processed` : `Car340581-2026-Pass1-A1_20260814.zip` ou `processed_20260814.zip`. Le cas d'usage de l'archive est « dans trois ans, un client redemande les données de son étude » : à cette échéance la minute de fabrication du zip n'est pas la donnée qu'on cherche, le nom parlant est déjà dans les fichiers. Granularité **au jour** depuis la Phase 9 (avant : `processed_YYYYMMDDHHMM.zip`).
-- **Collision** : si le nom existe déjà, suffixes `-2` … `-99` insérés avant l'extension (`processed_20260814-2.zip`). Au-delà → code `collision-exhausted`. Conséquence assumée de la bascule à la journée : deux runs **le même jour** collisionnent (au lieu de deux runs la même minute) — le suffixe devient donc nettement plus visible. Le nom est résolu **deux fois** — une fois pour l'affichage en Confirmation, une seconde juste avant le run, pour réduire la fenêtre entre l'aperçu et la validation. Aucun écran « un zip existe déjà, que faire ? » : le nom daté distingue les zips, proposer « remplacer » violerait le principe non-destructif.
+- **Nom** : `{préfixe}_YYYYMMDD.zip` — date **locale** au moment de l'entrée dans l'écran de Confirmation (`buildArchiveName`, pur). Le `{préfixe}` est le préfixe Vigie-Chiro commun à **tous** les `.wav` du lot (`findCommonRecordingPrefix`) : `Car340581-2026-Pass1-A1_20260814.zip`. Il n'y a pas de repli. Sans préfixe commun le Constat refuse le dossier (`no-common-prefix`). `buildArchiveName` exige un préfixe, que le Constat passe à la Confirmation. Le cas d'usage de l'archive est « dans trois ans, un client redemande les données de son étude » : à cette échéance la minute de fabrication du zip n'est pas la donnée qu'on cherche, le nom parlant est déjà dans les fichiers. Granularité **au jour** depuis la Phase 9 (avant : `processed_YYYYMMDDHHMM.zip`).
+- **Collision** : si le nom existe déjà, suffixes `-2` … `-99` insérés avant l'extension (`Car340581-2026-Pass1-A1_20260814-2.zip`). Au-delà → code `collision-exhausted`. Conséquence assumée de la bascule à la journée : deux runs **le même jour** collisionnent (au lieu de deux runs la même minute) — le suffixe devient donc nettement plus visible. Le nom est résolu **deux fois** — une fois pour l'affichage en Confirmation, une seconde juste avant le run, pour réduire la fenêtre entre l'aperçu et la validation. Aucun écran « un zip existe déjà, que faire ? » : le nom daté distingue les zips, proposer « remplacer » violerait le principe non-destructif.
 
 ### Contenu et exclusions
 
@@ -388,13 +388,16 @@ Scan de `processed/` + vérifications, puis question de confirmation (`N enregis
 
 Cas bloquants, dans l'ordre où ils sont évalués :
 
-| Cas                 | Détection                                                           |
-| ------------------- | ------------------------------------------------------------------- |
-| `no-processed`      | `ENOENT` sur le `readdir` de `processed/`                           |
-| `empty-processed`   | dossier présent, zéro entrée retenue par le filtre                  |
-| `scan-error`        | toute autre erreur de `readdir`/`stat` (code brut affiché)          |
-| `not-writable`      | `access(cwd, W_OK)` échoue — le `archived/` ne pourra pas être créé |
-| `insufficient-disk` | `statfs(cwd)` : `bavail × bsize < Σ tailles + N × 200 o + 1 Mio`    |
+| Cas                 | Détection                                                             |
+| ------------------- | --------------------------------------------------------------------- |
+| `no-processed`      | `ENOENT` sur le `readdir` de `processed/`                             |
+| `empty-processed`   | dossier présent, zéro entrée retenue par le filtre                    |
+| `scan-error`        | toute autre erreur de `readdir`/`stat` (code brut affiché)            |
+| `no-common-prefix`  | `findCommonRecordingPrefix` vaut `null` : aucun préfixe, ou plusieurs |
+| `not-writable`      | `access(cwd, W_OK)` échoue — le `archived/` ne pourra pas être créé   |
+| `insufficient-disk` | `statfs(cwd)` : `bavail × bsize < Σ tailles + N × 200 o + 1 Mio`      |
+
+`no-common-prefix` existe parce que la clé en ligne ne dépend que du nom du zip. Sans préfixe, deux dossiers sauvegardés le même jour auraient le même nom, donc le même objet au coffre (cf. O-Constat). Des préfixes mélangés reçoivent le même refus et le même message. Seuls les `.wav` comptent : une note `notes terrain.txt` ne bloque rien. L'écran renvoie au préfixage, puis au renommage de `processed/` et au découpage : « Préfixer » ne touche pas `processed/`. La puce « lancez Préfixer » disparaît si les `.wav` de la racine et de `Brut/` sont tous déjà préfixés et sans espace (`sourcesNeedPrefixing`). Le refus passe avant le contrôle d'écriture et d'espace disque.
 
 `no-processed` et `empty-processed` sont deux états distincts parce que la guidance diffère (mauvais dossier vs découpage interrompu). Le pré-check disque prend la **borne supérieure** (deflate ≤ stored + ε), pas un facteur de sécurité arbitraire ; un `statfs` en échec ne bloque pas — `ENOSPC` sera de toute façon remonté à l'écriture.
 
@@ -444,7 +447,7 @@ Même posture que le wizard de sauvegarde — mêmes écrans, mêmes vérificati
 
 - **Source** : `<cwd>/processed/`, niveau 1 uniquement — même scan et mêmes exclusions que le flux sauvegarde (`isVisibleNonTmpEntry`).
 - **Destination** : `<cwd>/upload/<série>/`, créé au besoin. Le dossier de série **apparaît d'un coup, complet**, en fin de run : les volumes sont écrits dans un dossier de staging caché (`upload/.<série>.<pid>.tmpdir/`) publié par un seul `rename`.
-- **Nom de la série** : `{préfixe}_YYYYMMDD` (même `extractCommonPrefix` que la sauvegarde), sinon `depot_YYYYMMDD`.
+- **Nom de la série** : `{préfixe}_YYYYMMDD` (`findCommonRecordingPrefix`, sur les seuls `.wav` comme la sauvegarde : une note `.txt` dans `processed/` ne change pas le nom), sinon `depot_YYYYMMDD`.
 - **Nom des volumes** : `{série}_partN.zip`, numérotation 1-based, **zéro-padding dynamique** au-delà de 9 volumes (`part01`…`part12`) — sans quoi `part10` se trie avant `part2` dans le Finder. Pas de `-sur-N` : le nom seul ne dit donc pas combien de fichiers composent la série, c'est l'écran de résultat qui le dit et le dossier qui les contient tous.
 - **Cas N = 1** (fréquent : un point d'écoute isolé) : **aucun suffixe `part`**, le fichier s'appelle `{série}.zip`. `partie 1 sur 1` serait une absurdité auto-évidente. Toute l'UI suit : libellés au singulier, pas de « un par un », compteur de volume masqué, phrase « Vigie-Chiro n'accepte pas les fichiers trop volumineux » supprimée (sans objet).
 - **Collision** : résolue **au commit**, jamais à l'aperçu — `rename(2)` sur un répertoire cible non vide échoue `ENOTEMPTY` au lieu d'écraser, donc le nom libre ne peut pas être décidé à l'avance sans risquer de perdre 15 minutes de calcul. Boucle sur `EEXIST`/`ENOTEMPTY` avec suffixes `-2` … `-99`, puis `collision-exhausted`. Les volumes portent toujours le nom **avant** suffixe : le dossier porte la distinction, les fichiers n'ont pas à la répéter.
@@ -459,7 +462,7 @@ Même posture que le wizard de sauvegarde — mêmes écrans, mêmes vérificati
 
 ### Écran U-Constat
 
-Identique à A-Constat (mêmes cas bloquants, même pré-check disque) à trois wordings près (dossier `upload` au lieu de `archived`, question de confirmation, pluriel du message d'espace disque). Une action supplémentaire, invisible : le nettoyage des dossiers de staging orphelins d'un run précédent tué (`cleanOrphanStagingDirs`) tourne ici, pendant le « Analyse du dossier… », et jamais pendant le run.
+Identique à A-Constat (mêmes cas bloquants sauf `no-common-prefix`, même pré-check disque) à trois wordings près (dossier `upload` au lieu de `archived`, question de confirmation, pluriel du message d'espace disque). Une action supplémentaire, invisible : le nettoyage des dossiers de staging orphelins d'un run précédent tué (`cleanOrphanStagingDirs`) tourne ici, pendant le « Analyse du dossier… », et jamais pendant le run.
 
 ### Écran U-Confirmation
 
@@ -531,13 +534,16 @@ Fichier **lu seulement**, jamais écrit par chiro, édité à la main par la per
 
 Deux phases : sélection du fichier local, puis HEAD distant. `pickArchiveToUpload` choisit le zip le **plus récent par mtime** dans `archived/` (au format de nommage du wizard sauvegarde) et compte les autres. `remoteStat` interroge ensuite `<remote>:<bucket>/<prefix>/<nom-du-zip>` via `rclone lsjson --stat`.
 
-**Détection « déjà en ligne » : HEAD distant systématique, jamais une relecture du journal.** `sessions.jsonl` reste write-only comme pour les deux flux zip — la raison est plus forte ici qu'ailleurs : `buildArchiveName` retombe sur le préfixe `"processed"` quand `extractCommonPrefix` ne trouve rien de commun, et le journal est global (`~/.chiro`) alors que le nom du zip est local à un dossier. Deux études traitées le même jour dans deux dossiers différents produiraient toutes deux `processed_20260817.zip` ; une détection par journal aurait affiché « déjà archivée » pour un zip jamais envoyé — le pire échec possible pour une fonction de sauvegarde, silencieux et indiscernable d'un succès.
+**Détection « déjà en ligne » : HEAD distant systématique, jamais une relecture du journal.** `sessions.jsonl` reste write-only comme pour les deux flux zip — la raison est plus forte ici qu'ailleurs : le journal est global (`~/.chiro`) alors que le nom du zip est local à un dossier. Les sauvegardes faites avant le refus `no-common-prefix` s'appellent `processed_YYYYMMDD.zip`, un nom que deux études traitées le même jour partagent. Une détection par journal aurait affiché « déjà archivée » pour un zip jamais envoyé — le pire échec possible pour une fonction de sauvegarde, silencieux et indiscernable d'un succès.
+
+Le HEAD a le même défaut sur ce nom. L'objet distant peut être la sauvegarde d'un autre dossier, et « taille différente » proposerait de la remplacer. O-Constat refuse donc un zip `processed_*` sans appeler `remoteStat` (`unprefixed-backup`). Il refuse aussi quand ce zip est le plus récent et qu'un zip préfixé plus ancien existe : `pickArchiveToUpload` ne choisit que le plus récent.
 
 Cas bloquants/informatifs, tous couverts par un état dédié :
 
 | État                         | Cause                                                                     |
 | ---------------------------- | ------------------------------------------------------------------------- |
 | `no-backup`                  | Aucun zip de sauvegarde dans `archived/`                                  |
+| `unprefixed-backup`          | Zip le plus récent nommé `processed_*`, refusé sans HEAD distant          |
 | `scan-error`                 | Erreur `readdir`/`stat` autre qu'`ENOENT` sur `archived/`                 |
 | `ready`                      | Zip local trouvé, absent du bucket                                        |
 | `already-online`             | Zip local trouvé, présent au bucket à la **même** taille                  |
@@ -856,6 +862,7 @@ Pour les sessions de découpage, `schema_version: 2`. Format aligné avec v1 (ti
 | Ctrl+C pendant le renommage                               | Stop propre, Résultat variante D                                                                                                                       | Renommage → Résultat        |
 | Terminal redimensionné en cours                           | Ink gère ; aucun traitement spécial requis                                                                                                             | Toutes                      |
 | Pas de `processed/` au flow zip                           | Message informatif + deux causes (découpage pas fait / mauvais dossier)                                                                                | A-Constat                   |
+| `processed/` sans préfixe Vigie-Chiro commun (sauvegarde) | `no-common-prefix` — refus, renvoi au préfixage puis au découpage. Le dépôt n'est pas concerné : sa série `depot_YYYYMMDD` reste locale                | A-Constat                   |
 | `processed/` sans fichier archivable                      | « ne contient aucun enregistrement » + guidance découpage interrompu                                                                                   | A-Constat                   |
 | `cwd` non writable au flow zip                            | Message « impossible de créer le sous-dossier archived » (ou « upload » selon le flux)                                                                 | A-Constat / U-Constat       |
 | Espace disque insuffisant pour le zip                     | Chiffres requis/dispo + rappel qu'un zip est une copie                                                                                                 | A-Constat                   |
@@ -873,6 +880,7 @@ Pour les sessions de découpage, `schema_version: 2`. Format aligné avec v1 (ti
 | `rclone` absent ou < 1.53                                 | Entrée de menu **et** touche `A` inexistantes. Silence total, aucun message                                                                            | Menu / A-Résultat           |
 | `settings.json` absent ou bloc `coffre` invalide          | Idem — `absent` et `invalid` se résolvent tous deux en « entrée masquée », sans distinction visible                                                    | Menu / A-Résultat           |
 | Aucun zip dans `archived/`                                | `no-backup` — renvoie vers le wizard sauvegarde                                                                                                        | O-Constat                   |
+| Zip le plus récent nommé `processed_*`                    | `unprefixed-backup` — refus sans `lsjson`, renvoi au préfixage puis à une nouvelle sauvegarde                                                          | O-Constat                   |
 | Zip déjà en ligne, **même** taille                        | `already-online` — aucun transfert lancé                                                                                                               | O-Constat                   |
 | Zip en ligne, taille **différente**                       | `size-mismatch` — remplacement de l'objet distant proposé sur `Entrée` ; seule écriture destructive de chiro, sans versionnage au bucket               | O-Constat                   |
 | `remoteStat` injoignable (réseau, timeout)                | `verify-error` **transitoire** — réessai proposé                                                                                                       | O-Constat                   |

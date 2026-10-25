@@ -4,10 +4,12 @@ import type {
   CreateZipVolumesResult,
 } from "../../lib/archive/createZipVolumes.js";
 import { maxVolumeBytes } from "../../lib/archive/maxVolumeBytes.js";
-import type { ArchiveEntryStat } from "../../lib/archive/planArchive.js";
+import {
+  findCommonRecordingPrefix,
+  type ArchiveEntryStat,
+} from "../../lib/archive/planArchive.js";
 import { buildSeriesDirName } from "../../lib/archive/planUpload.js";
 import { buildPackageSessionEvent } from "../../lib/logging/buildPackageSessionEvent.js";
-import { extractCommonPrefix } from "../../lib/vigie-chiro/extractCommonPrefix.js";
 import type {
   ArchiveRunner,
   BuildRunSessionEvent,
@@ -59,7 +61,7 @@ export const createPackageBehavior = (
   entries: readonly ArchiveEntryStat[],
   createZipVolumes: CreateZipVolumesFn,
 ): PackageBehavior => {
-  const prefix = extractCommonPrefix(entries.map((e) => e.name));
+  const prefix = findCommonRecordingPrefix(entries.map((e) => e.name));
 
   const resolveTargetName: ResolveTargetName = async () => {
     const name = buildSeriesDirName(new Date(), prefix);

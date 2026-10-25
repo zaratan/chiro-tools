@@ -112,6 +112,7 @@ type Screen =
       kind: "archive:confirm";
       entries: ArchiveEntryStat[];
       totalBytes: number;
+      prefix: string;
     }
   | { kind: "archive:result"; outcome: BackupOutcome }
   | { kind: "package:constat" }
@@ -218,18 +219,17 @@ export const App = ({
   // `useArchiveRun`'s preview-resolution effect on every unrelated
   // re-render. Built unconditionally (never inside an `if (screen.kind ===
   // ...)` branch) to respect the Rules of Hooks; harmlessly unused with an
-  // empty entries array when the matching screen isn't active.
-  const backupEntries =
-    screen.kind === "archive:confirm" ? screen.entries : null;
+  // empty prefix or entries array when the matching screen isn't active.
+  const backupPrefix = screen.kind === "archive:confirm" ? screen.prefix : "";
   const backupBehavior = useMemo(
     () =>
       createBackupBehavior(
         buildOutDir(cwd),
         buildArchivedDir(cwd),
-        backupEntries ?? [],
+        backupPrefix,
         createZipArchive,
       ),
-    [cwd, backupEntries, createZipArchive],
+    [cwd, backupPrefix, createZipArchive],
   );
 
   const packageEntries =
@@ -479,8 +479,8 @@ export const App = ({
       <ArchiveConstatScreen
         mode="backup"
         cwd={cwd}
-        onContinue={(entries, totalBytes) => {
-          setScreen({ kind: "archive:confirm", entries, totalBytes });
+        onContinue={(entries, totalBytes, prefix) => {
+          setScreen({ kind: "archive:confirm", entries, totalBytes, prefix });
         }}
         onBack={() => {
           setScreen({ kind: "menu" });
