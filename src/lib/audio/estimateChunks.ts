@@ -1,12 +1,10 @@
 import type { ProcessInput } from "../../types.js";
-import { buildQueue, DEFAULT_MAX_INPUT_BYTES } from "./batchPlan.js";
 import {
-  CHUNK_OUTPUT_SECONDS,
-  EXPAND_MODE_OUTPUT_RATE,
-  PRESERVE_MODE_OUTPUT_RATE,
-} from "./constants.js";
-
-const BYTES_PER_SAMPLE_16BIT_MONO = 2;
+  buildQueue,
+  DEFAULT_MAX_INPUT_BYTES,
+  type QueuedFile,
+} from "./batchPlan.js";
+import { CHUNK_OUTPUT_SECONDS, TIME_EXPANSION_FACTOR } from "./constants.js";
 
 export type ChunkEstimate = {
   totalChunks: number;
@@ -16,25 +14,29 @@ export type ChunkEstimate = {
 
 const isAborted = (signal?: AbortSignal): boolean => signal?.aborted === true;
 
+const estimateFile = (
+  item: QueuedFile,
+  mode: ProcessInput["mode"],
+): { chunks: number; durationSec: number } => {
+  const outputRate =
+    mode === "expand-10x"
+      ? Math.round(item.sampleRate / TIME_EXPANSION_FACTOR)
+      : item.sampleRate;
+  const samplesPerChunk = Math.floor(outputRate * CHUNK_OUTPUT_SECONDS);
+  if (samplesPerChunk <= 0) return { chunks: 0, durationSec: 0 };
+  const frameBytes = (item.channels * item.bitsPerSample) / 8;
+  const samples = Math.floor(
+    Math.min(item.dataBytes, item.fileSizeBytes) / frameBytes,
+  );
+  return {
+    chunks: Math.ceil(samples / samplesPerChunk),
+    durationSec: samples / outputRate,
+  };
+};
+
 /**
- * Best-effort estimation based on file size, used to size the progress bar
- * before processing starts. We assume 16-bit PCM mono (the format used by
- * Teensy/AudioMoth/SM* in Vigie-Chiro) — stereo files would overestimate
- * chunks by 2×, acceptable for an approximate preview.
- *
- * The chunk count is ceiled PER FILE, not globally: the real splitters
- * (`splitWavFile`) start a new chunk for any file with at least one sample,
- * so summing per-file ceilings matches production behaviour. A single
- * global division across the combined sample count can under-count —
- * several files just over a chunk boundary each need an extra chunk, which
- * a global sum masks.
- *
- * Admission mirrors `buildQueue` — the same function the real run uses to
- * decide what gets processed — so already-chunked `_NNN.wav` files, files
- * over `DEFAULT_MAX_INPUT_BYTES` and files with a refused header are excluded
- * from the estimate the same way they're excluded from the run. Without this,
- * the preview counted files the run then skips, so the bar could never reach
- * 100 %.
+ * Admission goes through `buildQueue`, the function the run itself uses, so
+ * files the run will skip never count here.
  */
 export const estimateChunkCount = async (
   wavFiles: string[],
@@ -46,10 +48,6 @@ export const estimateChunkCount = async (
     return { totalChunks: 0, totalDurationSec: 0, totalBytes: 0 };
   }
 
-  const outputRate =
-    mode === "preserve" ? PRESERVE_MODE_OUTPUT_RATE : EXPAND_MODE_OUTPUT_RATE;
-  const samplesPerChunk = outputRate * CHUNK_OUTPUT_SECONDS;
-
   const { queue } = await buildQueue(
     wavFiles,
     cwd,
@@ -57,19 +55,14 @@ export const estimateChunkCount = async (
     signal,
   );
 
-  let totalSamples = 0;
-  let totalBytes = 0;
   let totalChunks = 0;
-
+  let totalDurationSec = 0;
+  let totalBytes = 0;
   for (const item of queue) {
+    const { chunks, durationSec } = estimateFile(item, mode);
+    totalChunks += chunks;
+    totalDurationSec += durationSec;
     totalBytes += item.fileSizeBytes;
-    const fileSamples = Math.floor(
-      item.fileSizeBytes / BYTES_PER_SAMPLE_16BIT_MONO,
-    );
-    totalSamples += fileSamples;
-    totalChunks += Math.ceil(fileSamples / samplesPerChunk);
   }
-
-  const totalDurationSec = totalSamples / outputRate;
   return { totalChunks, totalDurationSec, totalBytes };
 };

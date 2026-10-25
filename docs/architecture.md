@@ -53,7 +53,7 @@ Le protocole Vigie-Chiro Point Fixe (documenté dans `test-data/Tutoriel Vigie C
 | Time expansion factor OUTPUT | 10                        | 10        |
 | Split to max duration (s)    | 5                         | 5         |
 
-Conséquence : Teensy enregistre **déjà** en TE×10 au record-time (38 400 Hz « audible » représentant un réel 384 000 Hz) — on ne touche pas au sample rate. AudioMoth enregistre full-spectrum à 250 000 Hz — on réécrit `fmt.sampleRate ← 25 000` (lossless, header-only). Dans les deux cas, on découpe en chunks de **50 s mesurés sur la timeline de sortie** — soit 5 s de temps réel une fois la TE×10 prise en compte (`CHUNK_OUTPUT_SECONDS = 50`, `CHUNK_REAL_SECONDS = 5` dans `src/lib/audio/constants.ts`). Avant la Phase 7, chiro coupait à 5 s de sortie (10× trop court en temps réel) ; corrigé depuis — cf. § Performance pipeline / Métadonnées GUANO + wamd plus bas.
+Conséquence : un Teensy réglé en X10 enregistre **déjà** en TE×10 (38 400 Hz « audible » représentant un réel 384 000 Hz) — on ne touche pas au sample rate. Ce réglage (`Exp10`) n'est pas systématique. À Non (profil « Audio »), le Teensy enregistre en temps réel, de 24 000 à 500 000 Hz. Il se traite alors comme un AudioMoth. chiro tranche depuis la fréquence de l'en-tête (`lib/audio/detectMode.ts`, cf. `spec.md` § Règles métier — Découpage). AudioMoth enregistre full-spectrum à 250 000 Hz — on réécrit `fmt.sampleRate ← 25 000` (lossless, header-only). Dans les deux cas, on découpe en chunks de **50 s mesurés sur la timeline de sortie** — soit 5 s de temps réel une fois la TE×10 prise en compte (`CHUNK_OUTPUT_SECONDS = 50`, `CHUNK_REAL_SECONDS = 5` dans `src/lib/audio/constants.ts`). Avant la Phase 7, chiro coupait à 5 s de sortie (10× trop court en temps réel) ; corrigé depuis — cf. § Performance pipeline / Métadonnées GUANO + wamd plus bas.
 
 ## Structure du repo
 
@@ -92,9 +92,9 @@ chiro-tools/
 │   │   │   ├── ConfirmScreen.tsx
 │   │   │   ├── ResultScreen.tsx
 │   │   │   └── errorMessages.ts   # mapping FR pour codes d'erreur rename
-│   │   ├── vigie-process/         # flow "Découper" — 4 écrans (Phase 5) + progression (Phase 5.E)
-│   │       ├── ConstatScreen.tsx  # constat — scan racine + Brut(s)/ via lib/fs/scanDirectory + checks processed/ et espace disque
-│   │       ├── FormScreen.tsx     # sélecteur Teensy/Autre inline (pas de RadioSelect)
+│   │   ├── vigie-process/         # flow "Découper" — 3 écrans (Phase 5) + progression (Phase 5.E)
+│   │       ├── ConstatScreen.tsx  # constat — scan racine + Brut(s)/, checks processed/, détection du mode (detectBatchMode), espace disque
+│   │       ├── ModeRefusalViews.tsx # refus « dossier mélangé » et « enregistreur non reconnu »
 │   │       ├── ConfirmScreen.tsx  # affichage + navigation seulement — l'orchestration vit dans useVigieProcessRun
 │   │       ├── ResultScreen.tsx   # 4 variantes : success / interrupted / all-failed / partial
 │   │       ├── RunningView.tsx    # barre de progression + ETA pendant l'exécution
@@ -159,7 +159,8 @@ chiro-tools/
 │   │   │   ├── soxFastPath.ts     # Pipeline B — spawn sox concurrent, spot-check, cleanPartialOutput
 │   │   │   ├── wavHeader.ts       # rewriteHeaderToStandardPcm — header canonique unique A/B
 │   │   │   ├── finalizeChunk.ts   # wrappe wavHeader + appendAncillaryChunks (GUANO/wamd)
-│   │   │   ├── estimateChunks.ts  # estimation pré-run pour dimensionner la barre de progression
+│   │   │   ├── estimateChunks.ts  # estimation pré-run (vraie fréquence, vraie taille de data) pour la barre de progression
+│   │   │   ├── detectMode.ts      # classifySampleRate + detectBatchMode — preserve / expand-10x depuis la fréquence
 │   │   │   ├── etaTracker.ts      # ETA byte-weighted, moyenne glissante 5 fichiers
 │   │   │   ├── metadata/
 │   │   │   │   ├── guano.ts       # chunk `guan` GUANO 1.0
@@ -226,7 +227,6 @@ type Screen =
   | { kind: "vigie:confirm"; input: FormInput; plan: RenamePlan }
   | { kind: "vigie:result"; outcome: RenameOutcome }
   | { kind: "process:constat" }
-  | { kind: "process:form"; wavFiles: string[] }
   | { kind: "process:confirm"; input: ProcessInput; wavFiles: string[] }
   | { kind: "process:result"; input: ProcessInput; outcome: ProcessOutcome }
   | { kind: "archive:constat" }
@@ -268,10 +268,8 @@ vigie:confirm --Échap--> vigie:form
 vigie:result --Entrée--> menu
 
 # Flow Découper (Phase 5)
-process:constat --Entrée--> process:form  (si .wav trouvés, processed/ vide, espace OK)
+process:constat --Entrée--> process:confirm  (si .wav trouvés, processed/ vide, mode détecté, espace OK)
 process:constat --Échap--> menu
-process:form --submit--> process:confirm
-process:form --Échap--> process:constat
 process:confirm --Entrée--> processWavFiles → process:result (+ logSession v2)
 process:confirm --Échap--> process:constat
 process:result --Entrée--> menu
@@ -493,7 +491,7 @@ Tout autre format (float, A-law, µ-law, ADPCM) donne `unsupported-format`, une 
 
 ### ETA tracker (byte-weighted)
 
-`src/lib/audio/etaTracker.ts` expose un petit utilitaire pur (zero import Ink/React) qui suit la progression d'un batch en termes d'octets traités plutôt qu'en compte de fichiers. Approche choisie après lead-eng review : robuste à l'hétérogénéité des batches Vigie-Chiro (mix AudioMoth 143 MB + Teensy 4 MB).
+`src/lib/audio/etaTracker.ts` expose un petit utilitaire pur (zero import Ink/React) qui suit la progression d'un batch en termes d'octets traités plutôt qu'en compte de fichiers. Approche choisie après lead-eng review : robuste à l'hétérogénéité des tailles dans un même lot (de 1,5 Mo à 23 Mo sur une vraie session Teensy de 1 888 enregistrements).
 
 API :
 

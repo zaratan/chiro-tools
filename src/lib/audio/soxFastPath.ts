@@ -182,10 +182,10 @@ const processOneFile = async (
     const outputBase = path.join(tmpSubDir, "raw_.wav");
 
     // sox cuts on the input wall-clock at the source sample rate. For
-    // expand-10x (AudioMoth at real rate), 5 s of input wall-clock = 5 s
+    // expand-10x (recorded at real rate), 5 s of input wall-clock = 5 s
     // real time = 50 s on the (TE×10) output timeline. For preserve
-    // (Teensy already TE×10), input wall-clock = output wall-clock, so we
-    // feed the full 50 s.
+    // (already TE×10), input wall-clock = output wall-clock, so we feed the
+    // full 50 s.
     const segmentSeconds =
       input.mode === "expand-10x"
         ? CHUNK_OUTPUT_SECONDS / TIME_EXPANSION_FACTOR

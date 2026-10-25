@@ -64,7 +64,6 @@ import { pickArchiveToUpload as defaultPickArchiveToUpload } from "./lib/offsite
 import { remoteStat as defaultRemoteStat } from "./lib/offsite/remoteStat.js";
 import type { ChosenArchive } from "./lib/offsite/pickArchiveToUpload.js";
 import type { OffsiteAvailability } from "./lib/offsite/resolveOffsiteAvailability.js";
-import { FormScreen as ProcessFormScreen } from "./screens/vigie-process/FormScreen.js";
 import { ResultScreen as ProcessResultScreen } from "./screens/vigie-process/ResultScreen.js";
 import type {
   ConstatCounts,
@@ -98,7 +97,6 @@ type Screen =
       outcome: RenameOutcome;
     }
   | { kind: "process:constat" }
-  | { kind: "process:form"; wavFiles: string[] }
   | {
       kind: "process:confirm";
       input: ProcessInput;
@@ -433,25 +431,11 @@ export const App = ({
     return (
       <ProcessConstatScreen
         cwd={cwd}
-        onContinue={(wavFiles) => {
-          setScreen({ kind: "process:form", wavFiles });
-        }}
-        onBack={() => {
-          setScreen({ kind: "menu" });
-        }}
-      />
-    );
-  }
-
-  if (screen.kind === "process:form") {
-    const { wavFiles } = screen;
-    return (
-      <ProcessFormScreen
-        onSubmit={(input) => {
+        onContinue={(wavFiles, input) => {
           setScreen({ kind: "process:confirm", input, wavFiles });
         }}
         onBack={() => {
-          setScreen({ kind: "process:constat" });
+          setScreen({ kind: "menu" });
         }}
       />
     );

@@ -6,12 +6,16 @@ Découpe chaque enregistrement en fichiers de 5 secondes de temps réel, avec le
 
 Chaque `.wav` du dossier est découpé en fichiers plus courts, écrits dans un sous-dossier `processed/`. **Vos fichiers d'origine ne sont jamais modifiés ni supprimés.**
 
-Deux modes, choisis à l'écran de saisie :
+chiro lit la fréquence d'échantillonnage dans l'en-tête de chaque enregistrement et choisit tout seul. Vous n'avez rien à répondre :
 
-| Mode       | Pour qui                                            | Ce qui se passe                             |
-| ---------- | --------------------------------------------------- | ------------------------------------------- |
-| **Teensy** | enregistreurs qui enregistrent déjà en temps étendu | le son est découpé tel quel                 |
-| **Autre**  | AudioMoth et détecteurs full-spectrum               | le son est d'abord étendu ×10, puis découpé |
+| Enregistrements                                    | Reconnus à                                   | Ce qui se passe                              |
+| -------------------------------------------------- | -------------------------------------------- | -------------------------------------------- |
+| **déjà ralentis 10×** (boîtier PaRec réglé en X10) | une fréquence Teensy X10 (38 400 Hz, etc.)   | le son est découpé tel quel                  |
+| **à ralentir 10×** (AudioMoth, PaRec réglé en X1…) | une fréquence de 24 000 Hz ou plus, hors X10 | le son est d'abord ralenti ×10, puis découpé |
+
+Le boîtier PaRec n'enregistre pas toujours en ralenti : c'est un réglage de son menu. Le nom du fichier ne le dit pas, la fréquence si. Le mode retenu s'affiche sur l'écran de confirmation.
+
+Un dossier qui mélange les deux sortes est refusé : rangez-les dans deux dossiers. Un enregistrement dont la fréquence ne correspond à aucun enregistreur connu arrête aussi le découpage : chiro le liste, vous le déplacez dans un autre dossier, puis vous relancez.
 
 Dans les deux cas la sortie est en temps étendu ×10, et chaque fichier produit contient **5 secondes de son réel**, soit 50 secondes sur la durée affichée par un lecteur. C'est la convention Kaleidoscope, et c'est ce que ChiroSurf et Tadarida attendent.
 
