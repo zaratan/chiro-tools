@@ -25,6 +25,16 @@ type ScanState =
       scratchCount: number;
     };
 
+const prefixedCountLabel = (count: number, others: boolean): string => {
+  const other = others ? (count > 1 ? " autres" : " autre") : "";
+  return count > 1
+    ? `${count.toString()}${other} fichiers déjà préfixés`
+    : `1${other} fichier déjà préfixé`;
+};
+
+const whitespaceBulletBreak = (counts: ConstatCounts): string =>
+  counts.alreadyPrefixed > 0 && counts.whitespacePrefixed > 1 ? "\n    " : " ";
+
 export type ConstatScreenProps = {
   cwd: string;
   onContinue: (counts: ConstatCounts, wavFiles: string[]) => void;
@@ -219,20 +229,12 @@ export const ConstatScreen = ({
       ) : null}
       {counts.alreadyPrefixed > 0 ? (
         <Text>
-          {"  • "}
-          {counts.alreadyPrefixed.toString()} fichier
-          {counts.alreadyPrefixed > 1 ? "s" : ""} déjà au bon format ser
-          {counts.alreadyPrefixed > 1 ? "ont" : "a"} laissé
-          {counts.alreadyPrefixed > 1 ? "s" : ""} tel
-          {counts.alreadyPrefixed > 1 ? "s" : ""} quel
-          {counts.alreadyPrefixed > 1 ? "s" : ""}
+          {`  • ${prefixedCountLabel(counts.alreadyPrefixed, false)}`}
         </Text>
       ) : null}
       {counts.whitespacePrefixed > 0 ? (
         <Text>
-          {counts.whitespacePrefixed > 1
-            ? `  • ${counts.whitespacePrefixed.toString()} fichiers déjà préfixés : les espaces deviendront « _ »`
-            : "  • 1 fichier déjà préfixé : les espaces deviendront « _ »"}
+          {`  • ${prefixedCountLabel(counts.whitespacePrefixed, counts.alreadyPrefixed > 0)} :${whitespaceBulletBreak(counts)}les espaces deviendront « _ »`}
         </Text>
       ) : null}
       {counts.upperCaseWav > 0 ? (

@@ -1,6 +1,8 @@
 import {
+  access,
   copyFile as realCopyFile,
   mkdir,
+  link,
   mkdtemp,
   readdir,
   rename as realRename,
@@ -15,6 +17,19 @@ import type { RenamePlan } from "../../types.js";
 import { applyRenames, type FsLike } from "./applyRenames.js";
 import { planRenames } from "./planRenames.js";
 import { findWhitespaceNamesBlockedByPrefixed } from "../vigie-chiro/whitespaceInName.js";
+
+const probeCaseInsensitive = async (): Promise<boolean> => {
+  const dir = await mkdtemp(path.join(tmpdir(), "chiro-case-probe-"));
+  await writeFile(path.join(dir, "a"), "");
+  const insensitive = await access(path.join(dir, "A")).then(
+    () => true,
+    () => false,
+  );
+  await rm(dir, { recursive: true, force: true });
+  return insensitive;
+};
+
+const tmpIsCaseInsensitive = await probeCaseInsensitive();
 
 const emptyPlan = (overrides: Partial<RenamePlan> = {}): RenamePlan => ({
   operations: [],
@@ -383,4 +398,78 @@ describe("applyRenames", () => {
       `${prefix}AB01 X.wav`,
     ]);
   });
+
+  it("keeps prefix replacements apart from first-time prefixing", async () => {
+    await writeFile(path.join(tmpDir, "raw.wav"), "");
+    await writeFile(path.join(tmpDir, "Car1-old.wav"), "");
+
+    const result = await applyRenames(
+      emptyPlan({
+        operations: [
+          { from: "Car1-old.wav", to: "Car2-old.wav", kind: "reprefix" },
+          { from: "raw.wav", to: "Car2-raw.wav", kind: "prefix" },
+        ],
+      }),
+      tmpDir,
+    );
+
+    expect(result.renamed).toEqual(["raw.wav"]);
+    expect(result.reprefixed).toEqual(["Car1-old.wav"]);
+  });
+
+  it("replaces a Pass1 prefix with Pass2, then finds nothing left to do", async () => {
+    const pass1 = "Car123456-2026-Pass1-A1-";
+    const pass2 = "Car123456-2026-Pass2-A1-";
+    const raw = ["PaRec1_205005.wav", "PaRec1_205010.wav", "PaRec1_205015.wav"];
+    for (const name of raw) await writeFile(path.join(tmpDir, name), "");
+    await applyRenames(await planRenames(raw, pass1, tmpDir), tmpDir);
+
+    const replaced = await applyRenames(
+      await planRenames(await readdir(tmpDir), pass2, tmpDir),
+      tmpDir,
+    );
+    const onDisk = (await readdir(tmpDir)).sort();
+    const again = await planRenames(onDisk, pass2, tmpDir);
+
+    expect(replaced.reprefixed).toHaveLength(3);
+    expect(replaced.errored).toEqual([]);
+    expect(onDisk).toEqual(raw.map((name) => `${pass2}${name}`));
+    expect(again.operations).toEqual([]);
+    expect(again.skippedAlreadyPrefixed).toEqual(onDisk);
+  });
+
+  it("does not report EEXIST when only the case of the point changes", async () => {
+    const from = "Car123456-2026-Pass2-a1-rec.wav";
+    const to = "Car123456-2026-Pass2-A1-rec.wav";
+    await writeFile(path.join(tmpDir, from), "");
+    await link(path.join(tmpDir, from), path.join(tmpDir, to)).catch(
+      () => undefined,
+    );
+
+    const result = await applyRenames(
+      emptyPlan({ operations: [{ from, to, kind: "reprefix" }] }),
+      tmpDir,
+    );
+
+    expect(result.errored).toEqual([]);
+    expect(result.reprefixed).toEqual([from]);
+    expect(await readdir(tmpDir)).toContain(to);
+  });
+
+  it.skipIf(tmpIsCaseInsensitive)(
+    "still reports EEXIST when another file holds a target that differs only by case",
+    async () => {
+      const from = "Car123456-2026-Pass2-a1-rec.wav";
+      const to = "Car123456-2026-Pass2-A1-rec.wav";
+      await writeFile(path.join(tmpDir, from), "source");
+      await writeFile(path.join(tmpDir, to), "other");
+
+      const result = await applyRenames(
+        emptyPlan({ operations: [{ from, to, kind: "reprefix" }] }),
+        tmpDir,
+      );
+
+      expect(result.errored).toEqual([{ file: from, reason: "EEXIST" }]);
+    },
+  );
 });

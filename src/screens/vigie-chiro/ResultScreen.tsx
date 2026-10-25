@@ -156,6 +156,11 @@ const whitespaceFixedLine = (count: number): string =>
     ? `  ${count.toString()} fichiers déjà préfixés : espaces remplacés par « _ »`
     : "  1 fichier déjà préfixé : espaces remplacés par « _ »";
 
+const reprefixedLine = (count: number): string =>
+  count > 1
+    ? `  dont ${count.toString()} qui portaient un autre préfixe`
+    : "  dont 1 qui portait un autre préfixe";
+
 const leftAsIsLine = (alreadyCount: number): string =>
   `  ${alreadyCount.toString()} fichier${alreadyCount > 1 ? "s laissés tels quels" : " laissé tel quel"} (déjà au bon format)`;
 
@@ -178,22 +183,26 @@ export const ResultScreen = ({
 
   if (variant.kind === "success") {
     const prefix = buildPrefix(input);
+    const withPrefixCount = variant.renamedCount + variant.reprefixedCount;
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
         <Text color="green" bold>
           ✓ Terminé !
         </Text>
         <Box flexDirection="column" marginTop={1}>
-          {variant.renamedCount > 0 ? (
+          {withPrefixCount > 0 ? (
             <>
               <Text>
-                {`  ${variant.renamedCount.toString()} fichier${variant.renamedCount > 1 ? "s" : ""} renommé${variant.renamedCount > 1 ? "s" : ""} avec le préfixe`}
+                {`  ${withPrefixCount.toString()} fichier${withPrefixCount > 1 ? "s" : ""} renommé${withPrefixCount > 1 ? "s" : ""} avec le préfixe`}
               </Text>
               <Text>
                 {`      `}
                 <Text color="cyan">{prefix}</Text>
               </Text>
             </>
+          ) : null}
+          {variant.reprefixedCount > 0 ? (
+            <Text>{reprefixedLine(variant.reprefixedCount)}</Text>
           ) : null}
           {variant.whitespaceFixedCount > 0 ? (
             <Text>{whitespaceFixedLine(variant.whitespaceFixedCount)}</Text>
@@ -247,7 +256,8 @@ export const ResultScreen = ({
     );
   }
 
-  const changedCount = variant.renamedCount + variant.whitespaceFixedCount;
+  const withPrefixCount = variant.renamedCount + variant.reprefixedCount;
+  const changedCount = withPrefixCount + variant.whitespaceFixedCount;
 
   if (variant.kind === "interrupted") {
     return (
@@ -257,15 +267,27 @@ export const ResultScreen = ({
           <Text>
             {`  ${changedCount.toString()} fichier${changedCount > 1 ? "s déjà renommés (conservés en sécurité)" : " déjà renommé (conservé en sécurité)"}`}
           </Text>
+          {changedCount > 0 ? (
+            <Text>
+              {`      `}
+              <Text color="cyan">{buildPrefix(input)}</Text>
+            </Text>
+          ) : null}
         </Box>
         {variant.errored.length > 0 ? (
           <ErrorsBlock errored={variant.errored} />
         ) : null}
         <CollisionsBlock collisions={variant.collisions} />
-        <Box marginTop={1}>
+        <Box flexDirection="column" marginTop={1}>
           <Text>
-            Vous pouvez relancer chiro à tout moment — les fichiers déjà
-            renommés seront reconnus et ne seront pas touchés deux fois.
+            {
+              "Vous pouvez relancer chiro à tout moment avec les mêmes valeurs :"
+            }
+          </Text>
+          <Text>
+            {
+              "les fichiers déjà renommés seront reconnus et laissés tels quels."
+            }
           </Text>
         </Box>
         <Footer hints={[{ key: "Entrée", label: "retour au menu" }]} />
@@ -283,10 +305,13 @@ export const ResultScreen = ({
       </Text>
       <Box flexDirection="column" marginTop={1}>
         {changedCount === 0 ? <Text>{"  Aucun fichier renommé"}</Text> : null}
-        {variant.renamedCount > 0 ? (
+        {withPrefixCount > 0 ? (
           <Text>
-            {`  ${variant.renamedCount.toString()} fichier${variant.renamedCount > 1 ? "s renommés" : " renommé"} ✓`}
+            {`  ${withPrefixCount.toString()} fichier${withPrefixCount > 1 ? "s renommés" : " renommé"} ✓`}
           </Text>
+        ) : null}
+        {variant.reprefixedCount > 0 ? (
+          <Text>{reprefixedLine(variant.reprefixedCount)}</Text>
         ) : null}
         {variant.whitespaceFixedCount > 0 ? (
           <Text>{whitespaceFixedLine(variant.whitespaceFixedCount)}</Text>

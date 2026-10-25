@@ -5,10 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SessionEvent } from "../../types.js";
 import { logSession } from "./log.js";
 
-type PrefixEvent = Extract<SessionEvent, { schema_version: 1 }>;
+type PrefixEvent = Extract<SessionEvent, { schema_version: 7 }>;
 
 const makeEvent = (overrides: Partial<PrefixEvent> = {}): PrefixEvent => ({
-  schema_version: 1,
+  schema_version: 7,
   ts: "2026-05-11T21:30:45.123Z",
   version: "0.1.0",
   cwd: "/Users/test/Vigie-2026-A1",
@@ -16,8 +16,13 @@ const makeEvent = (overrides: Partial<PrefixEvent> = {}): PrefixEvent => ({
   input: { squareCode: "040962", year: 2026, passNumber: 3, pointCode: "A1" },
   result: {
     renamed: 7,
+    whitespace_fixed: 0,
+    reprefixed: 0,
     skipped_already_prefixed: 1,
     skipped_collision: 0,
+    other_prefix: 0,
+    prefixes_found: [],
+    prefixes_found_count: 0,
     errored: [],
     interrupted: false,
     duration_ms: 42,
@@ -95,14 +100,14 @@ describe("logSession", () => {
     expect(JSON.parse(line3 ?? "")).toEqual(event3);
   });
 
-  it("preserves schema_version === 1 in the serialized line", async () => {
+  it("preserves schema_version === 7 in the serialized line", async () => {
     const logFile = path.join(tmpDir, "sessions.jsonl");
 
     await logSession(makeEvent(), logFile);
 
     const [firstLine] = await readLines(logFile);
     const parsed = JSON.parse(firstLine ?? "") as { schema_version: unknown };
-    expect(parsed.schema_version).toBe(1);
+    expect(parsed.schema_version).toBe(7);
   });
 
   it("does not corrupt pre-existing content", async () => {
@@ -120,11 +125,7 @@ describe("logSession", () => {
     expect(JSON.parse(newLine ?? "")).toEqual(event);
   });
 
-  // Byte-stable snapshot for the v1 wire format. Any change to this string
-  // is a breaking change for downstream JSONL readers and must be done with
-  // a schema_version bump, not silently. Keep the keys in insertion order
-  // matching SessionEvent's type definition order.
-  it("serializes a vigie-prefix event byte-identically (v1 stability)", async () => {
+  it("serializes a vigie-prefix event byte-identically (v7 stability)", async () => {
     const logFile = path.join(tmpDir, "sessions.jsonl");
     const event = makeEvent({
       ts: "2026-05-11T21:30:45.123Z",
@@ -138,8 +139,16 @@ describe("logSession", () => {
       },
       result: {
         renamed: 7,
+        whitespace_fixed: 1,
+        reprefixed: 2,
         skipped_already_prefixed: 1,
         skipped_collision: 0,
+        other_prefix: 2,
+        prefixes_found: [
+          "Car040962-2026-Pass2-A1-",
+          "Car040962-2026-Pass3-A1-",
+        ],
+        prefixes_found_count: 2,
         errored: [],
         interrupted: false,
         duration_ms: 42,
@@ -150,7 +159,7 @@ describe("logSession", () => {
 
     const content = await readFile(logFile, "utf-8");
     expect(content).toBe(
-      '{"schema_version":1,"ts":"2026-05-11T21:30:45.123Z","version":"0.1.0","cwd":"/Users/test/Vigie-2026-A1","action":"vigie-prefix","input":{"squareCode":"040962","year":2026,"passNumber":3,"pointCode":"A1"},"result":{"renamed":7,"skipped_already_prefixed":1,"skipped_collision":0,"errored":[],"interrupted":false,"duration_ms":42}}\n',
+      '{"schema_version":7,"ts":"2026-05-11T21:30:45.123Z","version":"0.1.0","cwd":"/Users/test/Vigie-2026-A1","action":"vigie-prefix","input":{"squareCode":"040962","year":2026,"passNumber":3,"pointCode":"A1"},"result":{"renamed":7,"whitespace_fixed":1,"reprefixed":2,"skipped_already_prefixed":1,"skipped_collision":0,"other_prefix":2,"prefixes_found":["Car040962-2026-Pass2-A1-","Car040962-2026-Pass3-A1-"],"prefixes_found_count":2,"errored":[],"interrupted":false,"duration_ms":42}}\n',
     );
   });
 

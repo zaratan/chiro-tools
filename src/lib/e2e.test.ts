@@ -152,10 +152,7 @@ describe("E2E round-trip on realistic Vigie-Chiro fixtures", () => {
       "",
     );
     await writeFile(
-      path.join(
-        tmpDir,
-        "Car123456-2026-Pass1-Z3-PR01 PR1925645_20260728_205010.wav",
-      ),
+      path.join(tmpDir, `${PREFIX}PR01 PR1925645_20260728_205010.wav`),
       "",
     );
 
@@ -166,13 +163,13 @@ describe("E2E round-trip on realistic Vigie-Chiro fixtures", () => {
     const outcome2 = await runPipeline(tmpDir);
 
     expect(outcome1.whitespaceFixed).toEqual([
-      "Car123456-2026-Pass1-Z3-PR01 PR1925645_20260728_205010.wav",
+      `${PREFIX}PR01 PR1925645_20260728_205010.wav`,
     ]);
     expect(wavAfterRun1).toContain(
       `${PREFIX}PR01_PR1925645_20260728_205005.wav`,
     );
     expect(wavAfterRun1).toContain(
-      "Car123456-2026-Pass1-Z3-PR01_PR1925645_20260728_205010.wav",
+      `${PREFIX}PR01_PR1925645_20260728_205010.wav`,
     );
     expect(wavAfterRun1.filter((name) => /\s/u.test(name))).toEqual([]);
     expect(outcome2.renamed).toEqual([]);

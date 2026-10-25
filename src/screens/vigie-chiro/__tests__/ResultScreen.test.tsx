@@ -13,6 +13,7 @@ const input: FormInput = {
 const outcome = (overrides: Partial<RenameOutcome>): RenameOutcome => ({
   renamed: [],
   whitespaceFixed: [],
+  reprefixed: [],
   skippedAlreadyPrefixed: [],
   skippedCollision: [],
   errored: [],
@@ -256,5 +257,86 @@ describe("ResultScreen (vigie-chiro)", () => {
     );
 
     expect(prose).toContain("2 fichiers déjà renommés (conservés en sécurité)");
+  });
+});
+
+describe("ResultScreen (vigie-chiro) — files with another prefix", () => {
+  it("shows the new prefix and how many files carried another one when that was the only change", () => {
+    const lines = renderLines(
+      outcome({ reprefixed: ["Car1-a.wav", "Car1-b.wav", "Car1-c.wav"] }),
+    );
+
+    expect(lines).toContain("✓ Terminé !");
+    expect(lines).toContain("3 fichiers renommés avec le préfixe");
+    expect(lines).toContain("Car040962-2026-Pass3-A1-");
+    expect(lines).toContain("dont 3 qui portaient un autre préfixe");
+    expect(lines.join(" ")).not.toContain("Rien à faire");
+  });
+
+  it("counts them within the files renamed with the prefix", () => {
+    const lines = renderLines(
+      outcome({ renamed: ["a.wav", "b.wav"], reprefixed: ["Car1-c.wav"] }),
+    );
+
+    expect(lines).toContain("3 fichiers renommés avec le préfixe");
+    expect(lines).toContain("dont 1 qui portait un autre préfixe");
+  });
+
+  it("adds no such line when no file carried another prefix", () => {
+    const lines = renderLines(outcome({ renamed: ["a.wav"] }));
+
+    expect(lines.join(" ")).not.toContain("autre préfixe");
+  });
+
+  it("keeps the same line under the renamed count when some files failed", () => {
+    const lines = renderLines(
+      outcome({
+        reprefixed: ["Car1-a.wav", "Car1-b.wav"],
+        errored: [{ file: "Car1-c.wav", reason: "EACCES" }],
+      }),
+    );
+
+    expect(lines).toContain("2 fichiers renommés ✓");
+    expect(lines).toContain("dont 2 qui portaient un autre préfixe");
+    expect(lines).toContain("Les autres fichiers ont bien été renommés.");
+  });
+
+  it("counts them among the files already renamed when stopped", () => {
+    const lines = renderLines(
+      outcome({ reprefixed: ["Car1-a.wav", "Car1-b.wav"], interrupted: true }),
+    );
+
+    expect(lines).toContain("2 fichiers déjà renommés (conservés en sécurité)");
+  });
+
+  it("tells her to run again with the same values, since others would replace the prefix", () => {
+    const lines = renderLines(
+      outcome({ renamed: ["a.wav"], interrupted: true }),
+    );
+
+    expect(lines).toContain(
+      "Vous pouvez relancer chiro à tout moment avec les mêmes valeurs :",
+    );
+    expect(lines).toContain(
+      "les fichiers déjà renommés seront reconnus et laissés tels quels.",
+    );
+    expect(lines.join(" ")).not.toContain("touchés deux fois");
+  });
+
+  it("shows the prefix to type again under the files already renamed when stopped", () => {
+    const lines = renderLines(
+      outcome({ reprefixed: ["Car1-a.wav"], interrupted: true }),
+    );
+
+    const counter = lines.indexOf(
+      "1 fichier déjà renommé (conservé en sécurité)",
+    );
+    expect(lines[counter + 1]).toBe("Car040962-2026-Pass3-A1-");
+  });
+
+  it("shows no prefix when stopped before any file was renamed", () => {
+    const lines = renderLines(outcome({ interrupted: true }));
+
+    expect(lines).not.toContain("Car040962-2026-Pass3-A1-");
   });
 });

@@ -2,13 +2,9 @@ import { render } from "ink-testing-library";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { FormInput } from "../../../types.js";
-import {
-  buildSessionEvent,
-  ConfirmScreen,
-  type ApplyRenamesFn,
-} from "../ConfirmScreen.js";
+import { ConfirmScreen, type ApplyRenamesFn } from "../ConfirmScreen.js";
 
 /**
  * Polls until `predicate` is true, or throws after `timeoutMs`. Needed
@@ -52,7 +48,8 @@ const renderConfirmScreen = (
       runningRef={runningRef}
       applyRenames={applyRenames}
       onComplete={() => undefined}
-      onBack={() => undefined}
+      onEditInput={() => undefined}
+      onBackToConstat={() => undefined}
     />,
   );
 
@@ -143,7 +140,8 @@ describe("ConfirmScreen (vigie-chiro) — nothing to rename because of collision
           runningRef={{ current: false }}
           applyRenames={() => Promise.reject(new Error("unused"))}
           onComplete={() => undefined}
-          onBack={() => undefined}
+          onEditInput={() => undefined}
+          onBackToConstat={() => undefined}
         />,
       );
       try {
@@ -184,21 +182,42 @@ describe("ConfirmScreen (vigie-chiro) — nothing to rename because of collision
     );
   });
 
-  it("keeps the all-already-prefixed title when nothing collides", async () => {
+  it("shows the prefix every file already carries and says there is nothing to rename", async () => {
     const frame = await renderPlanFor(
       ["Car040962-2026-Pass3-A1-a.wav"],
       ["Car040962-2026-Pass3-A1-a.wav"],
     );
 
-    expect(frame).toContain("ℹ Tous les fichiers (1) sont déjà au bon format.");
+    expect(frame).toContain("ℹ Le fichier porte déjà le préfixe");
+    expect(frame).toContain("    Car040962-2026-Pass3-A1-");
+    expect(frame).toContain("Rien à renommer.");
+    expect(frame).toContain("Entrée continuer");
+    expect(frame).toContain("Échap retour à la saisie");
     expect(frame).not.toContain("Aucun fichier ne sera renommé");
     expect(frame).not.toContain("Seuls les espaces changent");
+    expect(frame).not.toContain("Le nom original est conservé");
+  });
+
+  it("counts the files that already carry the prefix in the plural", async () => {
+    const names = [
+      "Car040962-2026-Pass3-A1-a.wav",
+      "Car040962-2026-Pass3-A1-b.wav",
+    ];
+    const frame = await renderPlanFor(names, names);
+
+    expect(frame).toContain("ℹ Les 2 fichiers portent déjà le préfixe");
   });
 });
 
 describe("ConfirmScreen (vigie-chiro) — names with spaces", () => {
   const prefixed = (stamp: string): string =>
     `Car123456-2026-Pass1-Z3-PR01 PR1925645_20260728_${stamp}.wav`;
+  const sameInput: FormInput = {
+    squareCode: "123456",
+    year: 2026,
+    passNumber: 1,
+    pointCode: "Z3",
+  };
 
   const renderPlanFor = async (wavFiles: string[]): Promise<string> => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "chiro-test-confirm-"));
@@ -209,12 +228,13 @@ describe("ConfirmScreen (vigie-chiro) — names with spaces", () => {
       const { lastFrame, unmount } = render(
         <ConfirmScreen
           cwd={dir}
-          input={input}
+          input={sameInput}
           wavFiles={wavFiles}
           runningRef={{ current: false }}
           applyRenames={() => Promise.reject(new Error("unused"))}
           onComplete={() => undefined}
-          onBack={() => undefined}
+          onEditInput={() => undefined}
+          onBackToConstat={() => undefined}
         />,
       );
       try {
@@ -266,9 +286,8 @@ describe("ConfirmScreen (vigie-chiro) — names with spaces", () => {
 
     expect(frame.split("\n").length).toBeLessThanOrEqual(24);
     expect(frame).toContain("On va renommer 5 fichiers comme ceci :");
-    expect(frame.match(/Les 4 autres suivent le même format\./g)).toHaveLength(
-      2,
-    );
+    expect(frame).not.toContain("suivent le même format");
+    expect(frame.match(/→ /g)).toHaveLength(2);
   });
 
   it("shows a single space example when files already in format are listed too", async () => {
@@ -293,72 +312,226 @@ describe("ConfirmScreen (vigie-chiro) — names with spaces", () => {
 
     expect(frame).toContain("On va renommer 1 fichier comme ceci :");
     expect(frame).toContain(
-      "→ Car040962-2026-Pass3-A1-PR01_PR1925645_20260728_210000.wav",
+      "→ Car123456-2026-Pass1-Z3-PR01_PR1925645_20260728_210000.wav",
     );
     expect(frame).toContain(
       "Les espaces deviendront « _ » dans 3 fichiers déjà préfixés :",
     );
-    expect(frame).toContain("Les 2 autres suivent le même format.");
+    expect(frame).not.toContain("suivent le même format");
     expect(frame).toContain(
       "Le nom original est conservé en fin du nouveau nom",
     );
   });
 });
 
-describe("buildSessionEvent (vigie-prefix)", () => {
-  it("counts the space fixes as renamed so no changed file disappears from the journal", () => {
-    const event = buildSessionEvent(
-      input,
-      {
-        renamed: ["a.wav"],
-        whitespaceFixed: ["Car1-b c.wav"],
-        skippedAlreadyPrefixed: ["Car1-d.wav"],
-        skippedCollision: [],
-        errored: [],
-        interrupted: false,
-        durationMs: 1,
-      },
-      "/tmp/x",
-    );
+describe("ConfirmScreen (vigie-chiro) — files with another prefix", () => {
+  const pass1 = "Car123456-2026-Pass1-A1-";
+  const pass2Input: FormInput = {
+    squareCode: "123456",
+    year: 2026,
+    passNumber: 2,
+    pointCode: "A1",
+  };
+  const stamped = (stamp: string): string =>
+    `${pass1}PaRec1_20260728_${stamp}.wav`;
 
-    expect(event.schema_version).toBe(1);
-    expect(event.action === "vigie-prefix" && event.result.renamed).toBe(2);
-    expect(
-      event.action === "vigie-prefix" && event.result.skipped_already_prefixed,
-    ).toBe(1);
-  });
-});
-
-describe("ConfirmScreen (vigie-chiro) — prefix examples", () => {
-  it("shows the fourth file rather than a line about one other file", async () => {
+  const renderPlanFor = async (wavFiles: string[]): Promise<string> => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "chiro-test-confirm-"));
-    const files = ["a.wav", "b.wav", "c.wav", "d.wav"];
     try {
-      for (const name of files) await writeFile(path.join(dir, name), "");
+      for (const name of wavFiles) {
+        await writeFile(path.join(dir, name), "");
+      }
       const { lastFrame, unmount } = render(
         <ConfirmScreen
           cwd={dir}
-          input={input}
-          wavFiles={files}
+          input={pass2Input}
+          wavFiles={wavFiles}
           runningRef={{ current: false }}
           applyRenames={() => Promise.reject(new Error("unused"))}
           onComplete={() => undefined}
-          onBack={() => undefined}
+          onEditInput={() => undefined}
+          onBackToConstat={() => undefined}
         />,
       );
       try {
         await waitUntil(
           () => !(lastFrame() ?? "").includes("Préparation du plan…"),
         );
-        const frame = lastFrame() ?? "";
-
-        expect(frame).not.toContain("Les 1 autres");
-        for (const name of files) expect(frame).toContain(`  ${name}`);
+        return lastFrame() ?? "";
       } finally {
         unmount();
       }
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  };
+
+  const inside = (frame: string): string =>
+    frame
+      .split("\n")
+      .map((line) => line.slice(2, -1).trimEnd())
+      .join("\n");
+
+  it("shows the prefix found and old → new examples instead of saying everything is in format", async () => {
+    const frame = await renderPlanFor(
+      ["205005", "205010", "205015", "205020", "205025"].map(stamped),
+    );
+
+    expect(frame).toContain("⚠ 5 fichiers portent déjà un autre préfixe :");
+    expect(inside(frame)).toContain(
+      "⚠ 5 fichiers portent déjà un autre préfixe :\n    Car123456-2026-Pass1-A1-\n  L'ancien préfixe sera remplacé par le nouveau :",
+    );
+    expect(inside(frame)).toContain(
+      "    Car123456-2026-Pass1-A1-PaRec1_20260728_205005.wav\n  → Car123456-2026-Pass2-A1-PaRec1_20260728_205005.wav",
+    );
+    expect(frame.match(/→ /g)).toHaveLength(2);
+    expect(frame).toContain("Les 3 autres suivent le même format.");
+    expect(frame).not.toContain("bon format");
+    expect(frame).not.toContain("On va renommer");
+    expect(frame).toContain("Entrée renommer");
+  });
+
+  it("shows every file rather than one left over when there are three", async () => {
+    const frame = await renderPlanFor(
+      ["205005", "205010", "205015"].map(stamped),
+    );
+
+    expect(frame.match(/→ /g)).toHaveLength(3);
+    expect(frame).not.toContain("suivent le même format");
+  });
+
+  it("speaks of a single file in the singular", async () => {
+    const frame = await renderPlanFor([stamped("205005")]);
+
+    expect(frame).toContain("⚠ 1 fichier porte déjà un autre préfixe :");
+  });
+
+  it("keeps the prefixes found on one line when there are several", async () => {
+    const frame = await renderPlanFor([
+      stamped("205005"),
+      "Car123456-2026-Pass3-A1-PaRec1_20260728_205010.wav",
+      "Car123456-2026-Pass4-A1-PaRec1_20260728_205015.wav",
+    ]);
+
+    expect(frame).toContain(
+      "    Car123456-2026-Pass1-A1-  et 2 autres préfixes",
+    );
+  });
+
+  it("takes its examples from different prefixes when several are found", async () => {
+    const frame = await renderPlanFor([
+      stamped("205005"),
+      stamped("205010"),
+      "Car123456-2026-Pass3-A1-PaRec1_20260728_205015.wav",
+      "Car123456-2026-Pass3-A1-PaRec1_20260728_205020.wav",
+      "Car654321-2025-Pass1-B2-PaRec1_20260728_205025.wav",
+    ]);
+
+    expect(frame).toContain(
+      "    Car123456-2026-Pass1-A1-PaRec1_20260728_205005.wav",
+    );
+    expect(frame).toContain(
+      "    Car123456-2026-Pass3-A1-PaRec1_20260728_205015.wav",
+    );
+    expect(frame).not.toContain(
+      "    Car123456-2026-Pass1-A1-PaRec1_20260728_205010.wav",
+    );
+  });
+
+  it("says one other prefix in the singular", async () => {
+    const frame = await renderPlanFor([
+      stamped("205005"),
+      "Car123456-2026-Pass3-A1-PaRec1_20260728_205010.wav",
+    ]);
+
+    expect(frame).toContain("    Car123456-2026-Pass1-A1-  et 1 autre préfixe");
+  });
+
+  it("keeps the title on a 24-line terminal with the three rename blocks", async () => {
+    const stamps = ["205005", "205010", "205015", "205020", "205025"];
+    const frame = await renderPlanFor([
+      ...stamps.map((stamp) => `PaRec1_20260801_${stamp}.wav`),
+      ...stamps.map(stamped),
+      ...stamps.map(
+        (stamp) => `Car123456-2026-Pass2-A1-PR01 PR1_20260802_${stamp}.wav`,
+      ),
+    ]);
+
+    expect(frame.split("\n").length).toBeLessThanOrEqual(24);
+    expect(frame).toContain("On va renommer 5 fichiers comme ceci :");
+    expect(frame).toContain("⚠ 5 fichiers portent déjà un autre préfixe :");
+    expect(frame).toContain(
+      "Les espaces deviendront « _ » dans 5 fichiers déjà préfixés :",
+    );
+    expect(frame.match(/→ /g)).toHaveLength(3);
+    expect(frame).not.toContain("suivent le même format");
+  });
+
+  it("replaces the prefix and the spaces of a file in one go", async () => {
+    const frame = await renderPlanFor([`${pass1}PR01 PR1_205005.wav`]);
+
+    expect(frame).toContain("→ Car123456-2026-Pass2-A1-PR01_PR1_205005.wav");
+    expect(frame).not.toContain("Les espaces deviendront");
+  });
+
+  it("does not say only spaces change when an old prefix is replaced too", async () => {
+    const frame = await renderPlanFor([
+      stamped("205005"),
+      "Car123456-2026-Pass2-A1-PR01 PR1_20260802_205005.wav",
+    ]);
+
+    expect(frame).not.toContain("Seuls les espaces changent");
+    expect(frame).toContain("Le nom original est conservé");
+  });
+});
+
+describe("ConfirmScreen (vigie-chiro) — Échap", () => {
+  const renderWith = (applyRenames: ApplyRenamesFn) => {
+    const onEditInput = vi.fn();
+    const onBackToConstat = vi.fn();
+    const rendered = render(
+      <ConfirmScreen
+        cwd="/tmp/chiro-test-does-not-exist"
+        input={input}
+        wavFiles={["a.wav"]}
+        runningRef={{ current: false }}
+        applyRenames={applyRenames}
+        onComplete={() => undefined}
+        onEditInput={onEditInput}
+        onBackToConstat={onBackToConstat}
+      />,
+    );
+    return { ...rendered, onEditInput, onBackToConstat };
+  };
+
+  it("goes back to the form on the plan, as the footer says", async () => {
+    const screen = renderWith(() => Promise.reject(new Error("unused")));
+    await waitUntil(
+      () => !(screen.lastFrame() ?? "").includes("Préparation du plan…"),
+    );
+
+    screen.stdin.write("\x1B");
+    await settle();
+
+    expect(screen.onEditInput).toHaveBeenCalledTimes(1);
+    expect(screen.onBackToConstat).not.toHaveBeenCalled();
+  });
+
+  it("starts again from the Constat after an error, as « revenir au début » says", async () => {
+    const screen = renderWith(() => Promise.reject(new Error("boom")));
+    await waitUntil(
+      () => !(screen.lastFrame() ?? "").includes("Préparation du plan…"),
+    );
+    screen.stdin.write("\r");
+    await waitUntil(() =>
+      (screen.lastFrame() ?? "").includes("Échap revenir au début"),
+    );
+    await settle();
+
+    screen.stdin.write("\x1B");
+    await settle();
+
+    expect(screen.onBackToConstat).toHaveBeenCalledTimes(1);
+    expect(screen.onEditInput).not.toHaveBeenCalled();
   });
 });

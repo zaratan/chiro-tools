@@ -6,7 +6,11 @@ type Collisions = {
   collisionsHaveWhitespace: boolean;
 };
 
-type Renamed = { renamedCount: number; whitespaceFixedCount: number };
+type Renamed = {
+  renamedCount: number;
+  whitespaceFixedCount: number;
+  reprefixedCount: number;
+};
 
 export type RenameResultVariant =
   | ({
@@ -29,6 +33,7 @@ export const classifyRenameOutcome = (
   const renamed: Renamed = {
     renamedCount: outcome.renamed.length,
     whitespaceFixedCount: outcome.whitespaceFixed.length,
+    reprefixedCount: outcome.reprefixed.length,
   };
   const alreadyCount = outcome.skippedAlreadyPrefixed.length;
   const collisions: Collisions = {
@@ -38,7 +43,9 @@ export const classifyRenameOutcome = (
     ),
   };
   const nothingRenamed =
-    renamed.renamedCount === 0 && renamed.whitespaceFixedCount === 0;
+    renamed.renamedCount === 0 &&
+    renamed.whitespaceFixedCount === 0 &&
+    renamed.reprefixedCount === 0;
 
   if (outcome.interrupted) {
     return {

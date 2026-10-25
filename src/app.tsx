@@ -16,6 +16,7 @@ import { buildUploadDir } from "./lib/archive/planUpload.js";
 import { buildOutDir } from "./lib/audio/batchPlan.js";
 import { applyRenames as defaultApplyRenames } from "./lib/fs/applyRenames.js";
 import { checkForUpdate } from "./lib/update/checkForUpdate.js";
+import { readCommonFormInput } from "./lib/vigie-chiro/prefix.js";
 import type { UpdateChecker } from "./screens/UpdateScreen.js";
 import { MenuScreen } from "./screens/MenuScreen.js";
 import { UpdateScreen } from "./screens/UpdateScreen.js";
@@ -85,9 +86,13 @@ type Screen =
       kind: "vigie:form";
       constatCounts: ConstatCounts;
       wavFiles: string[];
+      initialInput: FormInput | null;
+      filesInput: FormInput | null;
     }
   | {
       kind: "vigie:confirm";
+      constatCounts: ConstatCounts;
+      filesInput: FormInput | null;
       input: FormInput;
       wavFiles: string[];
     }
@@ -370,7 +375,14 @@ export const App = ({
       <ConstatScreen
         cwd={cwd}
         onContinue={(constatCounts, wavFiles) => {
-          setScreen({ kind: "vigie:form", constatCounts, wavFiles });
+          const filesInput = readCommonFormInput(wavFiles);
+          setScreen({
+            kind: "vigie:form",
+            constatCounts,
+            wavFiles,
+            initialInput: filesInput,
+            filesInput,
+          });
         }}
         onBack={() => {
           setScreen({ kind: "menu" });
@@ -380,11 +392,19 @@ export const App = ({
   }
 
   if (screen.kind === "vigie:form") {
-    const { wavFiles } = screen;
+    const { constatCounts, wavFiles, filesInput } = screen;
     return (
       <FormScreen
+        initialInput={screen.initialInput}
+        filesInput={filesInput}
         onSubmit={(input: FormInput) => {
-          setScreen({ kind: "vigie:confirm", input, wavFiles });
+          setScreen({
+            kind: "vigie:confirm",
+            constatCounts,
+            filesInput,
+            input,
+            wavFiles,
+          });
         }}
         onBack={() => {
           setScreen({ kind: "vigie:constat" });
@@ -408,7 +428,16 @@ export const App = ({
             outcome,
           });
         }}
-        onBack={() => {
+        onEditInput={() => {
+          setScreen({
+            kind: "vigie:form",
+            constatCounts: screen.constatCounts,
+            wavFiles: screen.wavFiles,
+            initialInput: screen.input,
+            filesInput: screen.filesInput,
+          });
+        }}
+        onBackToConstat={() => {
           setScreen({ kind: "vigie:constat" });
         }}
       />

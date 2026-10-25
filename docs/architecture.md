@@ -420,16 +420,18 @@ L'identifiant exact du certificat et le team ID seront demandés au moment d'act
 - Schéma : cf. `spec.md` § "Logging local".
 - Une seule entrée par run de wizard (à la fin, succès OU échec OU interruption).
 - **`SessionEvent` est une union discriminée sur `schema_version`** :
-  - `v1` → action `vigie-prefix` (wire format **byte-stable** — assertion par snapshot test, toute modif accidentelle fait échouer `pnpm check`)
+  - `v1` → action `vigie-prefix` — **retiré**, remplacé par v7. Plus jamais écrit ; les lignes déjà sur disque gardent cette forme
   - `v2` → action `vigie-process` (introduit en Phase 5)
   - `v3` → action `vigie-archive` (Phase 8) — **retiré**, remplacé par v5. Plus jamais écrit ; les lignes déjà sur disque gardent cette forme
   - `v4` → action `vigie-package` (introduit en Phase 9) — même forme que v3, plus `series_dir`, `volume_count`, `volumes[]` (borné à 50), `max_volume_bytes`, `durable`. Le nom `vigie-upload` est délibérément laissé libre : chiro **prépare** les fichiers, il ne dépose rien (le futur upload Glacier, lui, le fera vraiment)
   - `v5` → action `vigie-archive` (révisé après la Phase 9) — v3 plus `durable`
+  - `v6` → action `vigie-upload` (Phase 10) — envoi du zip de sauvegarde vers Scaleway Glacier via rclone. `result` discriminé sur `status` (`ok`, `aborted`, `error`), avec `zip_name`, `zip_bytes`, et pour `ok` `remote`, `bucket`, `remote_key`, `verified` et `attempts`. Écrit seulement : la détection « déjà en ligne » interroge le bucket, jamais ce journal
+  - `v7` → action `vigie-prefix` (#19) — v1 plus `whitespace_fixed`, `reprefixed`, `other_prefix`, `prefixes_found` (borné à 20) et `prefixes_found_count`. Wire format **byte-stable** : assertion par snapshot test, toute modif accidentelle fait échouer `pnpm check`
 - **`schema_version` est un discriminant de _forme_, pas un numéro de version du format.** Il n'y a jamais eu de « migration v1 → v2 ». La règle exacte : **une forme = un numéro ; une `action` peut en avoir plusieurs dans le temps, dont un seul courant.** Changer la forme d'un événement existant prend donc **un numéro neuf** (v3 → v5 pour `vigie-archive`), jamais un « v3.1 », jamais un champ ajouté en place.
 
   Ce point a déjà été écrit à l'envers ici (« demanderait autre chose qu'un incrément — nouveau champ optionnel, ou nouvelle `action` »). C'est faux, et c'était un piège pour la prochaine phase qui touchera au journal : un **champ optionnel** est précisément ce qu'on refuse quand il garde une décision (cf. `durable`, qui a motivé v5), et une **nouvelle `action`** mentirait sur ce que le run a fait.
 
-- Les entrées v3 ne sont plus représentables par le type `SessionEvent`, qui est un type d'**écriture**. Aucun lecteur n'existe dans le repo ; le jour où il en faudra un, il portera son propre type couvrant les formes historiques.
+- Les entrées v1 et v3 ne sont plus représentables par le type `SessionEvent`, qui est un type d'**écriture**. Aucun lecteur n'existe dans le repo ; le jour où il en faudra un, il portera son propre type couvrant les formes historiques.
 - Lecteurs jq aval peuvent brancher sur `.schema_version` plutôt que sur `.action` pour une compatibilité future-proof.
 
 ## Lib audio (Phase 5)
