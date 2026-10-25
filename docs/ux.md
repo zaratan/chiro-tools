@@ -361,12 +361,38 @@ vous pouvez retrouver chaque fichier à partir de sa fin.
 - Si aucun fichier déjà préfixé : supprimer le bloc `ℹ ... laissé tel quel`.
 - Si collisions détectées :
   ```
-  ⚠ 2 fichiers ne pourront pas être renommés (un fichier porte
-    déjà le nom cible) :
+  ⚠ 2 fichiers ne pourront pas être renommés
+    (un fichier porte déjà le nom cible) :
       foo.wav
       bar.wav
   ```
-  Inséré AVANT la phrase de réassurance.
+  Inséré après les exemples, avant le bloc `ℹ … laissé tel quel` et la phrase de réassurance.
+
+### Écran 3 — Confirmation (rien à renommer à cause de collisions)
+
+```
+📁 /Users/.../Vigie-2026-pointA1
+
+ℹ Aucun fichier ne sera renommé.
+
+⚠ 3 fichiers ne pourront pas être renommés
+  (un fichier porte déjà le nom cible) :
+    PaRec00123_20260511_213040.wav
+    PaRec00123_20260511_213041.wav
+    PaRec00123_20260511_213042.wav
+
+ℹ 3 fichiers seront laissés tels quels (déjà au bon format) :
+    Car040962-2026-Pass3-A1-PaRec00123_20260511_213040.wav
+    Car040962-2026-Pass3-A1-PaRec00123_20260511_213041.wav
+    Car040962-2026-Pass3-A1-PaRec00123_20260511_213042.wav
+
+Le nom original est conservé en fin du nouveau nom — rien n'est perdu,
+vous pouvez retrouver chaque fichier à partir de sa fin.
+
+  Entrée continuer   Échap retour à la saisie
+```
+
+Cas typique : la carte SD recopiée dans un dossier déjà préfixé. Ce titre s'affiche quand rien n'est à renommer et qu'il reste au moins une collision. Le bloc `ℹ … laissé tel quel` n'apparaît que s'il y a des fichiers déjà préfixés. Entrée mène au Résultat variante E.
 
 ### Écran 3 — Confirmation (pendant le renommage)
 
@@ -422,6 +448,26 @@ zip à déposer sur Vigie-Chiro.
 
 La dernière ligne a été corrigée en 9.D : elle disait « Vous pouvez maintenant les téléverser sur Vigie-Chiro », ce qui était faux sur deux points — le verbe (« téléverser » viole la règle « déposer ») et le fait, puisque depuis les Phases 5 et 9 préfixer ne suffit plus : il faut découper puis empaqueter avant de déposer quoi que ce soit.
 
+S'il reste des collisions, le titre ne change pas. Le bloc collisions s'insère sous les compteurs et la phrase de fin devient :
+
+```
+⚠ 2 fichiers n'ont pas été renommés
+  (un fichier porte déjà le nom cible) :
+    PaRec00123_20260511_213040.wav
+    PaRec00123_20260511_213041.wav
+
+Vérifiez ces fichiers avant de découper :
+tels quels, ils seraient découpés avec les autres.
+```
+
+Au singulier : « Vérifiez ce fichier avant de découper : » puis « tel quel, il serait découpé avec les autres. ». La phrase ne parle pas de copie : une horloge Teensy remise en 2019 peut donner le même nom à deux enregistrements différents.
+
+### Écran 4 — Résultat (bloc collisions, toutes variantes)
+
+Les collisions vues au plan (`skippedCollision`) s'affichent dans toutes les variantes sauf B, qui n'existe que sans collision. Le bloc reprend celui de la Confirmation au passé : même jaune, même parenthèse, noms indentés de 4. Comme les groupes d'erreurs il s'arrête à 3 noms suivis de `... et X autres` en `dimColor`. Au singulier : `⚠ 1 fichier n'a pas été renommé`.
+
+Une collision apparue pendant le renommage n'est pas dans ce bloc (cible créée entre le plan et le `rename`, ou casse différente sur APFS). Elle arrive dans les erreurs avec le code `EEXIST`.
+
 ### Écran 4 — Résultat (variante B : rien à faire)
 
 ```
@@ -431,6 +477,29 @@ La dernière ligne a été corrigée en 9.D : elle disait « Vous pouvez mainten
 
   Entrée retour au menu
 ```
+
+Cette variante n'existe que s'il ne reste aucune collision. Sinon c'est la variante E.
+
+### Écran 4 — Résultat (variante E : aucun fichier renommé)
+
+```
+⚠ Aucun fichier n'a été renommé.
+
+  3 fichiers laissés tels quels (déjà au bon format)
+
+⚠ 3 fichiers n'ont pas été renommés
+  (un fichier porte déjà le nom cible) :
+    PaRec00123_20260511_213040.wav
+    PaRec00123_20260511_213041.wav
+    PaRec00123_20260511_213042.wav
+
+Vérifiez ces fichiers avant de découper :
+tels quels, ils seraient découpés avec les autres.
+
+  Entrée retour au menu
+```
+
+Elle s'affiche quand aucun fichier n'est renommé, sans erreur, avec au moins une collision. Cas typiques : des copies brutes côtoient les fichiers préfixés, ou tout est en collision. Titre en `yellow`. La ligne `laissés tels quels` n'apparaît que s'il y a des fichiers déjà préfixés.
 
 ### Écran 4 — Résultat (variante C : erreurs partielles)
 
@@ -454,7 +523,7 @@ Les autres fichiers ont bien été renommés.
   Entrée retour au menu
 ```
 
-Si > 3 fichiers du même code d'erreur, tronquer à 3 + `... et X autres`.
+Si > 3 fichiers du même code d'erreur, tronquer à 3 + `... et X autres`. S'il reste des collisions, le bloc collisions s'insère entre les groupes d'erreurs et « Les autres fichiers ont bien été renommés. ». Le titre ne compte que les erreurs. Si aucun fichier n'est renommé, le compteur devient `  Aucun fichier renommé` (sans ✓) et la phrase « Les autres fichiers ont bien été renommés. » disparaît.
 
 Codes d'erreur → libellés :
 
@@ -478,6 +547,8 @@ renommés seront reconnus et ne seront pas touchés deux fois.
 
   Entrée retour au menu
 ```
+
+Si des fichiers ont échoué avant l'arrêt, les groupes d'erreurs de la variante C s'insèrent sous le compteur (`  X fichiers n'ont pas pu être renommés :` puis les groupes). Le bloc collisions suit s'il y en a.
 
 ### Écran 5 — Mise à jour (installation Homebrew détectée)
 

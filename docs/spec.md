@@ -124,13 +124,16 @@ Contenu :
 - Si `N > 3` : `... et X autres fichiers du même genre` après les 3 exemples.
 - Si fichiers déjà préfixés détectés au Constat : rappel `ℹ M fichier(s) sera/seront laissé(s) tel(s) quel(s) (déjà au bon format) :` + liste tronquée si > 3.
 - **Détection de collision au plan-time** : si un nom cible existerait déjà sur disque (hors le fichier source lui-même), l'afficher en `yellow` AVANT exécution :
-  `⚠ N collision(s) détectée(s) — ces fichiers ne seront pas renommés :` + liste.
+  `⚠ N fichiers ne pourront pas être renommés` puis `(un fichier porte déjà le nom cible) :` + liste.
+- Si rien n'est à renommer et qu'il reste des collisions, le titre est `ℹ Aucun fichier ne sera renommé.`
 - Phrase de réassurance : `Le nom original est conservé en fin du nouveau nom — rien n'est perdu.`
 - Footer : `Entrée renommer   Échap modifier la saisie`
 
 ### Écran 4 — Résultat
 
-Affiché après exécution. Trois variantes possibles selon l'issue :
+Affiché après exécution. Cinq variantes possibles selon l'issue. Le classement est fait par `src/lib/vigie-chiro/classifyRenameOutcome.ts`. L'écran l'affiche.
+
+Les collisions vues au plan s'affichent dans toutes les variantes sauf B. C'est un bloc jaune `⚠ N fichiers n'ont pas été renommés (un fichier porte déjà le nom cible) :` tronqué à 3 noms + `... et X autres`. Une collision apparue pendant le renommage arrive dans les erreurs avec `EEXIST`.
 
 **Variante A — Tout s'est bien passé**
 
@@ -138,6 +141,7 @@ Affiché après exécution. Trois variantes possibles selon l'issue :
 - `N fichiers renommés`
 - `M fichier(s) laissé(s) tel(s) quel(s) (déjà au bon format)` (si M > 0)
 - Phrase d'orientation vers l'étape suivante : `Vous pouvez maintenant les découper, puis créer les zips à déposer`. Elle a remplacé en 9.D un « vous pouvez maintenant les téléverser sur Vigie-Chiro » devenu faux — depuis les Phases 5 et 9, il faut découper puis empaqueter avant de déposer quoi que ce soit.
+- S'il reste des collisions : bloc collisions, et la phrase d'orientation devient `Vérifiez ces fichiers avant de découper : tels quels, ils seraient découpés avec les autres.`
 - Footer : `Entrée retour au menu`
 
 **Variante B — Rien à faire (tout déjà préfixé)**
@@ -145,13 +149,16 @@ Affiché après exécution. Trois variantes possibles selon l'issue :
 - `✓ Rien à faire — tout est déjà au bon format.`
 - `N fichiers déjà nommés correctement.`
 - Pas d'erreur, ton positif.
+- Seulement s'il ne reste aucune collision. Sinon, variante E.
 
 **Variante C — Renommage avec erreurs partielles**
 
 - `⚠ Renommage terminé avec X souci(s)`
 - `K fichiers renommés ✓`
 - Liste des fichiers en échec avec **la raison** (collision sur disque, EACCES, ENOENT, autre I/O).
+- Bloc collisions s'il y en a.
 - Phrase rassurante : `Les autres fichiers ont bien été renommés.`
+- Si K = 0 : `Aucun fichier renommé` (sans ✓) et pas de phrase rassurante.
 
 **Variante D — Ctrl+C en plein renommage**
 
@@ -159,6 +166,14 @@ Affiché après exécution. Trois variantes possibles selon l'issue :
 - `K fichiers déjà renommés ✓ (conservés)`
 - `Reste R fichiers non traités.`
 - `Vous pouvez relancer chiro, les fichiers déjà renommés seront automatiquement reconnus.` (rappel idempotence)
+- Les erreurs rencontrées avant l'arrêt, groupées comme en variante C, puis le bloc collisions s'il y en a.
+
+**Variante E — Aucun fichier renommé, des collisions restent**
+
+- `⚠ Aucun fichier n'a été renommé.` en `yellow`
+- `M fichier(s) laissé(s) tel(s) quel(s) (déjà au bon format)` (si M > 0)
+- Bloc collisions
+- `Vérifiez ces fichiers avant de découper : tels quels, ils seraient découpés avec les autres.`
 
 Voir [`ux.md`](./ux.md) pour les wordings exacts.
 

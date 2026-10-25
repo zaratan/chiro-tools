@@ -1,45 +1,9 @@
 import { Box, Text, useInput } from "ink";
 import { Footer } from "../../components/Footer.js";
+import { classifyRenameOutcome } from "../../lib/vigie-chiro/classifyRenameOutcome.js";
 import { buildPrefix } from "../../lib/vigie-chiro/prefix.js";
 import type { FormInput, RenameError, RenameOutcome } from "../../types.js";
 import { mapErrorCodeToMessage } from "./errorMessages.js";
-
-type Variant =
-  | { kind: "interrupted" }
-  | { kind: "nothing-to-do"; alreadyCount: number }
-  | { kind: "success"; renamedCount: number; alreadyCount: number }
-  | {
-      kind: "partial-errors";
-      renamedCount: number;
-      errored: readonly RenameError[];
-    };
-
-const classify = (outcome: RenameOutcome): Variant => {
-  if (outcome.interrupted) {
-    return { kind: "interrupted" };
-  }
-  if (outcome.errored.length > 0) {
-    return {
-      kind: "partial-errors",
-      renamedCount: outcome.renamed.length,
-      errored: outcome.errored,
-    };
-  }
-  if (
-    outcome.renamed.length === 0 &&
-    outcome.skippedAlreadyPrefixed.length > 0
-  ) {
-    return {
-      kind: "nothing-to-do",
-      alreadyCount: outcome.skippedAlreadyPrefixed.length,
-    };
-  }
-  return {
-    kind: "success",
-    renamedCount: outcome.renamed.length,
-    alreadyCount: outcome.skippedAlreadyPrefixed.length,
-  };
-};
 
 // Three, not five: on an 80×24 Terminal two groups of five scroll the title
 // and the summary off the top, leaving her a wall of filenames with no idea
@@ -65,6 +29,112 @@ const groupErrors = (errored: readonly RenameError[]): ErrorGroup[] => {
   }));
 };
 
+const TruncatedNames = ({
+  names,
+  indent,
+}: {
+  names: readonly string[];
+  indent: string;
+}): React.JSX.Element => {
+  const visible = names.slice(0, TRUNCATE_PER_GROUP);
+  const truncatedCount = names.length - visible.length;
+  return (
+    <>
+      {visible.map((name) => (
+        <Text key={name}>{`${indent}${name}`}</Text>
+      ))}
+      {truncatedCount > 0 ? (
+        <Text dimColor>
+          {`${indent}... et ${truncatedCount.toString()} autre${truncatedCount > 1 ? "s" : ""}`}
+        </Text>
+      ) : null}
+    </>
+  );
+};
+
+const ErrorsBlock = ({
+  errored,
+}: {
+  errored: readonly RenameError[];
+}): React.JSX.Element => (
+  <>
+    <Box marginTop={1}>
+      <Text>
+        {`  ${errored.length.toString()} fichier${errored.length > 1 ? "s n'ont pas pu être renommés" : " n'a pas pu être renommé"} :`}
+      </Text>
+    </Box>
+    <Box flexDirection="column" marginTop={1}>
+      {groupErrors(errored).map((group, index) => (
+        <Box
+          key={group.message}
+          flexDirection="column"
+          marginTop={index > 0 ? 1 : 0}
+        >
+          <Text>
+            {"    • "}
+            {group.message} ({group.files.length.toString()} fichier
+            {group.files.length > 1 ? "s" : ""})
+          </Text>
+          <TruncatedNames names={group.files} indent="        " />
+        </Box>
+      ))}
+    </Box>
+  </>
+);
+
+const CollisionsBlock = ({
+  collisions,
+}: {
+  collisions: readonly string[];
+}): React.JSX.Element | null => {
+  if (collisions.length === 0) return null;
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text color="yellow">
+        {collisions.length > 1
+          ? `⚠ ${collisions.length.toString()} fichiers n'ont pas été renommés`
+          : "⚠ 1 fichier n'a pas été renommé"}
+      </Text>
+      <Text color="yellow">{"  (un fichier porte déjà le nom cible) :"}</Text>
+      <TruncatedNames names={collisions} indent="    " />
+    </Box>
+  );
+};
+
+const NextStep = ({
+  collisionCount,
+}: {
+  collisionCount: number;
+}): React.JSX.Element => {
+  if (collisionCount > 1) {
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <Text>{"Vérifiez ces fichiers avant de découper :"}</Text>
+        <Text>{"tels quels, ils seraient découpés avec les autres."}</Text>
+      </Box>
+    );
+  }
+  if (collisionCount === 1) {
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <Text>{"Vérifiez ce fichier avant de découper :"}</Text>
+        <Text>{"tel quel, il serait découpé avec les autres."}</Text>
+      </Box>
+    );
+  }
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text>
+        {"Vous pouvez maintenant les découper, puis créer les fichiers"}
+      </Text>
+      <Text>{"zip à déposer sur Vigie-Chiro."}</Text>
+    </Box>
+  );
+};
+
+const leftAsIsLine = (alreadyCount: number): string =>
+  `  ${alreadyCount.toString()} fichier${alreadyCount > 1 ? "s laissés tels quels" : " laissé tel quel"} (déjà au bon format)`;
+
 export type ResultScreenProps = {
   input: FormInput;
   outcome: RenameOutcome;
@@ -76,7 +146,7 @@ export const ResultScreen = ({
   outcome,
   onBackToMenu,
 }: ResultScreenProps): React.JSX.Element => {
-  const variant = classify(outcome);
+  const variant = classifyRenameOutcome(outcome);
 
   useInput((_input, key) => {
     if (key.return) onBackToMenu();
@@ -99,16 +169,26 @@ export const ResultScreen = ({
           <Text color="cyan">{prefix}</Text>
         </Text>
         {variant.alreadyCount > 0 ? (
-          <Text>
-            {`  ${variant.alreadyCount.toString()} fichier${variant.alreadyCount > 1 ? "s laissés tels quels" : " laissé tel quel"} (déjà au bon format)`}
-          </Text>
+          <Text>{leftAsIsLine(variant.alreadyCount)}</Text>
         ) : null}
-        <Box flexDirection="column" marginTop={1}>
-          <Text>
-            {"Vous pouvez maintenant les découper, puis créer les fichiers"}
-          </Text>
-          <Text>{"zip à déposer sur Vigie-Chiro."}</Text>
-        </Box>
+        <CollisionsBlock collisions={variant.collisions} />
+        <NextStep collisionCount={variant.collisions.length} />
+        <Footer hints={[{ key: "Entrée", label: "retour au menu" }]} />
+      </Box>
+    );
+  }
+
+  if (variant.kind === "nothing-renamed") {
+    return (
+      <Box flexDirection="column" padding={1} borderStyle="round" width={70}>
+        <Text color="yellow">⚠ Aucun fichier n'a été renommé.</Text>
+        {variant.alreadyCount > 0 ? (
+          <Box marginTop={1}>
+            <Text>{leftAsIsLine(variant.alreadyCount)}</Text>
+          </Box>
+        ) : null}
+        <CollisionsBlock collisions={variant.collisions} />
+        <NextStep collisionCount={variant.collisions.length} />
         <Footer hints={[{ key: "Entrée", label: "retour au menu" }]} />
       </Box>
     );
@@ -136,9 +216,13 @@ export const ResultScreen = ({
         <Text color="cyan">ℹ Renommage arrêté à votre demande</Text>
         <Box flexDirection="column" marginTop={1}>
           <Text>
-            {`  ${outcome.renamed.length.toString()} fichier${outcome.renamed.length > 1 ? "s déjà renommés (conservés en sécurité)" : " déjà renommé (conservé en sécurité)"}`}
+            {`  ${variant.renamedCount.toString()} fichier${variant.renamedCount > 1 ? "s déjà renommés (conservés en sécurité)" : " déjà renommé (conservé en sécurité)"}`}
           </Text>
         </Box>
+        {variant.errored.length > 0 ? (
+          <ErrorsBlock errored={variant.errored} />
+        ) : null}
+        <CollisionsBlock collisions={variant.collisions} />
         <Box marginTop={1}>
           <Text>
             Vous pouvez relancer chiro à tout moment — les fichiers déjà
@@ -150,8 +234,6 @@ export const ResultScreen = ({
     );
   }
 
-  // variant.kind === "partial-errors"
-  const groups = groupErrors(variant.errored);
   const totalErrored = variant.errored.length;
 
   return (
@@ -162,40 +244,18 @@ export const ResultScreen = ({
       </Text>
       <Box marginTop={1}>
         <Text>
-          {`  ${variant.renamedCount.toString()} fichier${variant.renamedCount > 1 ? "s renommés" : " renommé"} ✓`}
+          {variant.renamedCount === 0
+            ? "  Aucun fichier renommé"
+            : `  ${variant.renamedCount.toString()} fichier${variant.renamedCount > 1 ? "s renommés" : " renommé"} ✓`}
         </Text>
       </Box>
-      <Box marginTop={1}>
-        <Text>
-          {`  ${totalErrored.toString()} fichier${totalErrored > 1 ? "s n'ont pas pu être renommés" : " n'a pas pu être renommé"} :`}
-        </Text>
-      </Box>
-      <Box flexDirection="column" marginTop={1}>
-        {groups.map((group) => {
-          const visibleFiles = group.files.slice(0, TRUNCATE_PER_GROUP);
-          const truncatedCount = group.files.length - visibleFiles.length;
-          return (
-            <Box key={group.message} flexDirection="column" marginBottom={1}>
-              <Text>
-                {"    • "}
-                {group.message} ({group.files.length.toString()} fichier
-                {group.files.length > 1 ? "s" : ""})
-              </Text>
-              {visibleFiles.map((f) => (
-                <Text key={f}>{`        ${f}`}</Text>
-              ))}
-              {truncatedCount > 0 ? (
-                <Text dimColor>
-                  {`        ... et ${truncatedCount.toString()} autre${truncatedCount > 1 ? "s" : ""}`}
-                </Text>
-              ) : null}
-            </Box>
-          );
-        })}
-      </Box>
-      <Box marginTop={1}>
-        <Text>Les autres fichiers ont bien été renommés.</Text>
-      </Box>
+      <ErrorsBlock errored={variant.errored} />
+      <CollisionsBlock collisions={variant.collisions} />
+      {variant.renamedCount > 0 ? (
+        <Box marginTop={1}>
+          <Text>Les autres fichiers ont bien été renommés.</Text>
+        </Box>
+      ) : null}
       <Footer hints={[{ key: "Entrée", label: "retour au menu" }]} />
     </Box>
   );
