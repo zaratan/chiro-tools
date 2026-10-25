@@ -307,8 +307,18 @@ describe("uploadArchive", () => {
     expect(result).toMatchObject({ kind: "error", code: "bucket-missing" });
   });
 
-  it("exit 1 is config-error", async () => {
-    const bin = await makeFakeRclone(tmpDir, "fake-rclone", "exit 1");
+  it("exit 1 is config-error when rclone failed to create the file system", async () => {
+    const critical = JSON.stringify({
+      time: "2026-10-25T10:12:03.000000+02:00",
+      level: "critical",
+      msg: 'Failed to create file system for "chiro-coffre:chiro-manon/vigie-chiro": didn\'t find section in config file ("chiro-coffre")',
+      source: "cmd/cmd.go:563",
+    });
+    const bin = await makeFakeRclone(
+      tmpDir,
+      "fake-rclone",
+      `cat <<'RCLONE_EOF' >&2\n${critical}\nRCLONE_EOF\nexit 1`,
+    );
     const deps: UploadArchiveDeps = {
       spawn: nodeRcloneSpawn,
       remoteStat: unreachableRemoteStat,
@@ -318,6 +328,89 @@ describe("uploadArchive", () => {
       rcloneBinPath: bin,
     });
     expect(result).toMatchObject({ kind: "error", code: "config-error" });
+  });
+
+  it("exit 1 after DNS failures is rclone-exit:1, not config-error, because Failed to copy is not Failed to create file system", async () => {
+    const dnsError =
+      "dial tcp: lookup chiro-manon.s3.fr-par.scw.cloud: no such host";
+    const lines = [
+      ...[1, 2, 3].flatMap((n) => [
+        {
+          level: "error",
+          msg: `Failed to copy: ${dnsError}`,
+          object: "study_20260817.zip",
+        },
+        {
+          level: "error",
+          msg: `Attempt ${String(n)}/3 failed with 1 errors and: ${dnsError}`,
+          source: "cmd/cmd.go:283",
+        },
+      ]),
+      {
+        level: "critical",
+        msg: `Failed to copyto: ${dnsError}`,
+        source: "cmd/cmd.go:563",
+      },
+    ].map((line) =>
+      JSON.stringify({ time: "2026-10-25T10:12:03.000000+02:00", ...line }),
+    );
+    const bin = await makeFakeRclone(
+      tmpDir,
+      "fake-rclone",
+      `cat <<'RCLONE_EOF' >&2\n${lines.join("\n")}\nRCLONE_EOF\nexit 1`,
+    );
+    const deps: UploadArchiveDeps = {
+      spawn: nodeRcloneSpawn,
+      remoteStat: unreachableRemoteStat,
+    };
+    const result = await uploadArchive(deps, {
+      ...baseOptions,
+      rcloneBinPath: bin,
+    });
+    expect(result).toEqual({
+      kind: "error",
+      code: "rclone-exit:1",
+      bytesSent: 0,
+      fatalError: false,
+    });
+  });
+
+  it("exit 1 is config-error even when the file system failure reaches us split across two reads", async () => {
+    const bin = await makeFakeRclone(
+      tmpDir,
+      "fake-rclone",
+      `printf '{"level":"critical","msg":"Failed to cre' >&2
+sleep 0.05
+printf 'ate file system for destination \\"chiro-coffre:chiro-manon\\": didn'"'"'t find section in config file"}\n' >&2
+exit 1`,
+    );
+    const deps: UploadArchiveDeps = {
+      spawn: nodeRcloneSpawn,
+      remoteStat: unreachableRemoteStat,
+    };
+    const result = await uploadArchive(deps, {
+      ...baseOptions,
+      rcloneBinPath: bin,
+    });
+    expect(result).toMatchObject({ kind: "error", code: "config-error" });
+  });
+
+  it("does not read a file system failure into an exit code other than 1", async () => {
+    const bin = await makeFakeRclone(
+      tmpDir,
+      "fake-rclone",
+      `echo '{"level":"critical","msg":"Failed to create file system"}' >&2
+exit 42`,
+    );
+    const deps: UploadArchiveDeps = {
+      spawn: nodeRcloneSpawn,
+      remoteStat: unreachableRemoteStat,
+    };
+    const result = await uploadArchive(deps, {
+      ...baseOptions,
+      rcloneBinPath: bin,
+    });
+    expect(result).toMatchObject({ kind: "error", code: "rclone-exit:42" });
   });
 
   it("an unmapped exit code becomes rclone-exit:<N>", async () => {
@@ -352,6 +445,33 @@ describe("uploadArchive", () => {
       rcloneBinPath: bin,
     });
     expect(result.kind).toBe("ok");
+  });
+
+  it("counts attempts from failure notices written after more stderr than the tail keeps", async () => {
+    const noise = JSON.stringify({ level: "debug", msg: "x".repeat(200) });
+    const attempt = (n: number): string =>
+      JSON.stringify({
+        level: "error",
+        msg: `Attempt ${String(n)}/3 failed with 1 errors and: dial tcp: lookup chiro-manon.s3.fr-par.scw.cloud: no such host`,
+      });
+    const script = [
+      "i=0",
+      `while [ $i -lt 500 ]; do echo '${noise}' >&2; i=$((i+1)); done`,
+      `echo '${attempt(1)}' >&2`,
+      `echo '${attempt(2)}' >&2`,
+      "exit 0",
+    ].join("\n");
+    const bin = await makeFakeRclone(tmpDir, "fake-rclone", script);
+    const deps: UploadArchiveDeps = {
+      spawn: nodeRcloneSpawn,
+      remoteStat: verifiedRemoteStat(500),
+    };
+    const result = await uploadArchive(deps, {
+      ...baseOptions,
+      localBytes: 500,
+      rcloneBinPath: bin,
+    });
+    expect(result).toMatchObject({ kind: "ok", attempts: 3 });
   });
 
   // -------------------------------------------------------------------

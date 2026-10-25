@@ -26,6 +26,14 @@ export const buildRemoteObjectPath = (
   key: string,
 ): string => `${settings.remote}:${settings.bucket}/${settings.prefix}/${key}`;
 
+const CONFIG_FAILURE_MARKER = "Failed to create file system";
+export const MAX_STDERR_TAIL = 64 * 1024;
+
+/** rclone exits 1 on a broken config and on a DNS failure alike. stderr only
+ * classifies: it names the remote path, so it never reaches a code or a log. */
+export const reportsConfigFailure = (stderrTail: string): boolean =>
+  stderrTail.includes(CONFIG_FAILURE_MARKER);
+
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === "object" && value !== null
     ? (value as Record<string, unknown>)
@@ -46,14 +54,16 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
  * `lsjson --stat` has no multipart state to let unwind cleanly.
  *
  * **The discriminant is `IsDir`, never the exit code.** Measured on the real
- * bucket, 2026-08-17, rclone v1.75.0:
+ * bucket, 2026-08-17, rclone v1.75.0 (the last two rows: throwaway config,
+ * 2026-10-25, rclone v1.75.2):
  *
  * | case              | exit | body                                          |
  * | ----------------- | ---- | --------------------------------------------- |
  * | present            | 0    | `{"IsDir": false, "Size": N, "Tier": "..."}`   |
  * | **absent**         | **0**| `{"IsDir": true, "Size": -1}` — a pseudo-dir   |
  * | bucket missing     | 3    | `Failed to lsjson: directory not found`        |
- * | remote unknown     | 1    | `didn't find section in config file`           |
+ * | remote unknown     | 1    | `Failed to create file system …`               |
+ * | host not found     | 1    | `Failed to lsjson: … no such host`             |
  *
  * An absent object exits **successfully** as a pseudo-directory of size -1.
  * Reading `Size` on a plain exit-0 check would report "present, size -1" —
@@ -99,6 +109,7 @@ export const remoteStat = async (
     let settled = false;
     let aborted = false;
     let stdout = "";
+    let stderrTail = "";
 
     const finish = (result: RemoteStatResult): void => {
       if (settled) return;
@@ -116,6 +127,10 @@ export const remoteStat = async (
     child.stdout?.setEncoding("utf8");
     child.stdout?.on("data", (chunk: string) => {
       stdout += chunk;
+    });
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => {
+      stderrTail = (stderrTail + chunk).slice(-MAX_STDERR_TAIL);
     });
 
     child.on("error", () => {
@@ -164,7 +179,7 @@ export const remoteStat = async (
         finish({ kind: "bucket-missing" });
         return;
       }
-      if (code === 1) {
+      if (code === 1 && reportsConfigFailure(stderrTail)) {
         finish({ kind: "config-error" });
         return;
       }

@@ -957,16 +957,22 @@ Fixtures réelles dans `test-data/rclone-stats/` (README dédié) : capturées l
 
 ### Le piège `IsDir`
 
-`remoteStat` (`lsjson --stat`) discrimine sur `record.IsDir`, **jamais sur le code de sortie seul**. Mesuré sur le vrai bucket, le 17/08/2026, rclone v1.75.0 :
+`remoteStat` (`lsjson --stat`) discrimine sur `record.IsDir`, **jamais sur le code de sortie seul**. Mesuré sur le vrai bucket le 17/08/2026, rclone v1.75.0. Les trois dernières lignes ont été mesurées le 25/10/2026 avec rclone v1.75.2 et une config jetable (`RCLONE_CONFIG`), sans toucher au vrai bucket :
 
-| cas                | code  | forme                                                |
-| ------------------ | ----- | ---------------------------------------------------- |
-| objet présent      | 0     | `{"IsDir": false, "Size": N, "Tier": "..."}`         |
-| **objet absent**   | **0** | `{"IsDir": true, "Size": -1}` — un pseudo-répertoire |
-| bucket introuvable | 3     | `Failed to lsjson: directory not found`              |
-| remote inconnu     | 1     | `didn't find section in config file`                 |
+| cas                     | code  | forme                                                         |
+| ----------------------- | ----- | ------------------------------------------------------------- |
+| objet présent           | 0     | `{"IsDir": false, "Size": N, "Tier": "..."}`                  |
+| **objet absent**        | **0** | `{"IsDir": true, "Size": -1}` — un pseudo-répertoire          |
+| bucket introuvable      | 3     | `Failed to lsjson: directory not found`                       |
+| remote inconnu          | 1     | `Failed to create file system … didn't find section …`        |
+| type de remote invalide | 1     | `Failed to create file system … didn't find backend called …` |
+| **hôte introuvable**    | **1** | `Failed to lsjson: … no such host`                            |
 
-Un objet absent sort en **code 0** — un parseur qui lirait `Size` sur tout exit 0 conclurait « présent, taille -1 », la lecture la plus dangereuse possible ici puisqu'elle est sur le chemin **nominal** (le tout premier archivage d'une étude passe systématiquement par ce cas). `remoteStat` traite `IsDir === true` comme `{ kind: "absent" }`, `IsDir === false` comme `{ kind: "present" }`, et n'importe quelle autre forme comme `unparseable-lsjson`. Code 3 → `bucket-missing`, code 1 → `config-error` : les trois cas restent distincts, contrairement à ce qu'une lecture rapide du plan initial avait craint.
+Un objet absent sort en **code 0** — un parseur qui lirait `Size` sur tout exit 0 conclurait « présent, taille -1 », la lecture la plus dangereuse possible ici puisqu'elle est sur le chemin **nominal** (le tout premier archivage d'une étude passe systématiquement par ce cas). `remoteStat` traite `IsDir === true` comme `{ kind: "absent" }`, `IsDir === false` comme `{ kind: "present" }`, et n'importe quelle autre forme comme `unparseable-lsjson`. Code 3 → `bucket-missing`.
+
+**Le code 1 est ambigu.** Chez rclone il veut dire « erreur non catégorisée » : une config cassée et une panne DNS sortent toutes deux en 1. Seul stderr les distingue. `remoteStat` et `uploadArchive` en gardent les 64 derniers Kio, car la ligne `CRITICAL` vient en dernier. Un exit 1 dont stderr contient `Failed to create file system` donne `config-error`, définitif. Tout autre exit 1 donne `rclone-exit:1`. Ce code est transitoire et affiche le message générique de réessai. Le motif est la phrase entière : `Failed to` seul attraperait aussi la panne DNS (`Failed to lsjson:`, `Failed to copy:`). Des identifiants refusés seraient classés transitoires. Ce cas n'est pas mesuré. Une faute dans l'`endpoint` ou la `region` du remote sort en `no such host` et passe aussi en transitoire : rien ne la distingue d'une vraie panne DNS. Le message de config de `copyto` n'est pas mesuré non plus. Ses tests reprennent le motif mesuré sur `lsjson`. Un `rclone.conf` corrompu ou chiffré sans mot de passe sortirait sans doute en exit 1 sans `Failed to create file system`, donc en transitoire. Ce n'est pas vérifié.
+
+stderr sert seulement à classer. Il contient `remote:bucket/prefix/clé` et n'entre jamais dans le `code`, dans `sessions.jsonl` ni à l'écran.
 
 ### Séquence SIGINT et la course
 

@@ -8,15 +8,16 @@
  * sentence-initial or not (docs/ux.md brand rule).
  *
  * Codes covered:
- * - `bucket-missing` / `config-error` — from `remoteStat`, at the constat.
+ * - `bucket-missing` / `config-error` — rclone exit 3, or exit 1 with "Failed
+ *   to create file system" on stderr. Any other exit 1 is `rclone-exit:1`.
  * - `rclone-spawn-failed` — from either `remoteStat` or `uploadArchive`:
  *   chiro itself couldn't launch the rclone process, never a network or
  *   remote-content question.
  * - `verify-failed` / `verify-absent` — from `uploadArchive`'s post-transfer
  *   HEAD: the upload finished, but the readback disagreed or found nothing.
  * - `transient` (rclone exit 5) / `fatal` (rclone exit 7), and the
- *   catch-all `rclone-exit:<N>` for any other unmapped exit — all from
- *   `uploadArchive`.
+ *   catch-all `rclone-exit:<N>` for any other unmapped exit, from either
+ *   `remoteStat` or `uploadArchive`.
  *
  * Returns `null` for an unrecognized code — callers skip the message line
  * entirely rather than show a guess (the raw code under "Détail technique"
@@ -38,11 +39,6 @@ export const mapKnownOffsiteErrorCode = (code: string): string | null => {
     case "transient":
       return "L'archivage en ligne s'est interrompu de façon inattendue — réessayez, et si ça recommence transmettez le détail technique.";
     default:
-      // Any exit code rclone didn't get a dedicated branch for in
-      // `uploadArchive.ts` (5 → "transient", 7 → "fatal" are handled above,
-      // never as this prefix — see `uploadArchive.test.ts`). Same generic
-      // wording as "transient": both mean "rclone ran and refused, for a
-      // reason worth a retry".
       return code.startsWith("rclone-exit:")
         ? "L'archivage en ligne s'est interrompu de façon inattendue — réessayez, et si ça recommence transmettez le détail technique."
         : null;
@@ -52,8 +48,8 @@ export const mapKnownOffsiteErrorCode = (code: string): string | null => {
 /**
  * Codes a retry can never resolve.
  *
- * - `bucket-missing` / `config-error` — rclone refused the call before any
- *   network round-trip; pressing Entrée asks the exact same question.
+ * - `bucket-missing` / `config-error` — the bucket or the rclone config is
+ *   wrong; pressing Entrée asks the exact same question.
  * - `rclone-spawn-failed` — an internal chiro bug (the binary it detected at
  *   boot couldn't be launched), not a condition that clears on its own.
  * - `fatal` — rclone's own exit 7, its documented "fatal error" category:

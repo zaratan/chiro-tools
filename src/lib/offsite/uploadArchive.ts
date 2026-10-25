@@ -1,7 +1,11 @@
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { buildRcloneCommand } from "./buildRcloneCommand.js";
 import { createRcloneStatsReader } from "./parseRcloneStats.js";
-import { buildRemoteObjectPath } from "./remoteStat.js";
+import {
+  buildRemoteObjectPath,
+  MAX_STDERR_TAIL,
+  reportsConfigFailure,
+} from "./remoteStat.js";
 import type { RemoteStatParams, RemoteStatResult } from "./remoteStat.js";
 import type { OffsiteSettings } from "./settings.js";
 
@@ -74,12 +78,9 @@ export type UploadArchiveResult =
 const DEFAULT_SIGINT_RESEND_MS = 5000;
 const DEFAULT_KILL_ESCALATION_MS = 15_000;
 
-// Only these two codes are stats-bearing JSON lines that `parseRcloneStats`
-// already recognises. Every other "Attempt N/M failed" notice rclone emits
-// under --use-json-log carries no `stats` object and is invisible to that
-// parser by design — it is scanned for here, separately, on the raw text.
+// "Attempt N/M failed" lines carry no `stats` object, so `parseRcloneStats`
+// never sees them: they are scanned here on the raw text.
 const ATTEMPT_FAILED_PATTERN = /"msg":"Attempt (\d+)\/\d+ failed/g;
-const MAX_ATTEMPT_SCAN_BUFFER = 64 * 1024;
 
 const buildUploadArgs = (
   settings: OffsiteSettings,
@@ -192,7 +193,7 @@ export const uploadArchive = async (
   const statsReader = createRcloneStatsReader();
   let shownBytes = 0;
   let sawFatalError = false;
-  let attemptScanBuffer = "";
+  let stderrTail = "";
   let maxAttemptSeen = 0;
 
   const applyTicks = (
@@ -205,14 +206,10 @@ export const uploadArchive = async (
     }
   };
 
-  const scanAttempts = (chunk: string): void => {
-    attemptScanBuffer += chunk;
-    if (attemptScanBuffer.length > MAX_ATTEMPT_SCAN_BUFFER) {
-      attemptScanBuffer = attemptScanBuffer.slice(-MAX_ATTEMPT_SCAN_BUFFER);
-    }
+  const scanAttempts = (): void => {
     ATTEMPT_FAILED_PATTERN.lastIndex = 0;
     let match: RegExpExecArray | null;
-    while ((match = ATTEMPT_FAILED_PATTERN.exec(attemptScanBuffer)) !== null) {
+    while ((match = ATTEMPT_FAILED_PATTERN.exec(stderrTail)) !== null) {
       const captured = match[1];
       if (captured === undefined) continue;
       const n = Number(captured);
@@ -222,7 +219,8 @@ export const uploadArchive = async (
 
   child.stderr.on("data", (chunk: string) => {
     applyTicks(statsReader.push(chunk));
-    scanAttempts(chunk);
+    stderrTail = (stderrTail + chunk).slice(-MAX_STDERR_TAIL);
+    scanAttempts();
   });
 
   let abortRequested = false;
@@ -312,7 +310,7 @@ export const uploadArchive = async (
         });
         return;
       }
-      if (code === 1) {
+      if (code === 1 && reportsConfigFailure(stderrTail)) {
         finish({
           kind: "error",
           code: "config-error",
