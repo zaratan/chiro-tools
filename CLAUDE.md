@@ -24,7 +24,7 @@ pnpm test               # vitest run
 pnpm test:coverage      # idem + report v8
 pnpm check              # lint + typecheck + format:check + test — à passer avant tout commit
 pnpm build              # produit les 2 binaires (darwin-arm64 + linux-x64)
-scripts/reset-demo.sh   # reset /tmp/chiro-demo à un dataset connu (10 .wav + 1 préfixé + 1 .txt + 1 .WAV)
+scripts/reset-demo.sh   # reset /tmp/chiro-demo à un dataset connu (10 .wav + 1 préfixé + 1 .txt + 1 .WAV, 2 AudioMoth dans audiomoth/)
 ```
 
 Tester la TUI dans un dossier de demo :
@@ -134,7 +134,7 @@ Le découpage WAV est CPU-bound (`wavefile.toBuffer()` ré-encode header + sampl
 
 ## Découpage et métadonnées — convention Kaleidoscope (Phase 7)
 
-- **5 s temps réel = 50 s timeline output**. Les constantes vivent dans `src/lib/audio/constants.ts` (`CHUNK_OUTPUT_SECONDS = 50`, `CHUNK_REAL_SECONDS = 5`). Teensy enregistre nativement en TE×10, AudioMoth est réécrit ×10 par chiro — donc dans les deux modes la sortie est TE×10 et on coupe à 50 s d'audio expansé = 5 s réel. Avant la Phase 7, chiro coupait à 5 s output (10× trop court en temps réel) et ChiroSurf affichait les chunks "compactés au début".
+- **5 s temps réel = 50 s timeline output**. Les constantes vivent dans `src/lib/audio/constants.ts` (`CHUNK_OUTPUT_SECONDS = 50`, `CHUNK_REAL_SECONDS = 5`). Un fichier déjà en TE×10 (Teensy réglé en X10) est découpé tel quel, les autres (AudioMoth, Teensy réglé en X1) sont réécrits ×10 par chiro. Dans les deux modes la sortie est donc TE×10 et on coupe à 50 s d'audio expansé = 5 s réel. Le Teensy n'enregistre **pas** toujours en TE×10 : `Exp10` est un réglage de son menu, à Non dans le profil « Audio ». chiro détecte le mode depuis la fréquence de l'en-tête (`lib/audio/detectMode.ts`), jamais depuis le nom du fichier. Avant la Phase 7, chiro coupait à 5 s output (10× trop court en temps réel) et ChiroSurf affichait les chunks "compactés au début".
 - **GUANO + wamd ancillaires** appendés après le `data` chunk via `src/lib/audio/finalizeChunk.ts` (wrapper de `rewriteHeaderToStandardPcm` + `appendAncillaryChunks`). Builders dans `src/lib/audio/metadata/`. Worker pool et sox partagent les mêmes builders → outputs byte-identiques (vérifié manuellement sur `test-data/real_process_teensy/`).
 - **Kill-switch** `CHIRO_DISABLE_METADATA=1` : désactive entièrement l'append (utile si ChiroSurf râle sur un format wamd inattendu, sans rebuild). Tracé dans `sessions.jsonl` (`metadata: "full" | "off"`).
 - **`Timestamp` GUANO avec le `T`, `wamd` avec un espace — les deux formats diffèrent réellement.** Vérifié octet par octet sur `test-data/real_process_teensy/…_000_Processed.wav` : Kaleidoscope écrit `2026-05-07T21:11:06+02:00` dans le GUANO et `2026-05-07 21:11:06+02:00` dans le wamd. chiro mettait un espace dans les deux jusqu'à ce que l'audit de mutation le trouve — en lisant un fichier de référence présent dans le dépôt qu'aucun test n'ouvrait. Ne pas « harmoniser » les deux fonctions de formatage : leur divergence est le comportement attendu.

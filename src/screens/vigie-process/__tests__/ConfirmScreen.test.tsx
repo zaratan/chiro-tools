@@ -1,5 +1,9 @@
 import { render } from "ink-testing-library";
-import { describe, expect, it } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { makeRampWav } from "../../../lib/audio/__tests__/fixtures.js";
 import type { ProcessInput } from "../../../types.js";
 import { ConfirmScreen, type ProcessWavFilesFn } from "../ConfirmScreen.js";
 
@@ -130,5 +134,75 @@ describe("ProcessConfirmScreen — run-error (degraded)", () => {
       "chiro n'a pas réussi à traiter cet enregistrement",
     );
     expect(frame).not.toContain("Chiro n'a pas réussi");
+  });
+});
+
+describe("ProcessConfirmScreen — slow-down line", () => {
+  let dir: string;
+  let unmount: () => void = () => undefined;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), "chiro-confirm-mode-"));
+  });
+
+  afterEach(async () => {
+    unmount();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const renderWith = async (
+    mode: ProcessInput["mode"],
+    withRecording: boolean,
+  ): Promise<{ text: () => string }> => {
+    if (withRecording) {
+      await writeFile(
+        path.join(dir, "a.wav"),
+        makeRampWav({ sampleRate: mode === "preserve" ? 38400 : 250000 }),
+      );
+    }
+    const rendered = render(
+      <ConfirmScreen
+        cwd={dir}
+        input={{ mode }}
+        wavFiles={["a.wav"]}
+        runningRef={{ current: false }}
+        processWavFiles={() => new Promise(() => undefined)}
+        onComplete={() => undefined}
+        onBack={() => undefined}
+      />,
+    );
+    unmount = rendered.unmount;
+    await waitUntil(() =>
+      (rendered.lastFrame() ?? "").includes("Dossier de sortie"),
+    );
+    return { text: () => rendered.lastFrame() ?? "" };
+  };
+
+  it.each([
+    ["preserve", "Ralentissement 10× : déjà fait à l'enregistrement"],
+    ["expand-10x", "Ralentissement 10× : fait par chiro pendant le découpage"],
+  ] as const)("says what chiro detected for %s", async (mode, line) => {
+    const screen = await renderWith(mode, true);
+
+    expect(screen.text()).toContain(line);
+    expect(screen.text()).toContain("Dossier de sortie :  ./processed/");
+  });
+
+  it("says the duration is counted once slowed down, only for recordings chiro slows down", async () => {
+    const flat = (text: string): string =>
+      text.replace(/[│\n]/g, " ").replace(/\s+/g, " ");
+
+    const slowed = await renderWith("expand-10x", true);
+    expect(flat(slowed.text())).toContain("d'audio une fois ralenti)");
+    unmount();
+
+    const kept = await renderWith("preserve", true);
+    expect(flat(kept.text())).not.toContain("une fois");
+  });
+
+  it("hides the slow-down line when no recording will be split", async () => {
+    const screen = await renderWith("preserve", false);
+
+    expect(screen.text()).not.toContain("Ralentissement");
   });
 });

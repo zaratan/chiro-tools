@@ -3,7 +3,15 @@ import { statfs } from "node:fs/promises";
 import { useEffect, useState } from "react";
 import { DuplicateNamesScreen } from "../../components/DuplicateNamesScreen.js";
 import { Footer } from "../../components/Footer.js";
-import { buildOutDir } from "../../lib/audio/batchPlan.js";
+import {
+  buildOutDir,
+  buildQueue,
+  DEFAULT_MAX_INPUT_BYTES,
+} from "../../lib/audio/batchPlan.js";
+import {
+  detectBatchMode,
+  type RecordingRate,
+} from "../../lib/audio/detectMode.js";
 import { formatBytes } from "../../format/bytes.js";
 import { formatScratchFilesIgnored } from "../../format/scratchFiles.js";
 import { describeScanOrigin } from "../../format/scanOrigin.js";
@@ -13,6 +21,8 @@ import {
   scanDirectory as scanWavDirectory,
   sumFileSizes,
 } from "../../lib/fs/scanDirectory.js";
+import type { ProcessInput, TimeExpansionMode } from "../../types.js";
+import { MixedRecordersView, UnclassifiableView } from "./ModeRefusalViews.js";
 
 type ScanState =
   | { kind: "loading" }
@@ -21,6 +31,12 @@ type ScanState =
   | { kind: "scan-error"; rawCode: string }
   | { kind: "duplicate-names"; names: string[] }
   | { kind: "no-wav"; scratchCount: number }
+  | {
+      kind: "mixed-recorders";
+      preserve: RecordingRate[];
+      expand: RecordingRate[];
+    }
+  | { kind: "unclassifiable"; files: RecordingRate[]; everyFile: boolean }
   | {
       kind: "processed-conflict";
       conflictCount: number;
@@ -38,6 +54,7 @@ type ScanState =
       rootCount: number;
       subCount: number;
       scratchCount: number;
+      mode: TimeExpansionMode;
     };
 
 const scanDirectory = async (
@@ -62,6 +79,30 @@ const scanDirectory = async (
       conflictCount: processedState.nonTmpCount,
     };
   }
+
+  const { queue } = await buildQueue(
+    wavFiles,
+    cwd,
+    DEFAULT_MAX_INPUT_BYTES,
+    signal,
+  );
+  if (signal.aborted) return { kind: "loading" };
+  const detection = detectBatchMode(queue);
+  if (detection.kind === "mixed") {
+    return {
+      kind: "mixed-recorders",
+      preserve: detection.preserve,
+      expand: detection.expand,
+    };
+  }
+  if (detection.kind === "unclassifiable") {
+    return {
+      kind: "unclassifiable",
+      files: detection.files,
+      everyFile: detection.files.length === queue.length,
+    };
+  }
+  const mode = detection.kind === "ok" ? detection.mode : "preserve";
 
   // Tally input bytes for the disk-space pre-check. The output produced is
   // bit-equivalent to the input volume, so we use total input × 1.05 as the
@@ -93,12 +134,13 @@ const scanDirectory = async (
     rootCount,
     subCount,
     scratchCount,
+    mode,
   };
 };
 
 export type ProcessConstatScreenProps = {
   cwd: string;
-  onContinue: (wavFiles: string[]) => void;
+  onContinue: (wavFiles: string[], input: ProcessInput) => void;
   onBack: () => void;
 };
 
@@ -128,7 +170,7 @@ export const ConstatScreen = ({
       return;
     }
     if (key.return && state.kind === "ready") {
-      onContinue(state.wavFiles);
+      onContinue(state.wavFiles, { mode: state.mode });
     }
   });
 
@@ -228,6 +270,26 @@ export const ConstatScreen = ({
         </Box>
         <Footer hints={minimalFooter} />
       </Box>
+    );
+  }
+
+  if (state.kind === "mixed-recorders") {
+    return (
+      <MixedRecordersView
+        cwd={cwd}
+        preserve={state.preserve}
+        expand={state.expand}
+      />
+    );
+  }
+
+  if (state.kind === "unclassifiable") {
+    return (
+      <UnclassifiableView
+        cwd={cwd}
+        files={state.files}
+        everyFile={state.everyFile}
+      />
     );
   }
 
